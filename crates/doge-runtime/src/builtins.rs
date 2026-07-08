@@ -63,6 +63,20 @@ pub fn to_float(v: &Value) -> DogeResult {
     }
 }
 
+/// `range(start, end)` — the Ints `start, start+1, …, end-1` as an eager List.
+/// When `end <= start` the List is naturally empty. Both arguments must be Int;
+/// anything else is a catchable type error. The one-argument Doge form
+/// `range(n)` is compiled as `range(0, n)`, so the runtime has one signature.
+pub fn range(start: &Value, end: &Value) -> DogeResult {
+    match (start, end) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::list((*a..*b).map(Value::Int).collect())),
+        (Value::Int(_), other) | (other, _) => Err(crate::error::DogeError::type_error(format!(
+            "range needs Int bounds, got {}",
+            other.describe()
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,6 +118,40 @@ mod tests {
         assert_eq!(
             to_float(&Value::str("woof")).unwrap_err().kind,
             ErrorKind::ValueError
+        );
+    }
+
+    #[test]
+    fn range_two_args() {
+        let xs = range(&Value::Int(2), &Value::Int(5)).unwrap();
+        match xs {
+            Value::List(items) => {
+                let items = items.borrow();
+                assert_eq!(items.len(), 3);
+                assert!(matches!(items[0], Value::Int(2)));
+                assert!(matches!(items[2], Value::Int(4)));
+            }
+            _ => panic!("expected a list"),
+        }
+    }
+
+    #[test]
+    fn range_empty_when_end_not_after_start() {
+        let xs = range(&Value::Int(5), &Value::Int(5)).unwrap();
+        assert!(matches!(len(&xs).unwrap(), Value::Int(0)));
+        let ys = range(&Value::Int(5), &Value::Int(2)).unwrap();
+        assert!(matches!(len(&ys).unwrap(), Value::Int(0)));
+    }
+
+    #[test]
+    fn range_rejects_float() {
+        assert_eq!(
+            range(&Value::Int(0), &Value::Float(3.0)).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            range(&Value::Float(0.0), &Value::Int(3)).unwrap_err().kind,
+            ErrorKind::TypeError
         );
     }
 }

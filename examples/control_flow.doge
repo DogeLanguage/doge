@@ -1,0 +1,29 @@
+# such branches. much loops.
+such n = 3
+if n == 1:
+    bark "one"
+elif n == 3:
+    bark "three"
+else:
+    bark "other"
+
+such i = 0
+such total = 0
+while i < 10:
+    very i = i + 1
+    if i == 3:
+        continue
+    if i == 6:
+        bork
+    very total = total + i
+bark total
+
+if 0:
+    bark "zero is truthy"
+else:
+    bark "zero is falsy"
+if "":
+    bark "empty is truthy"
+else:
+    bark "empty is falsy"
+wow

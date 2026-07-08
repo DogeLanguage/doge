@@ -30,6 +30,27 @@ impl Value {
         Value::Dict(Rc::new(RefCell::new(entries)))
     }
 
+    /// Build a `Dict` from key/value pairs evaluated by a dict literal. Every
+    /// key must be a `Str`; anything else is a catchable type error. Pairs are
+    /// inserted in order, so when a key repeats the last entry wins.
+    pub fn dict_from_pairs(pairs: Vec<(Value, Value)>) -> crate::error::DogeResult {
+        let mut entries = HashMap::new();
+        for (key, value) in pairs {
+            match key {
+                Value::Str(k) => {
+                    entries.insert(k.to_string(), value);
+                }
+                other => {
+                    return Err(crate::error::DogeError::type_error(format!(
+                        "dict keys must be a Str, got {}",
+                        other.describe()
+                    )))
+                }
+            }
+        }
+        Ok(Value::dict(entries))
+    }
+
     /// Python-style truthiness: `0`, `0.0`, `""`, empty list/dict, `none` and
     /// `false` are falsy; everything else is truthy.
     pub fn truthy(&self) -> bool {
@@ -44,9 +65,7 @@ impl Value {
         }
     }
 
-    /// The user-facing type name, used in error messages. Matches the literal
-    /// names from DESIGN §4.2 (`Int`, `Float`, `Str`, `Bool`, `None`, `List`,
-    /// `Dict`).
+    /// The user-facing type name, used in error messages.
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Int(_) => "Int",
@@ -107,6 +126,29 @@ mod tests {
         assert_eq!(Value::Int(1).describe(), "an Int");
         assert_eq!(Value::str("x").describe(), "a Str");
         assert_eq!(Value::None.describe(), "a None");
+    }
+
+    #[test]
+    fn dict_from_pairs_last_duplicate_wins() {
+        let d = Value::dict_from_pairs(vec![
+            (Value::str("k"), Value::Int(1)),
+            (Value::str("k"), Value::Int(2)),
+        ])
+        .unwrap();
+        match d {
+            Value::Dict(entries) => {
+                let entries = entries.borrow();
+                assert_eq!(entries.len(), 1);
+                assert!(matches!(entries.get("k"), Some(Value::Int(2))));
+            }
+            _ => panic!("expected a dict"),
+        }
+    }
+
+    #[test]
+    fn dict_from_pairs_rejects_non_str_key() {
+        let err = Value::dict_from_pairs(vec![(Value::Int(1), Value::Int(2))]).unwrap_err();
+        assert_eq!(err.kind, crate::error::ErrorKind::TypeError);
     }
 
     #[test]

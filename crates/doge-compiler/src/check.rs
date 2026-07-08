@@ -1,21 +1,3 @@
-//! Semantic checks over the parsed AST (DESIGN §6.1 "checks"). Each check is
-//! fully enforced or not shipped — no warnings that lie (CLAUDE.md Hard Rule 9).
-//! Like the earlier stages, checking stops at the FIRST problem.
-//!
-//! Scoping model (function-level, like Python):
-//! - A **pre-pass** collects every top-level name (variable, constant, import,
-//!   function, object) so a function body may reference a top-level name defined
-//!   later in the file — mutual recursion is allowed.
-//! - **Top-level code** is then checked in order: reading or assigning a
-//!   top-level name *before its declaration line* is an error.
-//! - Each **function/method body** is checked in a fresh scope seeded with its
-//!   parameters (plus `self` for methods). Control-flow blocks (`if`, `for`,
-//!   `while`, `pls`/`oh no`) do NOT open a new scope.
-//! - The builtins `len`, `str`, `int`, `float` are always in scope (they live in
-//!   `doge-runtime`). `bark` is a statement keyword, not a name.
-//!
-//! Missing `wow` is a *parser* error, not a check — it is not duplicated here.
-
 use std::collections::HashSet;
 
 use crate::ast::{Expr, Script, Stmt};
@@ -23,7 +5,7 @@ use crate::diagnostics::Diagnostic;
 use crate::token::Span;
 
 /// Builtins always available without an import (mirrors `doge-runtime`).
-const BUILTINS: &[&str] = &["len", "str", "int", "float"];
+pub(crate) const BUILTINS: &[&str] = &["len", "str", "int", "float", "range"];
 
 /// Run every semantic check over `script`. `path`/`source` are only used to
 /// render diagnostics against the original text.

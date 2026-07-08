@@ -1,0 +1,18 @@
+# such lists. much dicts.
+such nums = [
+    10,
+    20,
+    30,
+]
+bark len(nums)
+nums[0] = 99
+bark nums[0]
+
+such info = {"name": "kabosu", "kind": "shibe"}
+bark info["name"]
+
+such total = 0
+for k in range(4):
+    very total = total + k
+bark total
+wow

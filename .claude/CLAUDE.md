@@ -62,10 +62,10 @@ Full spec — keywords, grammar, semantics, architecture, roadmap: [DESIGN.md](.
 
 ```text
 crates/
-  doge-runtime/     # EXISTS: Value enum, operators/indexing, builtins (bark, len, str/int/float); stdlib (math, strings) comes in M5
-  doge-compiler/    # EXISTS (M2): keywords (single source of truth), lexer, parser, AST + dump, semantic checks, diagnostics. Rust codegen is M3.
-  doge-cli/         # EXISTS (M2, check only): `doge` binary — hand-rolled args, `doge check` (parse + check → AST dump). bark/build + build cache are M3.
-examples/           # EXISTS: .doge example programs (hello, tour, objects) — double as integration tests
+  doge-runtime/     # EXISTS: Value enum, operators/indexing, builtins (bark, len, str/int/float, range, iter_value); stdlib (math, strings) comes in M5
+  doge-compiler/    # EXISTS (M3): keywords (single source of truth), lexer, parser, AST + dump, semantic checks, diagnostics, Rust codegen (codegen.rs)
+  doge-cli/         # EXISTS (M3): `doge` binary — hand-rolled args, bark/build/check subcommands, build cache (cache.rs) + cargo build glue (build.rs)
+examples/           # EXISTS: .doge example programs (hello, tour, objects, control_flow, collections) — double as integration tests; a `.out` sibling means the example runs and its stdout is asserted
 DESIGN.md           # authoritative language spec + architecture + roadmap
 ```
 

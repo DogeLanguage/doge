@@ -2,6 +2,7 @@
 
 mod ast;
 mod check;
+mod codegen;
 mod diagnostics;
 mod keywords;
 mod lexer;
@@ -16,7 +17,13 @@ pub fn parse(path: &str, source: &str) -> Result<Script, Diagnostic> {
     parser::parse(path, source)
 }
 
-/// Run the semantic checks over an already-parsed [`Script`]. 
+/// Run the semantic checks over an already-parsed [`Script`].
 pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
     check::check(path, source, script)
+}
+
+/// Generate a complete Rust source file from a checked [`Script`], or a
+/// diagnostic pointing at the first feature that only runs in a later milestone.
+pub fn generate(path: &str, source: &str, script: &Script) -> Result<String, Diagnostic> {
+    codegen::generate(path, source, script)
 }

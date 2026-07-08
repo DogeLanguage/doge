@@ -332,6 +332,21 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
     }
 }
 
+/// The sequence a `for` loop walks: a List's elements or a Str's characters,
+/// captured as an owned snapshot taken when the loop starts. Mutating the
+/// original list inside the loop body does not change what the loop visits.
+/// Any other value is a catchable type error.
+pub fn iter_value(v: &Value) -> DogeResult<Vec<Value>> {
+    match v {
+        Value::List(items) => Ok(items.borrow().clone()),
+        Value::Str(s) => Ok(s.chars().map(|c| Value::str(c.to_string())).collect()),
+        _ => Err(DogeError::type_error(format!(
+            "cannot loop over {}",
+            v.describe()
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,5 +534,29 @@ mod tests {
             not_(Value::str("dog")).unwrap(),
             Value::Bool(false)
         ));
+    }
+
+    #[test]
+    fn iter_value_snapshots_a_list() {
+        let xs = Value::list(vec![int(1), int(2)]);
+        let snapshot = iter_value(&xs).unwrap();
+        // Pushing to the original after the snapshot must not grow the snapshot.
+        if let Value::List(items) = &xs {
+            items.borrow_mut().push(int(3));
+        }
+        assert_eq!(snapshot.len(), 2);
+    }
+
+    #[test]
+    fn iter_value_walks_str_characters() {
+        // Char-based, not byte-based — the two-byte 'é' is a single element.
+        let chars = iter_value(&Value::str("héllo")).unwrap();
+        assert_eq!(chars.len(), 5);
+        assert!(matches!(&chars[1], Value::Str(s) if &**s == "é"));
+    }
+
+    #[test]
+    fn iter_value_rejects_int() {
+        assert_eq!(iter_value(&int(7)).unwrap_err().kind, ErrorKind::TypeError);
     }
 }
