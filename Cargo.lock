@@ -3,5 +3,16 @@
 version = 4
 
 [[package]]
+name = "doge-cli"
+version = "0.1.0"
+dependencies = [
+ "doge-compiler",
+]
+
+[[package]]
+name = "doge-compiler"
+version = "0.1.0"
+
+[[package]]
 name = "doge-runtime"
 version = "0.1.0"

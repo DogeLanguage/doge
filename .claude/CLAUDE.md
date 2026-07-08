@@ -2,7 +2,6 @@
 
 > A scripting language with Python's ease of use and Rust's engine underneath: `.doge` scripts transpile to Rust and compile to native binaries. Keywords come from doge-speak (`such`, `much`, `wow`, `pls`, `bark`). Much serious project, very real compiler.
 
-**Project status:** M1 landed — the `doge-runtime` crate exists (`Value`, operators, indexing, `bark`/`len`/`str`/`int`/`float`, unit tests). `doge-compiler` and `doge-cli` are still planned (M2/M3). Update this note as milestones land.
 
 ## Start Here — Task Routing
 
@@ -64,9 +63,9 @@ Full spec — keywords, grammar, semantics, architecture, roadmap: [DESIGN.md](.
 ```text
 crates/
   doge-runtime/     # EXISTS: Value enum, operators/indexing, builtins (bark, len, str/int/float); stdlib (math, strings) comes in M5
-  doge-cli/         # PLANNED (M3): `doge` binary — bark/build/check subcommands, build cache, toolchain detection
-  doge-compiler/    # PLANNED (M2): lexer, parser, AST, checks, Rust codegen, keywords module (single source of truth)
-examples/           # PLANNED (M3): .doge example programs — double as integration tests
+  doge-compiler/    # EXISTS (M2): keywords (single source of truth), lexer, parser, AST + dump, semantic checks, diagnostics. Rust codegen is M3.
+  doge-cli/         # EXISTS (M2, check only): `doge` binary — hand-rolled args, `doge check` (parse + check → AST dump). bark/build + build cache are M3.
+examples/           # EXISTS: .doge example programs (hello, tour, objects) — double as integration tests
 DESIGN.md           # authoritative language spec + architecture + roadmap
 ```
 
@@ -107,7 +106,7 @@ Write for the developer maintaining this 12 months from now.
 - **Single source per behaviour.** Before writing the same block a second time, lift it into a shared helper in the lowest crate that both users can reach.
 - **Spec is binding.** If a change pressures the language spec or a crate boundary, update DESIGN.md in the same change — never silently diverge.
 - **Explicit over clever.** Obvious code beats a one-liner that needs context — especially in the parser, where the next reader is debugging a syntax error at 2am.
-- **Comments only where code can't explain itself** — a grammar ambiguity, a deliberate trade-off, the *why* behind a decision.
+- **Default to zero comments.** Do not narrate what the code does — names and structure must carry that. Write a comment *only* when the code genuinely cannot explain itself: a grammar ambiguity, a non-obvious trade-off, or a *why* the next reader would otherwise get wrong. If in doubt, leave it out. Never add comments to explain code you just wrote.
 
 ---
 

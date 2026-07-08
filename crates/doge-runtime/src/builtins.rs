@@ -1,7 +1,3 @@
-//! Core builtins available to every Doge program without an import: `bark`
-//! (print), `len`, and the `str`/`int`/`float` conversions. Stdlib modules
-//! (`math`, `strings`, …) arrive in M5; these are the always-on essentials.
-
 use crate::error::DogeResult;
 use crate::value::Value;
 

@@ -1,7 +1,3 @@
-//! How values print. `bark x` shows a bare string (`kabosu`, not `"kabosu"`),
-//! but strings *inside* a list or dict are quoted so the structure reads back
-//! like the literal that made it — matching Python and DESIGN's examples.
-
 use std::fmt;
 
 use crate::value::Value;

@@ -1,18 +1,9 @@
-//! Operators and indexing.
-//!
-//! Every function here is total: it returns a [`DogeResult`] and never panics on
-//! a bad value (Hard Rule 2). This is where DESIGN §2's "sharp edges" promises
-//! live as code: `/` is always Float, `//` is real floor division, Int and Float
-//! mix freely, overflow is a catchable error (never a silent wrap), and Str
-//! indexing counts characters, not bytes. Each of those has a named test below.
-
 use std::cmp::Ordering;
 
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
-/// View a numeric value as `f64` for mixed-type math. `Bool` is intentionally
-/// not numeric — it is its own type in Doge.
+/// View a numeric value as `f64` for mixed-type math.
 fn as_f64(v: &Value) -> Option<f64> {
     match v {
         Value::Int(n) => Some(*n as f64),

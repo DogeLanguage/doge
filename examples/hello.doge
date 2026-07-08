@@ -1,0 +1,5 @@
+# such hello. much doge.
+such age = 7
+bark "much hello, doge"
+bark "age next year is " + str(age + 1)
+wow

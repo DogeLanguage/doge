@@ -1,11 +1,3 @@
-//! Runtime errors.
-//!
-//! Every fallible runtime operation returns [`DogeResult`], never panics on a
-//! user-program mistake (Hard Rule 2). The messages here are plain and precise
-//! (e.g. `cannot + a Str and an Int`); the doge-meme framing (`"very error. much
-//! confuse."`) is added later by the compiler's diagnostics layer (M3), so the
-//! runtime stays reusable and the joke lives in exactly one place.
-
 use std::fmt;
 
 /// The category of a runtime error. Each variant maps to a `pls`/`oh no`

@@ -1,0 +1,14 @@
+many Shibe:
+    such init much name, age:
+        self.name = name
+        self.age = age
+    wow
+
+    such speak:
+        bark self.name + " says bork"
+    wow
+wow
+
+such kabosu = Shibe("kabosu", 18)
+kabosu.speak()
+wow

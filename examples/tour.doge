@@ -1,0 +1,17 @@
+so math
+
+so GREETING = "much hello"
+
+such greet much name:
+    bark GREETING + " " + name
+wow
+
+such shibes = ["kabosu", "cheems", "walter"]
+
+for shibe in shibes:
+    pls
+        greet(shibe)
+    oh no err!
+        bark "very error: " + err
+
+wow

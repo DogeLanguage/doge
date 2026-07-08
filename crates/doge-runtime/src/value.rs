@@ -1,19 +1,8 @@
-//! The dynamic [`Value`] type — every Doge runtime value is one of these.
-//!
-//! Reference types (`Str`, `List`, `Dict`) are wrapped in `Rc`/`RefCell` so that
-//! assignment and passing never "move" a value away (DESIGN §2): the borrow
-//! checker simply does not exist for a Doge user. `Func`/`Object` variants are
-//! deliberately absent until M4/M5 — no half-finished features on main.
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A dynamically typed Doge value.
-///
-/// Dict keys are `String` in v1: every DESIGN example keys dicts by string, and
-/// this keeps hashing and equality trivial. Revisit only if the language grows
-/// non-string keys.
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
