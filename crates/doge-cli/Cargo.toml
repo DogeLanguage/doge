@@ -3,9 +3,6 @@ name = "doge-cli"
 version = "0.1.0"
 edition = "2021"
 
-# The `doge` binary. Argument parsing is hand-rolled (no clap) to keep the
-# dependency surface at zero (CLAUDE.md Hard Rule 10); the only dependency is the
-# compiler, by path.
 [[bin]]
 name = "doge"
 path = "src/main.rs"

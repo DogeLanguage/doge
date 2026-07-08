@@ -78,6 +78,8 @@ pub enum Stmt {
     },
     /// `return [e]`
     Return { expr: Option<Expr>, span: Span },
+    /// `bonk e` — raise a catchable error whose message is `e`'s display form.
+    Bonk { expr: Expr, span: Span },
     /// `bork`
     Bork { span: Span },
     /// `continue`
@@ -338,6 +340,10 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             }
             None => line(level, "Return", out),
         },
+        Stmt::Bonk { expr, .. } => {
+            line(level, "Bonk", out);
+            dump_expr(expr, level + 1, out);
+        }
         Stmt::Bork { .. } => line(level, "Bork", out),
         Stmt::Continue { .. } => line(level, "Continue", out),
         Stmt::ExprStmt { expr } => {

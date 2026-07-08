@@ -1,0 +1,21 @@
+# such functions. much call.
+so GREETING = "much hello"
+
+such greet much name:
+    return GREETING + ", " + name
+wow
+
+such fact much n:
+    if n <= 1:
+        return 1
+    return n * fact(n - 1)
+wow
+
+such cheer:
+    bark "wow such doge"
+wow
+
+bark greet("kabosu")
+bark fact(10)
+cheer()
+wow

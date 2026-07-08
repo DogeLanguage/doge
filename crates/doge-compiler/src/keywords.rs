@@ -6,6 +6,7 @@ pub fn lookup(word: &str) -> Option<TokenKind> {
         // Doge keywords
         "pls" => TokenKind::Pls,
         "bork" => TokenKind::Bork,
+        "bonk" => TokenKind::Bonk,
         "bark" => TokenKind::Bark,
         "wow" => TokenKind::Wow,
         "such" => TokenKind::Such,
@@ -30,9 +31,8 @@ pub fn lookup(word: &str) -> Option<TokenKind> {
         "false" => TokenKind::False,
         "none" => TokenKind::None,
 
-        // Reserved words lexed as keywords so the parser can
-        // greet Python muscle memory with a friendly hint instead of a vague
-        // "unexpected identifier".
+        // Reserved words lexed as keywords so the parser can greet Python muscle 
+        // memory with a friendly hint instead of a vague "unexpected identifier".
         "def" => TokenKind::Def,
         "class" => TokenKind::Class,
         "amaze" => TokenKind::Amaze,
@@ -50,6 +50,7 @@ mod tests {
     fn known_words_map_to_keywords() {
         assert!(matches!(lookup("such"), Some(TokenKind::Such)));
         assert!(matches!(lookup("wow"), Some(TokenKind::Wow)));
+        assert!(matches!(lookup("bonk"), Some(TokenKind::Bonk)));
         assert!(matches!(lookup("if"), Some(TokenKind::If)));
         assert!(matches!(lookup("def"), Some(TokenKind::Def)));
     }

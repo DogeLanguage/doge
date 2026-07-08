@@ -38,6 +38,8 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
         }
     }
 
+    checker.check_unique_functions(script)?;
+
     let mut ctx = Ctx {
         locals: HashSet::new(),
         in_function: false,
@@ -159,6 +161,7 @@ impl Checker {
                     self.check_expr(expr, ctx)?;
                 }
             }
+            Stmt::Bonk { expr, .. } => self.check_expr(expr, ctx)?,
             Stmt::Bork { span } => {
                 if ctx.loop_depth == 0 {
                     return Err(self
@@ -178,6 +181,49 @@ impl Checker {
             Stmt::ExprStmt { expr } => self.check_expr(expr, ctx)?,
         }
         Ok(())
+    }
+
+    fn check_unique_functions(&self, script: &Script) -> Result<(), Diagnostic> {
+        let mut func_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
+        let mut others: HashSet<&str> = HashSet::new();
+        for stmt in &script.stmts {
+            match stmt {
+                Stmt::FuncDef { name, .. } => {
+                    *func_counts.entry(name.as_str()).or_insert(0) += 1;
+                }
+                Stmt::ObjDef { name, .. } => {
+                    others.insert(name);
+                }
+                Stmt::Import { module, .. } => {
+                    others.insert(module);
+                }
+                _ => {}
+            }
+        }
+        let hoisted = crate::codegen::hoisted_names(&script.stmts);
+        let hoisted: HashSet<&str> = hoisted.iter().map(String::as_str).collect();
+
+        for stmt in &script.stmts {
+            if let Stmt::FuncDef { name, span, .. } = stmt {
+                if BUILTINS.contains(&name.as_str()) {
+                    return Err(self.name_clash(*span, format!("{name} is already a builtin")));
+                }
+                let defined_elsewhere = func_counts.get(name.as_str()).copied().unwrap_or(0) > 1
+                    || others.contains(name.as_str())
+                    || hoisted.contains(name.as_str());
+                if defined_elsewhere {
+                    return Err(self.name_clash(*span, format!("{name} is already defined")));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn name_clash(&self, span: Span, message: String) -> Diagnostic {
+        self.diag(span, message)
+            .with_headline("very twice. much name.")
+            .with_hint("pick a different name for the function")
     }
 
     /// Check a function or method body in its own fresh scope.
@@ -392,6 +438,26 @@ mod tests {
     #[test]
     fn builtin_names_are_known() {
         assert!(check_src("such xs = [1]\nbark len(xs)\nwow\n").is_ok());
+    }
+
+    #[test]
+    fn duplicate_function_names_are_an_error() {
+        let err =
+            check_src("such f:\n    bark 1\nwow\nsuch f:\n    bark 2\nwow\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+    }
+
+    #[test]
+    fn function_clashing_with_a_variable_is_an_error() {
+        let err = check_src("such x = 1\nsuch x:\n    bark 1\nwow\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+    }
+
+    #[test]
+    fn function_named_like_a_builtin_is_an_error() {
+        let err = check_src("such len:\n    bark 1\nwow\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+        assert!(err.message.contains("builtin"));
     }
 
     #[test]

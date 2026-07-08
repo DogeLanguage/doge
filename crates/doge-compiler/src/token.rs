@@ -17,6 +17,7 @@ pub struct Token {
 pub enum TokenKind {
     Pls,
     Bork,
+    Bonk,
     Bark,
     Wow,
     Such,
@@ -93,6 +94,7 @@ impl TokenKind {
         match self {
             TokenKind::Pls => "pls".into(),
             TokenKind::Bork => "bork".into(),
+            TokenKind::Bonk => "bonk".into(),
             TokenKind::Bark => "bark".into(),
             TokenKind::Wow => "wow".into(),
             TokenKind::Such => "such".into(),

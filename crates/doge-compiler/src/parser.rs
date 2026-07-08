@@ -148,6 +148,7 @@ impl Parser {
             TokenKind::For => self.parse_for(),
             TokenKind::While => self.parse_while(),
             TokenKind::Bark => self.parse_bark(),
+            TokenKind::Bonk => self.parse_bonk(),
             TokenKind::Return => self.parse_return(),
             TokenKind::Bork => {
                 let span = self.current_span();
@@ -391,6 +392,14 @@ impl Parser {
         let expr = self.parse_expr()?;
         self.eat(TokenKind::Newline)?;
         Ok(Stmt::Bark { expr, span })
+    }
+
+    fn parse_bonk(&mut self) -> Result<Stmt, Diagnostic> {
+        let span = self.current_span();
+        self.eat(TokenKind::Bonk)?;
+        let expr = self.parse_expr()?;
+        self.eat(TokenKind::Newline)?;
+        Ok(Stmt::Bonk { expr, span })
     }
 
     fn parse_return(&mut self) -> Result<Stmt, Diagnostic> {
@@ -786,6 +795,7 @@ fn stmt_span(stmt: &Stmt) -> Span {
         | Stmt::ObjDef { span, .. }
         | Stmt::Try { span, .. }
         | Stmt::Return { span, .. }
+        | Stmt::Bonk { span, .. }
         | Stmt::Bork { span }
         | Stmt::Continue { span } => *span,
         Stmt::ExprStmt { expr } => expr.span(),
@@ -842,6 +852,20 @@ mod tests {
         assert!(matches!(konst.stmts[0], Stmt::ConstDecl { .. }));
         let import = parse_ok("so math\nwow\n");
         assert!(matches!(import.stmts[0], Stmt::Import { .. }));
+    }
+
+    #[test]
+    fn bonk_takes_an_expression() {
+        let script = parse_ok("bonk \"x\"\nwow\n");
+        let dumped = dump(&script);
+        assert!(dumped.contains("Bonk"));
+        assert!(dumped.contains("Str \"x\""));
+    }
+
+    #[test]
+    fn bare_bonk_is_a_parse_error() {
+        let err = parse_err("bonk\nwow\n");
+        assert!(err.message.contains("expected a value"));
     }
 
     #[test]

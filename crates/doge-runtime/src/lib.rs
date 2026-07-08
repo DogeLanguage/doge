@@ -5,7 +5,7 @@ mod ops;
 mod value;
 
 pub use builtins::{bark, len, range, to_float, to_int, to_str};
-pub use error::{DogeError, DogeResult, ErrorKind};
+pub use error::{bonk_error, enter_call, error_value, exit_call, DogeError, DogeResult, ErrorKind};
 pub use ops::{
     add, div, eq, floordiv, ge, gt, index_get, index_set, iter_value, le, lt, mul, ne, neg, not_,
     rem, sub, values_equal,

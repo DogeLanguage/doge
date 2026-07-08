@@ -1,0 +1,26 @@
+# such errors. much catch.
+such safe_div much a, b:
+    pls
+        return a // b
+    oh no err!
+        bark "caught: " + err
+        return none
+wow
+
+bark safe_div(10, 2)
+bark safe_div(10, 0)
+
+pls
+    bonk "much custom fail"
+oh no err!
+    bark "raised: " + err
+
+such xs = [1, 2, 3]
+for x in xs:
+    pls
+        if x == 2:
+            bork
+        bark x
+    oh no err!
+        bark "never happens"
+wow
