@@ -62,9 +62,9 @@ Full spec — keywords, grammar, semantics, architecture, roadmap: [DESIGN.md](.
 
 ```text
 crates/
-  doge-runtime/     # EXISTS (M4): Value enum, operators/indexing, builtins (bark, len, str/int/float, range, iter_value), error model (bonk/recursion guard); stdlib (math, strings) comes in M5
-  doge-compiler/    # EXISTS (M4): keywords (single source of truth), lexer, parser, AST + dump, semantic checks, diagnostics, Rust codegen (codegen.rs — Env struct, functions, pls/oh no, bonk)
-  doge-cli/         # EXISTS (M4): `doge` binary — hand-rolled args, bark/build/check subcommands, build cache (cache.rs) + cargo build glue (build.rs)
+  doge-runtime/     # EXISTS (M5): Value enum (incl. objects), operators/indexing, builtins (bark, len, str/int/float, range, iter_value), object fields/dispatch (objects.rs), stdlib (nerd/strings/lists), error model (bonk/recursion guard)
+  doge-compiler/    # EXISTS (M5): keywords (single source of truth), lexer, parser, AST + dump, semantic checks, diagnostics, stdlib module table, Rust codegen (codegen.rs — Env struct, functions, objects/imports, pls/oh no, bonk)
+  doge-cli/         # EXISTS (M5): `doge` binary — hand-rolled args, bark/build/check subcommands, build cache (cache.rs) + cargo build glue (build.rs)
 examples/           # EXISTS: .doge example programs (hello, tour, objects, control_flow, collections) — double as integration tests; a `.out` sibling means the example runs and its stdout is asserted
 DESIGN.md           # authoritative language spec + architecture + roadmap
 ```

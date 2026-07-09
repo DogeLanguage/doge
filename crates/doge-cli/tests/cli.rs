@@ -146,12 +146,13 @@ fn runtime_error_reports_path_and_line() {
 }
 
 #[test]
-fn bark_on_m5_feature_says_soon() {
-    // tour.doge opens with `so math` — an import, which lands in M5.
-    let tour = examples_dir().join("tour.doge");
+fn bark_on_m6_feature_says_soon() {
+    // func_value.doge uses a bare function name as a value — first-class function
+    // values land in M6.
+    let fixture = cli_fixtures_dir().join("func_value.doge");
     let output = doge_cached()
         .arg("bark")
-        .arg(&tour)
+        .arg(&fixture)
         .output()
         .expect("the doge binary should run");
 
@@ -166,8 +167,33 @@ fn bark_on_m5_feature_says_soon() {
         "should point at the roadmap, got:\n{stderr}"
     );
     assert!(
-        stderr.contains("M5"),
+        stderr.contains("M6"),
         "should name the milestone, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn runtime_error_shows_the_source_line() {
+    // The uncaught-error report embeds the offending source line under path:line.
+    let fixture = cli_fixtures_dir().join("divide_by_zero.doge");
+    let source_line = std::fs::read_to_string(&fixture)
+        .expect("divide_by_zero.doge")
+        .lines()
+        .nth(2)
+        .expect("line 3")
+        .to_string();
+
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a runtime error exits 1");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains(&source_line),
+        "should show the line-3 source ({source_line:?}), got:\n{stderr}"
     );
 }
 

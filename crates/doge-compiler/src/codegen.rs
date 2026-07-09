@@ -2,11 +2,13 @@
 //! value operation calls a function in `doge-runtime`, so behaviour lives there,
 //! not in these strings.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{BinOp, Expr, Script, Stmt, UnOp};
 use crate::check::BUILTINS;
 use crate::diagnostics::Diagnostic;
+use crate::stdlib::{self, Module};
 use crate::token::Span;
 
 const UNSUPPORTED_HEADLINE: &str = "very soon. much roadmap.";
@@ -21,6 +23,13 @@ const FUNC_PREFIX: &str = "f_";
 /// Prefix on a function's body (`b_greet`): the compiled statements. A distinct
 /// prefix so a user function named `greet` and one named `b_greet` never clash.
 const FUNC_BODY_PREFIX: &str = "b_";
+/// Prefix on a constructor (`n_0`): builds an instance and runs its `init`.
+const CTOR_PREFIX: &str = "n_";
+/// Prefix on a method's outer wrapper (`mf_0_speak`). The class-id digit means a
+/// method name can never collide with a user function's `f_`/`b_` pair.
+const METHOD_PREFIX: &str = "mf_";
+/// Prefix on a method's body (`mb_0_speak`).
+const METHOD_BODY_PREFIX: &str = "mb_";
 
 /// Turn a checked [`Script`] into a complete Rust source file, or a diagnostic
 /// pointing at the first feature M4 cannot run yet. `path`/`source` are used to
@@ -42,11 +51,39 @@ struct Codegen {
     lines: Vec<String>,
 }
 
+/// A top-level `many Name:` object definition. `id` is its source-order index —
+/// the class tag stored on every instance and matched by the dispatcher.
+struct Class {
+    name: String,
+    id: u32,
+    /// Each method as `(name, params)`; `params` excludes the implicit `self`.
+    methods: Vec<(String, Vec<String>)>,
+}
+
+impl Class {
+    /// The parameters of this class's `init`, or an empty slice when it has none
+    /// (a class without `init` constructs from zero arguments).
+    fn init_params(&self) -> &[String] {
+        self.methods
+            .iter()
+            .find(|(name, _)| name == "init")
+            .map(|(_, params)| params.as_slice())
+            .unwrap_or(&[])
+    }
+}
+
 /// The mutable state threaded through one function's (or `run`'s) emission.
 struct Emit<'a> {
     /// Every top-level function name → its parameter names (for call resolution
     /// and arity checks).
     funcs: &'a HashMap<String, Vec<String>>,
+    /// Every top-level object definition, in source order.
+    classes: &'a [Class],
+    /// Every imported module name → its table entry.
+    modules: &'a HashMap<String, &'static Module>,
+    /// Set once any method-call site is compiled, so the dispatcher is emitted
+    /// even when a script calls methods but defines no objects of its own.
+    uses_method_call: Cell<bool>,
     /// Names local to the code being emitted: params plus body-hoisted names.
     /// Empty while emitting `run`, where every bound name is an `Env` field.
     locals: HashSet<String>,
@@ -60,23 +97,36 @@ struct Emit<'a> {
     loop_stack: Vec<u32>,
 }
 
-/// A language feature the parser accepts but M4 cannot run yet, with the exact
-/// message and the milestone that lands it.
+impl Emit<'_> {
+    /// The class named `name`, if one is defined.
+    fn class(&self, name: &str) -> Option<&Class> {
+        self.classes.iter().find(|c| c.name == name)
+    }
+
+    /// The imported module named `name`, if one is in scope — but a local of the
+    /// same name shadows it (locals always win at a use site).
+    fn module(&self, name: &str) -> Option<&'static Module> {
+        if self.locals.contains(name) {
+            None
+        } else {
+            self.modules.get(name).copied()
+        }
+    }
+}
+
+/// A language feature the parser accepts but the current milestone cannot run
+/// yet, with the exact message and the milestone that lands it.
 enum Unsupported {
-    Import,
-    ObjDef,
-    Attr,
     NestedFuncDef,
     FuncAsValue(String),
+    ClassAsValue(String),
+    ModuleFuncAsValue(String),
     CallIndirect,
 }
 
 impl Unsupported {
     fn detail(&self) -> (String, &'static str) {
         match self {
-            Unsupported::Import => ("so imports don't run yet — they land in M5".into(), "M5"),
-            Unsupported::ObjDef => ("many objects don't run yet — they land in M5".into(), "M5"),
-            Unsupported::Attr => ("object attributes land in M5".into(), "M5"),
             Unsupported::NestedFuncDef => (
                 "functions inside functions land in M6 — define this function at the top level"
                     .into(),
@@ -84,6 +134,14 @@ impl Unsupported {
             ),
             Unsupported::FuncAsValue(name) => (
                 format!("{name} is a function — passing functions as values lands in M6"),
+                "M6",
+            ),
+            Unsupported::ClassAsValue(name) => (
+                format!("{name} is an object definition — objects as values land in M6"),
+                "M6",
+            ),
+            Unsupported::ModuleFuncAsValue(member) => (
+                format!("{member} is a function — passing functions as values lands in M6"),
                 "M6",
             ),
             Unsupported::CallIndirect => (
@@ -106,23 +164,64 @@ impl Codegen {
             }
         }
 
+        // Pre-pass: every imported module, resolved against the table. An unknown
+        // module is a real compile error (with a nudge from `math` to `nerd`).
+        let mut modules: HashMap<String, &'static Module> = HashMap::new();
+        for stmt in &script.stmts {
+            if let Stmt::Import { module, span } = stmt {
+                match stdlib::module(module) {
+                    Some(m) => {
+                        modules.insert(module.clone(), m);
+                    }
+                    None => return Err(self.unknown_module(module, *span)),
+                }
+            }
+        }
+
+        // Pre-pass: every object definition, in source order — the index is the
+        // class id stamped on each instance.
+        let mut classes: Vec<Class> = Vec::new();
+        for stmt in &script.stmts {
+            if let Stmt::ObjDef { name, methods, .. } = stmt {
+                let methods = methods
+                    .iter()
+                    .filter_map(|m| match m {
+                        Stmt::FuncDef { name, params, .. } => Some((name.clone(), params.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                classes.push(Class {
+                    name: name.clone(),
+                    id: classes.len() as u32,
+                    methods,
+                });
+            }
+        }
+
         // The `Env` holds the line tracker, the recursion depth, and every
         // top-level bound name — so a function can read and reassign them.
         let env_fields = hoisted_names(&script.stmts);
 
         let mut emit = Emit {
             funcs: &funcs,
+            classes: &classes,
+            modules: &modules,
+            uses_method_call: Cell::new(false),
             locals: HashSet::new(),
             counter: 0,
             try_stack: Vec::new(),
             loop_stack: Vec::new(),
         };
 
-        // `run` holds the top-level statements; a top-level function definition
-        // emits nothing here — it becomes an `f_`/`b_` pair below.
+        // `run` holds the top-level statements; a top-level function, object, or
+        // import emits nothing here — objects become method/constructor helpers
+        // below, and imports only wire member calls.
         let mut run_body = String::new();
         for stmt in &script.stmts {
-            if matches!(stmt, Stmt::FuncDef { .. }) {
+            if matches!(
+                stmt,
+                Stmt::FuncDef { .. } | Stmt::ObjDef { .. } | Stmt::Import { .. }
+            ) {
                 continue;
             }
             self.stmt(stmt, 1, &mut emit, &mut run_body)?;
@@ -138,9 +237,42 @@ impl Codegen {
             }
         }
 
+        // Each object contributes a constructor plus a wrapper/body pair per
+        // method; the source is looked up from the ObjDef, keyed by class id.
+        for (class, stmt) in classes.iter().zip(
+            script
+                .stmts
+                .iter()
+                .filter(|s| matches!(s, Stmt::ObjDef { .. })),
+        ) {
+            let Stmt::ObjDef { methods, .. } = stmt else {
+                unreachable!("compiler bug: class list and ObjDef filter disagree")
+            };
+            self.constructor(class, &mut funcs_src);
+            for method in methods {
+                if let Stmt::FuncDef {
+                    name, params, body, ..
+                } = method
+                {
+                    self.method(class, name, params, body, &mut emit, &mut funcs_src)?;
+                }
+            }
+        }
+
+        let dispatcher = self.dispatcher(&classes, emit.uses_method_call.get());
+
         let mut out = String::new();
         out.push_str("#![allow(warnings)]\n");
         out.push_str("use doge_runtime::*;\n\n");
+
+        // The script's source lines, embedded so an uncaught error can show the
+        // offending line without any Rust backtrace. Blanks are kept, so the
+        // 1-based line number indexes straight in.
+        out.push_str("static LINES: &[&str] = &[\n");
+        for line in &self.lines {
+            out.push_str(&format!("    \"{}\",\n", escape_str(line)));
+        }
+        out.push_str("];\n\n");
 
         out.push_str("struct Env {\n");
         out.push_str("    cur_line: u32,\n");
@@ -161,8 +293,11 @@ impl Codegen {
         out.push_str("    match run(&mut env) {\n");
         out.push_str("        Ok(()) => std::process::ExitCode::SUCCESS,\n");
         out.push_str("        Err(e) => {\n");
+        out.push_str(
+            "            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");\n",
+        );
         out.push_str(&format!(
-            "            eprintln!(\"{}\\n\\n  {}:{{}}\\n  {{e}}\", env.cur_line);\n",
+            "            eprintln!(\"{}\\n\\n  {}:{{}}\\n    {{line}}\\n  {{e}}\", env.cur_line);\n",
             RUNTIME_ERROR_HEADLINE,
             escape_str(&self.path)
         ));
@@ -177,12 +312,23 @@ impl Codegen {
         out.push_str("}\n");
 
         out.push_str(&funcs_src);
+        out.push_str(&dispatcher);
         Ok(out)
     }
 
-    /// Emit a top-level function as a wrapper + body pair. The wrapper counts the
-    /// call against the recursion limit and undoes it on every exit path — even a
-    /// `?` inside the body — because `exit_call` runs after the body returns.
+    /// The "doge has no module named X" diagnostic, nudging `math` toward `nerd`.
+    fn unknown_module(&self, name: &str, span: Span) -> Diagnostic {
+        let hint = if name == "math" {
+            "much math? such nerd — write so nerd".to_string()
+        } else {
+            format!("modules: {}", stdlib::module_names())
+        };
+        self.diag(span, format!("doge has no module named {name}"))
+            .with_headline("very import. much unknown.")
+            .with_hint(hint)
+    }
+
+    /// Emit a top-level function as an `f_`/`b_` wrapper + body pair.
     fn function(
         &self,
         name: &str,
@@ -191,9 +337,55 @@ impl Codegen {
         emit: &mut Emit,
         out: &mut String,
     ) -> Result<(), Diagnostic> {
+        self.callable(
+            &format!("{FUNC_PREFIX}{name}"),
+            &format!("{FUNC_BODY_PREFIX}{name}"),
+            params,
+            body,
+            emit,
+            out,
+        )
+    }
+
+    /// Emit an object method as an `mf_`/`mb_` pair. A method is an ordinary
+    /// callable whose first parameter is the implicit `self` receiver.
+    fn method(
+        &self,
+        class: &Class,
+        name: &str,
+        params: &[String],
+        body: &[Stmt],
+        emit: &mut Emit,
+        out: &mut String,
+    ) -> Result<(), Diagnostic> {
+        let mut with_self = Vec::with_capacity(params.len() + 1);
+        with_self.push("self".to_string());
+        with_self.extend(params.iter().cloned());
+        self.callable(
+            &format!("{METHOD_PREFIX}{}_{name}", class.id),
+            &format!("{METHOD_BODY_PREFIX}{}_{name}", class.id),
+            &with_self,
+            body,
+            emit,
+            out,
+        )
+    }
+
+    /// Emit a wrapper + body pair. The wrapper counts the call against the
+    /// recursion limit and undoes it on every exit path — even a `?` inside the
+    /// body — because `exit_call` runs after the body returns.
+    fn callable(
+        &self,
+        wrapper_name: &str,
+        body_name: &str,
+        params: &[String],
+        body: &[Stmt],
+        emit: &mut Emit,
+        out: &mut String,
+    ) -> Result<(), Diagnostic> {
         let wrapper_params = signature(params, false);
         out.push_str(&format!(
-            "\nfn {FUNC_PREFIX}{name}({wrapper_params}) -> DogeResult<Value> {{\n"
+            "\nfn {wrapper_name}({wrapper_params}) -> DogeResult<Value> {{\n"
         ));
         out.push_str("    enter_call(&mut env.depth)?;\n");
         let call_args = {
@@ -201,19 +393,17 @@ impl Codegen {
             v.push("env".to_string());
             v.join(", ")
         };
-        out.push_str(&format!(
-            "    let result = {FUNC_BODY_PREFIX}{name}({call_args});\n"
-        ));
+        out.push_str(&format!("    let result = {body_name}({call_args});\n"));
         out.push_str("    exit_call(&mut env.depth);\n");
         out.push_str("    result\n");
         out.push_str("}\n");
 
         let body_params = signature(params, true);
         out.push_str(&format!(
-            "\nfn {FUNC_BODY_PREFIX}{name}({body_params}) -> DogeResult<Value> {{\n"
+            "\nfn {body_name}({body_params}) -> DogeResult<Value> {{\n"
         ));
 
-        // A function's locals are its params plus every name it hoists. Params
+        // The callable's locals are its params plus every name it hoists. Params
         // are already bound by the signature, so only the rest get a `let`.
         let hoisted = hoisted_names(body);
         let mut locals: HashSet<String> = params.iter().cloned().collect();
@@ -236,6 +426,79 @@ impl Codegen {
         out.push_str("    Ok(Value::None)\n");
         out.push_str("}\n");
         Ok(())
+    }
+
+    /// Emit a constructor `n_<id>`: build a fresh instance, run `init` (if the
+    /// class has one), and return the object. The callsite wraps the `n_` call in
+    /// the fail suffix, so the `?` on `init` here is correct.
+    fn constructor(&self, class: &Class, out: &mut String) {
+        let init_params = class.init_params();
+        let ctor_params = signature(init_params, false);
+        out.push_str(&format!(
+            "\nfn {CTOR_PREFIX}{}({ctor_params}) -> DogeResult<Value> {{\n",
+            class.id
+        ));
+        out.push_str(&format!(
+            "    let obj = Value::object({}u32, \"{}\");\n",
+            class.id,
+            escape_str(&class.name)
+        ));
+        if class.methods.iter().any(|(name, _)| name == "init") {
+            let mut args: Vec<String> = vec!["obj.clone()".to_string()];
+            args.extend(init_params.iter().map(|p| format!("{NAME_PREFIX}{p}")));
+            args.push("env".to_string());
+            out.push_str(&format!(
+                "    {METHOD_PREFIX}{}_init({})?;\n",
+                class.id,
+                args.join(", ")
+            ));
+        }
+        out.push_str("    Ok(obj)\n");
+        out.push_str("}\n");
+    }
+
+    /// Emit the single `call_method` dispatcher: one arm per (class, method),
+    /// each checking arity at runtime before calling the method wrapper. Emitted
+    /// only when the script defines an object or calls a method somewhere.
+    fn dispatcher(&self, classes: &[Class], uses_method_call: bool) -> String {
+        if classes.is_empty() && !uses_method_call {
+            return String::new();
+        }
+        let mut out = String::new();
+        out.push_str(
+            "\nfn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {\n",
+        );
+        out.push_str("    match (object_class_id(&recv, name)?, name) {\n");
+        for class in classes {
+            for (method, params) in &class.methods {
+                let arity = params.len();
+                out.push_str(&format!(
+                    "        ({}u32, \"{}\") => {{\n",
+                    class.id,
+                    escape_str(method)
+                ));
+                out.push_str(&format!(
+                    "            if args.len() != {arity} {{ return Err(method_arity_error(\"{}\", \"{}\", {arity}, args.len())); }}\n",
+                    escape_str(&class.name),
+                    escape_str(method)
+                ));
+                let mut call_args = vec!["recv".to_string()];
+                for _ in 0..arity {
+                    call_args.push("args.remove(0)".to_string());
+                }
+                call_args.push("env".to_string());
+                out.push_str(&format!(
+                    "            {METHOD_PREFIX}{}_{method}({})\n",
+                    class.id,
+                    call_args.join(", ")
+                ));
+                out.push_str("        }\n");
+            }
+        }
+        out.push_str("        _ => Err(no_such_method(&recv, name)),\n");
+        out.push_str("    }\n");
+        out.push_str("}\n");
+        out
     }
 
     fn stmt(
@@ -270,7 +533,25 @@ impl Codegen {
                     );
                     out.push_str(&format!("{pad}{};\n", self.fail(emit, call)));
                 }
-                Expr::Attr { span, .. } => return Err(self.unsupported(*span, Unsupported::Attr)),
+                Expr::Attr {
+                    obj, name, span, ..
+                } => {
+                    if let Expr::Ident { name: base, .. } = obj.as_ref() {
+                        if emit.module(base).is_some() {
+                            return Err(self
+                                .diag(*span, "cannot assign into a module")
+                                .with_headline("very module. much fixed.")
+                                .with_hint("a module's members are read-only"));
+                        }
+                    }
+                    let call = format!(
+                        "attr_set(&{}, \"{}\", {})",
+                        self.expr(obj, emit)?,
+                        escape_str(name),
+                        self.expr(expr, emit)?
+                    );
+                    out.push_str(&format!("{pad}{};\n", self.fail(emit, call)));
+                }
                 _ => unreachable!("compiler bug: parser guarantees a valid assign target"),
             },
             Stmt::Bark { expr, .. } => {
@@ -400,8 +681,18 @@ impl Codegen {
             Stmt::FuncDef { span, .. } => {
                 return Err(self.unsupported(*span, Unsupported::NestedFuncDef))
             }
-            Stmt::Import { span, .. } => return Err(self.unsupported(*span, Unsupported::Import)),
-            Stmt::ObjDef { span, .. } => return Err(self.unsupported(*span, Unsupported::ObjDef)),
+            Stmt::Import { module, span } => {
+                return Err(self
+                    .diag(*span, "so imports live at the top of the script")
+                    .with_headline("very nested. much import.")
+                    .with_hint(format!("move so {module} to the top level")))
+            }
+            Stmt::ObjDef { name, span, .. } => {
+                return Err(self
+                    .diag(*span, "define this object at the top level")
+                    .with_headline("very nested. much object.")
+                    .with_hint(format!("move many {name} out to the top level")))
+            }
         }
         Ok(())
     }
@@ -429,6 +720,22 @@ impl Codegen {
                     format!("{name} is a function — it cannot be reassigned"),
                 )
                 .with_headline("very function. much fixed.")
+                .with_hint("pick a different variable name"))
+        } else if emit.class(name).is_some() {
+            Err(self
+                .diag(
+                    span,
+                    format!("{name} is an object definition — it cannot be reassigned"),
+                )
+                .with_headline("very object. much fixed.")
+                .with_hint("pick a different variable name"))
+        } else if emit.module(name).is_some() {
+            Err(self
+                .diag(
+                    span,
+                    format!("{name} is a module — it cannot be reassigned"),
+                )
+                .with_headline("very module. much fixed.")
                 .with_hint("pick a different variable name"))
         } else {
             Ok(format!("env.{NAME_PREFIX}{name}"))
@@ -461,6 +768,16 @@ impl Codegen {
                     Ok(format!("{NAME_PREFIX}{name}.clone()"))
                 } else if emit.funcs.contains_key(name) || BUILTINS.contains(&name.as_str()) {
                     Err(self.unsupported(*span, Unsupported::FuncAsValue(name.clone())))
+                } else if emit.class(name).is_some() {
+                    Err(self.unsupported(*span, Unsupported::ClassAsValue(name.clone())))
+                } else if let Some(module) = emit.module(name) {
+                    Err(self
+                        .diag(*span, format!("{name} is a module, not a value"))
+                        .with_headline("very module. much confuse.")
+                        .with_hint(format!(
+                            "use a member — {name}.{}(…)",
+                            module.first_member()
+                        )))
                 } else {
                     Ok(format!("env.{NAME_PREFIX}{name}.clone()"))
                 }
@@ -503,8 +820,44 @@ impl Codegen {
                 Ok(self.fail(emit, call))
             }
             Expr::Call { callee, args, span } => self.call(callee, args, *span, emit),
-            Expr::Attr { span, .. } => Err(self.unsupported(*span, Unsupported::Attr)),
+            Expr::Attr { obj, name, span } => {
+                // `module.member` as a value: a const inlines, a function is an
+                // M6 first-class value, an unknown member is a real error.
+                if let Expr::Ident { name: base, .. } = obj.as_ref() {
+                    if let Some(module) = emit.module(base) {
+                        if let Some(const_expr) = module.const_expr(name) {
+                            return Ok(const_expr.to_string());
+                        }
+                        if module.func(name).is_some() {
+                            return Err(self.unsupported(
+                                *span,
+                                Unsupported::ModuleFuncAsValue(format!("{base}.{name}")),
+                            ));
+                        }
+                        return Err(self.unknown_member(base, name, module, *span));
+                    }
+                }
+                let call = format!(
+                    "attr_get(&{}, \"{}\")",
+                    self.expr(obj, emit)?,
+                    escape_str(name)
+                );
+                Ok(self.fail(emit, call))
+            }
         }
+    }
+
+    /// The "module has no member" diagnostic, listing the members it does have.
+    fn unknown_member(
+        &self,
+        module_name: &str,
+        member: &str,
+        module: &Module,
+        span: Span,
+    ) -> Diagnostic {
+        self.diag(span, format!("{module_name} has no member {member}"))
+            .with_headline("very module. much unknown.")
+            .with_hint(format!("{module_name} has: {}", module.members()))
     }
 
     fn binary(&self, op: BinOp, lhs: &Expr, rhs: &Expr, emit: &Emit) -> Result<String, Diagnostic> {
@@ -566,9 +919,139 @@ impl Codegen {
                 let call = format!("{FUNC_PREFIX}{name}({})", parts.join(", "));
                 Ok(self.fail(emit, call))
             }
-            Expr::Attr { span, .. } => Err(self.unsupported(*span, Unsupported::Attr)),
+            // `Shibe(...)` — a constructor. Resolves statically: arity is checked
+            // against `init` here, and the instance is built by `n_<id>`.
+            Expr::Ident { name, .. } if emit.class(name).is_some() => {
+                self.constructor_call(name, args, span, emit)
+            }
+            // A module name is not itself callable — you call one of its members.
+            Expr::Ident { name, .. } if emit.module(name).is_some() => {
+                let module = emit.module(name).expect("compiler bug: module vanished");
+                Err(self
+                    .diag(span, format!("{name} is a module, not a function"))
+                    .with_headline("very module. much confuse.")
+                    .with_hint(format!(
+                        "call a member — {name}.{}(…)",
+                        module.first_member()
+                    )))
+            }
+            // `nerd.sqrt(16)` — a stdlib member call, when the base is a module.
+            Expr::Attr { obj, name, .. } if matches!(obj.as_ref(), Expr::Ident { name: base, .. } if emit.module(base).is_some()) =>
+            {
+                let Expr::Ident { name: base, .. } = obj.as_ref() else {
+                    unreachable!("compiler bug: guarded to an Ident base")
+                };
+                let module = emit.module(base).expect("compiler bug: module vanished");
+                self.module_call(base, module, name, args, span, emit)
+            }
+            // `kabosu.speak(...)` — a method call, dispatched at runtime.
+            Expr::Attr { obj, name, .. } => {
+                emit.uses_method_call.set(true);
+                let recv = self.expr(obj, emit)?;
+                let mut arg_parts = Vec::with_capacity(args.len());
+                for arg in args {
+                    arg_parts.push(self.expr(arg, emit)?);
+                }
+                let call = format!(
+                    "call_method({recv}, \"{}\", vec![{}], &mut *env)",
+                    escape_str(name),
+                    arg_parts.join(", ")
+                );
+                Ok(self.fail(emit, call))
+            }
             _ => Err(self.unsupported(span, Unsupported::CallIndirect)),
         }
+    }
+
+    /// A constructor call `Shibe(args)`: static arity against `init`, then a
+    /// `n_<id>(args…, &mut *env)` through the fail suffix.
+    fn constructor_call(
+        &self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+        emit: &Emit,
+    ) -> Result<String, Diagnostic> {
+        let class = emit
+            .class(name)
+            .expect("compiler bug: constructor for an unknown class");
+        let init_params = class.init_params();
+        if args.len() != init_params.len() {
+            let count = init_params.len();
+            let noun = if count == 1 { "argument" } else { "arguments" };
+            let hint = if init_params.is_empty() {
+                format!("{name}()")
+            } else {
+                format!("{name}({})", init_params.join(", "))
+            };
+            return Err(self
+                .diag(
+                    span,
+                    format!("{name} takes {count} {noun}, got {}", args.len()),
+                )
+                .with_headline(ARITY_HEADLINE)
+                .with_hint(hint));
+        }
+        let mut parts = Vec::with_capacity(args.len() + 1);
+        for arg in args {
+            parts.push(self.expr(arg, emit)?);
+        }
+        parts.push("&mut *env".to_string());
+        let call = format!("{CTOR_PREFIX}{}({})", class.id, parts.join(", "));
+        Ok(self.fail(emit, call))
+    }
+
+    /// A stdlib member call `module.member(args)`: static arity against the table,
+    /// then `{runtime_fn}(&a0, &a1, …)` through the fail suffix. Calling a const,
+    /// or an unknown member, is a real error.
+    fn module_call(
+        &self,
+        module_name: &str,
+        module: &Module,
+        member: &str,
+        args: &[Expr],
+        span: Span,
+        emit: &Emit,
+    ) -> Result<String, Diagnostic> {
+        let func = match module.func(member) {
+            Some(func) => func,
+            None => {
+                if module.const_expr(member).is_some() {
+                    return Err(self
+                        .diag(
+                            span,
+                            format!("{module_name}.{member} is a constant, not a function"),
+                        )
+                        .with_headline("very module. much confuse.")
+                        .with_hint(format!("use it as a value — bark {module_name}.{member}")));
+                }
+                return Err(self.unknown_member(module_name, member, module, span));
+            }
+        };
+        if args.len() != func.arity {
+            let noun = if func.arity == 1 {
+                "argument"
+            } else {
+                "arguments"
+            };
+            return Err(self
+                .diag(
+                    span,
+                    format!(
+                        "{module_name}.{member} takes {} {noun}, got {}",
+                        func.arity,
+                        args.len()
+                    ),
+                )
+                .with_headline(ARITY_HEADLINE)
+                .with_hint(func.hint));
+        }
+        let mut parts = Vec::with_capacity(args.len());
+        for arg in args {
+            parts.push(format!("&{}", self.expr(arg, emit)?));
+        }
+        let call = format!("{}({})", func.runtime_fn, parts.join(", "));
+        Ok(self.fail(emit, call))
     }
 
     fn builtin_call(
@@ -792,6 +1275,13 @@ mod tests {
 #![allow(warnings)]
 use doge_runtime::*;
 
+static LINES: &[&str] = &[
+    \"such age = 7\",
+    \"bark \\\"age is \\\" + str(age)\",
+    \"wow\",
+    \"\",
+];
+
 struct Env {
     cur_line: u32,
     depth: usize,
@@ -807,7 +1297,8 @@ fn main() -> std::process::ExitCode {
     match run(&mut env) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!(\"very error. much broken.\\n\\n  examples/hello.doge:{}\\n  {e}\", env.cur_line);
+            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");
+            eprintln!(\"very error. much broken.\\n\\n  examples/hello.doge:{}\\n    {line}\\n  {e}\", env.cur_line);
             std::process::ExitCode::FAILURE
         }
     }
@@ -832,6 +1323,15 @@ fn run(env: &mut Env) -> DogeResult<()> {
 #![allow(warnings)]
 use doge_runtime::*;
 
+static LINES: &[&str] = &[
+    \"such greet much name:\",
+    \"    return name\",
+    \"wow\",
+    \"bark greet(\\\"kabosu\\\")\",
+    \"wow\",
+    \"\",
+];
+
 struct Env {
     cur_line: u32,
     depth: usize,
@@ -845,7 +1345,8 @@ fn main() -> std::process::ExitCode {
     match run(&mut env) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!(\"very error. much broken.\\n\\n  examples/hello.doge:{}\\n  {e}\", env.cur_line);
+            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");
+            eprintln!(\"very error. much broken.\\n\\n  examples/hello.doge:{}\\n    {line}\\n  {e}\", env.cur_line);
             std::process::ExitCode::FAILURE
         }
     }
@@ -1017,10 +1518,97 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
     }
 
     #[test]
-    fn import_lands_m5() {
+    fn so_math_hints_at_nerd() {
         let err = gen("so math\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very import. much unknown.");
+        assert!(err.hint.as_deref().unwrap_or_default().contains("so nerd"));
+    }
+
+    #[test]
+    fn unknown_module_is_an_error() {
+        let err = gen("so bogus\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very import. much unknown.");
+        assert_eq!(err.message, "doge has no module named bogus");
+        assert!(err
+            .hint
+            .as_deref()
+            .unwrap_or_default()
+            .contains("nerd, strings, lists"));
+    }
+
+    #[test]
+    fn module_call_emits_runtime_fn() {
+        let out = gen("so nerd\nbark nerd.sqrt(16)\nwow\n").unwrap();
+        assert!(out.contains("nerd_sqrt(&Value::Int(16i64))?"));
+    }
+
+    #[test]
+    fn module_const_emits_value() {
+        let out = gen("so nerd\nbark nerd.pi\nwow\n").unwrap();
+        assert!(out.contains("Value::Float(std::f64::consts::PI)"));
+    }
+
+    #[test]
+    fn unknown_member_is_an_error() {
+        let err = gen("so nerd\nbark nerd.bogus(1)\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very module. much unknown.");
+        assert_eq!(err.message, "nerd has no member bogus");
+    }
+
+    #[test]
+    fn module_member_arity_error_is_precise() {
+        let err = gen("so nerd\nbark nerd.sqrt(1, 2)\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very args. much wrong.");
+        assert_eq!(err.message, "nerd.sqrt takes 1 argument, got 2");
+        assert_eq!(err.hint.as_deref(), Some("nerd.sqrt(x)"));
+    }
+
+    #[test]
+    fn module_const_called_is_an_error() {
+        let err = gen("so nerd\nbark nerd.pi(1)\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very module. much confuse.");
+        assert_eq!(err.message, "nerd.pi is a constant, not a function");
+    }
+
+    #[test]
+    fn module_as_value_is_an_error() {
+        let err = gen("so nerd\nbark nerd\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very module. much confuse.");
+        assert_eq!(err.message, "nerd is a module, not a value");
+    }
+
+    #[test]
+    fn module_func_as_value_lands_m6() {
+        let err = gen("so nerd\nbark nerd.sqrt\nwow\n").unwrap_err();
         assert_eq!(err.headline, "very soon. much roadmap.");
-        assert!(err.hint.as_deref().unwrap_or_default().contains("M5"));
+        assert!(err.message.contains("nerd.sqrt is a function"));
+        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    }
+
+    #[test]
+    fn calling_a_module_is_an_error() {
+        let err = gen("so nerd\nbark nerd(1)\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very module. much confuse.");
+        assert_eq!(err.message, "nerd is a module, not a function");
+    }
+
+    #[test]
+    fn assign_to_module_name_is_an_error() {
+        let err = gen("so nerd\nnerd = 5\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very module. much fixed.");
+    }
+
+    #[test]
+    fn assign_into_module_is_an_error() {
+        let err = gen("so nerd\nnerd.x = 5\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very module. much fixed.");
+        assert_eq!(err.message, "cannot assign into a module");
+    }
+
+    #[test]
+    fn nested_import_is_an_error() {
+        let err = gen("such f:\n    so nerd\nwow\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very nested. much import.");
     }
 
     #[test]
@@ -1047,5 +1635,203 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
         assert!(out.contains("return Ok(Value::None);"));
         // The body still ends with the fall-off-end none.
         assert!(out.contains("    Ok(Value::None)\n}\n"));
+    }
+
+    #[test]
+    fn object_golden_shape() {
+        let src = "many Shibe:\n    such init much name, age:\n        self.name = name\n        self.age = age\n    wow\n\n    such speak:\n        bark self.name + \" says bork\"\n    wow\nwow\n\nsuch kabosu = Shibe(\"kabosu\", 18)\nkabosu.speak()\nwow\n";
+        let out = gen(src).unwrap();
+        let expected = r#"#![allow(warnings)]
+use doge_runtime::*;
+
+static LINES: &[&str] = &[
+    "many Shibe:",
+    "    such init much name, age:",
+    "        self.name = name",
+    "        self.age = age",
+    "    wow",
+    "",
+    "    such speak:",
+    "        bark self.name + \" says bork\"",
+    "    wow",
+    "wow",
+    "",
+    "such kabosu = Shibe(\"kabosu\", 18)",
+    "kabosu.speak()",
+    "wow",
+    "",
+];
+
+struct Env {
+    cur_line: u32,
+    depth: usize,
+    v_kabosu: Value,
+}
+
+fn main() -> std::process::ExitCode {
+    let mut env = Env {
+        cur_line: 0,
+        depth: 0,
+        v_kabosu: Value::None,
+    };
+    match run(&mut env) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or("");
+            eprintln!("very error. much broken.\n\n  examples/hello.doge:{}\n    {line}\n  {e}", env.cur_line);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(env: &mut Env) -> DogeResult<()> {
+    env.cur_line = 12;
+    env.v_kabosu = n_0(Value::str("kabosu"), Value::Int(18i64), &mut *env)?;
+    env.cur_line = 13;
+    let _ = call_method(env.v_kabosu.clone(), "speak", vec![], &mut *env)?;
+    Ok(())
+}
+
+fn n_0(v_name: Value, v_age: Value, env: &mut Env) -> DogeResult<Value> {
+    let obj = Value::object(0u32, "Shibe");
+    mf_0_init(obj.clone(), v_name, v_age, env)?;
+    Ok(obj)
+}
+
+fn mf_0_init(v_self: Value, v_name: Value, v_age: Value, env: &mut Env) -> DogeResult<Value> {
+    enter_call(&mut env.depth)?;
+    let result = mb_0_init(v_self, v_name, v_age, env);
+    exit_call(&mut env.depth);
+    result
+}
+
+fn mb_0_init(mut v_self: Value, mut v_name: Value, mut v_age: Value, env: &mut Env) -> DogeResult<Value> {
+    env.cur_line = 3;
+    attr_set(&v_self.clone(), "name", v_name.clone())?;
+    env.cur_line = 4;
+    attr_set(&v_self.clone(), "age", v_age.clone())?;
+    Ok(Value::None)
+}
+
+fn mf_0_speak(v_self: Value, env: &mut Env) -> DogeResult<Value> {
+    enter_call(&mut env.depth)?;
+    let result = mb_0_speak(v_self, env);
+    exit_call(&mut env.depth);
+    result
+}
+
+fn mb_0_speak(mut v_self: Value, env: &mut Env) -> DogeResult<Value> {
+    env.cur_line = 8;
+    let _ = bark(&add(attr_get(&v_self.clone(), "name")?, Value::str(" says bork"))?);
+    Ok(Value::None)
+}
+
+fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
+    match (object_class_id(&recv, name)?, name) {
+        (0u32, "init") => {
+            if args.len() != 2 { return Err(method_arity_error("Shibe", "init", 2, args.len())); }
+            mf_0_init(recv, args.remove(0), args.remove(0), env)
+        }
+        (0u32, "speak") => {
+            if args.len() != 0 { return Err(method_arity_error("Shibe", "speak", 0, args.len())); }
+            mf_0_speak(recv, env)
+        }
+        _ => Err(no_such_method(&recv, name)),
+    }
+}
+"#;
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn attr_get_and_set_emission() {
+        let out = gen("such x = 1\nx.name = 2\nbark x.name\nwow\n").unwrap();
+        assert!(out.contains("attr_set(&env.v_x.clone(), \"name\", Value::Int(2i64))?;"));
+        assert!(out.contains("attr_get(&env.v_x.clone(), \"name\")?"));
+    }
+
+    #[test]
+    fn attr_in_try_breaks_to_label() {
+        let out = gen("such x = 1\npls\n    bark x.name\noh no err!\n    bark err\nwow\n").unwrap();
+        assert!(out.contains(
+            "match attr_get(&env.v_x.clone(), \"name\") { Ok(v) => v, Err(e) => break 'p0 Err(e) }"
+        ));
+    }
+
+    #[test]
+    fn method_call_is_dynamic() {
+        let out =
+            gen("many S:\n    such go:\n        bark 1\n    wow\nwow\nsuch a = S()\na.go()\nwow\n")
+                .unwrap();
+        assert!(out.contains("call_method(env.v_a.clone(), \"go\", vec![], &mut *env)?"));
+        assert!(out.contains("object_class_id(&recv, name)?"));
+    }
+
+    #[test]
+    fn self_resolves_to_param() {
+        let out = gen("many Shibe:\n    such speak:\n        bark self\n    wow\nwow\nsuch k = Shibe()\nk.speak()\nwow\n").unwrap();
+        assert!(out.contains("fn mb_0_speak(mut v_self: Value, env: &mut Env)"));
+        assert!(out.contains("bark(&v_self.clone())"));
+    }
+
+    #[test]
+    fn constructor_arity_error_is_precise() {
+        let err = gen("many Shibe:\n    such init much name, age:\n        self.name = name\n    wow\nwow\nsuch k = Shibe(\"x\")\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very args. much wrong.");
+        assert_eq!(err.message, "Shibe takes 2 arguments, got 1");
+        assert_eq!(err.hint.as_deref(), Some("Shibe(name, age)"));
+    }
+
+    #[test]
+    fn no_init_class_takes_no_args() {
+        let out =
+            gen("many Thing:\n    such go:\n        bark 1\n    wow\nwow\nsuch t = Thing()\nwow\n")
+                .unwrap();
+        assert!(out.contains("fn n_0(env: &mut Env) -> DogeResult<Value> {"));
+        assert!(out.contains("let obj = Value::object(0u32, \"Thing\");"));
+        assert!(!out.contains("mf_0_init"));
+        let err = gen(
+            "many Thing:\n    such go:\n        bark 1\n    wow\nwow\nsuch t = Thing(1)\nwow\n",
+        )
+        .unwrap_err();
+        assert_eq!(err.message, "Thing takes 0 arguments, got 1");
+        assert_eq!(err.hint.as_deref(), Some("Thing()"));
+    }
+
+    #[test]
+    fn class_as_value_lands_m6() {
+        let err =
+            gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
+                .unwrap_err();
+        assert_eq!(err.headline, "very soon. much roadmap.");
+        assert!(err.message.contains("Shibe is an object definition"));
+        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    }
+
+    #[test]
+    fn assign_to_class_name_is_an_error() {
+        let err =
+            gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nvery Shibe = 5\nwow\n")
+                .unwrap_err();
+        assert_eq!(err.headline, "very object. much fixed.");
+    }
+
+    #[test]
+    fn nested_objdef_is_an_error() {
+        let err = gen("such f:\n    many Inner:\n        such g:\n            bark 1\n        wow\n    wow\nwow\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very nested. much object.");
+    }
+
+    #[test]
+    fn lines_static_escapes_quotes() {
+        let out = gen("bark \"hi\"\nwow\n").unwrap();
+        assert!(out.contains("static LINES: &[&str] = &["));
+        assert!(out.contains(r#"    "bark \"hi\"","#));
+    }
+
+    #[test]
+    fn no_dispatcher_without_objects() {
+        let out = gen("bark 1\nwow\n").unwrap();
+        assert!(!out.contains("fn call_method"));
     }
 }

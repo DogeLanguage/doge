@@ -11,4 +11,10 @@ wow
 
 such kabosu = Shibe("kabosu", 18)
 kabosu.speak()
+bark kabosu.name
+bark kabosu
+pls
+    bark kabosu.tail
+oh no err!
+    bark "very error: " + err
 wow

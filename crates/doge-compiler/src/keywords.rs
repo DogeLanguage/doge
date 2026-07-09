@@ -31,7 +31,7 @@ pub fn lookup(word: &str) -> Option<TokenKind> {
         "false" => TokenKind::False,
         "none" => TokenKind::None,
 
-        // Reserved words lexed as keywords so the parser can greet Python muscle 
+        // Reserved words lexed as keywords so the parser can greet Python muscle
         // memory with a friendly hint instead of a vague "unexpected identifier".
         "def" => TokenKind::Def,
         "class" => TokenKind::Class,

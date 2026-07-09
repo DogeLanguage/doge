@@ -22,6 +22,8 @@ pub enum ErrorKind {
     KeyError,
     /// A value was the right type but not a usable value (e.g. `int("dog")`).
     ValueError,
+    /// A missing field or method on an object.
+    AttrError,
     /// A `bonk` raised by the program itself.
     Bonk,
     /// A call chain nested past [`RECURSION_LIMIT`].
@@ -38,6 +40,7 @@ impl ErrorKind {
             ErrorKind::IndexOutOfBounds => "IndexOutOfBounds",
             ErrorKind::KeyError => "KeyError",
             ErrorKind::ValueError => "ValueError",
+            ErrorKind::AttrError => "AttrError",
             ErrorKind::Bonk => "Bonk",
             ErrorKind::RecursionLimit => "RecursionLimit",
         }
@@ -81,6 +84,10 @@ impl DogeError {
 
     pub fn value_error(message: impl Into<String>) -> Self {
         DogeError::new(ErrorKind::ValueError, message)
+    }
+
+    pub fn attr_error(message: impl Into<String>) -> Self {
+        DogeError::new(ErrorKind::AttrError, message)
     }
 }
 

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
@@ -169,6 +170,8 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
                     .iter()
                     .all(|(k, v)| yb.get(k).is_some_and(|w| values_equal(v, w)))
         }
+        // Objects are equal only when they are the very same instance.
+        (Value::Object(x), Value::Object(y)) => Rc::ptr_eq(x, y),
         _ => false,
     }
 }
@@ -184,8 +187,9 @@ pub fn ne(a: Value, b: Value) -> DogeResult {
 }
 
 /// Ordering for `< <= > >=`: numbers compare across Int/Float, Str compares
-/// lexicographically, anything else is a type error.
-fn order(a: &Value, b: &Value) -> DogeResult<Ordering> {
+/// lexicographically, anything else is a type error. `lists.sort` reuses this so
+/// its ordering matches the comparison operators exactly.
+pub(crate) fn order(a: &Value, b: &Value) -> DogeResult<Ordering> {
     if let (Some(x), Some(y)) = (as_f64(a), as_f64(b)) {
         return x.partial_cmp(&y).ok_or_else(|| {
             DogeError::type_error(format!(
@@ -444,6 +448,16 @@ mod tests {
         assert!(!values_equal(&int(1), &float(1.5)));
         // Different types are simply unequal, never an error.
         assert!(!values_equal(&int(1), &Value::str("1")));
+    }
+
+    #[test]
+    fn objects_are_equal_only_by_identity() {
+        let a = Value::object(0, "Shibe");
+        // A clone shares the same Rc — still the same object.
+        assert!(values_equal(&a, &a.clone()));
+        // A second, independently built instance is a different object.
+        let b = Value::object(0, "Shibe");
+        assert!(!values_equal(&a, &b));
     }
 
     #[test]

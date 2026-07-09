@@ -38,7 +38,7 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
         }
     }
 
-    checker.check_unique_functions(script)?;
+    checker.check_unique_toplevel(script)?;
 
     let mut ctx = Ctx {
         locals: HashSet::new(),
@@ -183,37 +183,52 @@ impl Checker {
         Ok(())
     }
 
-    fn check_unique_functions(&self, script: &Script) -> Result<(), Diagnostic> {
-        let mut func_counts: std::collections::HashMap<&str, usize> =
-            std::collections::HashMap::new();
-        let mut others: HashSet<&str> = HashSet::new();
-        for stmt in &script.stmts {
-            match stmt {
-                Stmt::FuncDef { name, .. } => {
-                    *func_counts.entry(name.as_str()).or_insert(0) += 1;
-                }
-                Stmt::ObjDef { name, .. } => {
-                    others.insert(name);
-                }
-                Stmt::Import { module, .. } => {
-                    others.insert(module);
-                }
-                _ => {}
-            }
-        }
+    /// Every top-level definition — function, object, or import — introduces a
+    /// name that must be unique: not a builtin, not another definition, and not a
+    /// hoisted variable/loop/error name. Within an object, method names must be
+    /// unique too.
+    fn check_unique_toplevel(&self, script: &Script) -> Result<(), Diagnostic> {
         let hoisted = crate::codegen::hoisted_names(&script.stmts);
         let hoisted: HashSet<&str> = hoisted.iter().map(String::as_str).collect();
 
+        let mut seen: HashSet<&str> = HashSet::new();
         for stmt in &script.stmts {
-            if let Stmt::FuncDef { name, span, .. } = stmt {
-                if BUILTINS.contains(&name.as_str()) {
-                    return Err(self.name_clash(*span, format!("{name} is already a builtin")));
+            let (name, span) = match stmt {
+                Stmt::FuncDef { name, span, .. } | Stmt::ObjDef { name, span, .. } => {
+                    (name.as_str(), *span)
                 }
-                let defined_elsewhere = func_counts.get(name.as_str()).copied().unwrap_or(0) > 1
-                    || others.contains(name.as_str())
-                    || hoisted.contains(name.as_str());
-                if defined_elsewhere {
-                    return Err(self.name_clash(*span, format!("{name} is already defined")));
+                Stmt::Import { module, span, .. } => (module.as_str(), *span),
+                _ => continue,
+            };
+            if BUILTINS.contains(&name) {
+                return Err(self.name_clash(span, format!("{name} is already a builtin")));
+            }
+            if seen.contains(name) || hoisted.contains(name) {
+                return Err(self.name_clash(span, format!("{name} is already defined")));
+            }
+            seen.insert(name);
+
+            if let Stmt::ObjDef {
+                name: class,
+                methods,
+                ..
+            } = stmt
+            {
+                let mut method_seen: HashSet<&str> = HashSet::new();
+                for method in methods {
+                    if let Stmt::FuncDef {
+                        name: method_name,
+                        span: method_span,
+                        ..
+                    } = method
+                    {
+                        if !method_seen.insert(method_name.as_str()) {
+                            return Err(self.method_clash(
+                                *method_span,
+                                format!("{class} already has a method {method_name}"),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -223,7 +238,13 @@ impl Checker {
     fn name_clash(&self, span: Span, message: String) -> Diagnostic {
         self.diag(span, message)
             .with_headline("very twice. much name.")
-            .with_hint("pick a different name for the function")
+            .with_hint("pick a different name")
+    }
+
+    fn method_clash(&self, span: Span, message: String) -> Diagnostic {
+        self.diag(span, message)
+            .with_headline("very twice. much name.")
+            .with_hint("pick a different name for the method")
     }
 
     /// Check a function or method body in its own fresh scope.
@@ -458,6 +479,44 @@ mod tests {
         let err = check_src("such len:\n    bark 1\nwow\nwow\n").unwrap_err();
         assert_eq!(err.headline, "very twice. much name.");
         assert!(err.message.contains("builtin"));
+    }
+
+    #[test]
+    fn duplicate_class_names_are_an_error() {
+        let err =
+            check_src("many Shibe:\n    such a:\n        bark 1\n    wow\nwow\nmany Shibe:\n    such b:\n        bark 2\n    wow\nwow\nwow\n")
+                .unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+    }
+
+    #[test]
+    fn class_named_like_a_builtin_is_an_error() {
+        let err =
+            check_src("many len:\n    such a:\n        bark 1\n    wow\nwow\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+        assert!(err.message.contains("builtin"));
+    }
+
+    #[test]
+    fn import_clashing_with_a_variable_is_an_error() {
+        let err = check_src("such nerd = 1\nso nerd\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+    }
+
+    #[test]
+    fn importing_the_same_module_twice_is_an_error() {
+        let err = check_src("so nerd\nso nerd\nwow\n").unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+    }
+
+    #[test]
+    fn duplicate_method_in_one_class_is_an_error() {
+        let err = check_src(
+            "many Shibe:\n    such speak:\n        bark 1\n    wow\n    such speak:\n        bark 2\n    wow\nwow\nwow\n",
+        )
+        .unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+        assert!(err.message.contains("method"));
     }
 
     #[test]

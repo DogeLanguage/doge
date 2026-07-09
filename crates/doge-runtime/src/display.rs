@@ -41,6 +41,7 @@ impl fmt::Display for Value {
                     .join(", ");
                 write!(f, "{{{inner}}}")
             }
+            Value::Object(o) => write!(f, "<{}>", o.borrow().class_name),
         }
     }
 }
@@ -71,5 +72,10 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert("name".to_string(), Value::str("kabosu"));
         assert_eq!(Value::dict(map).to_string(), "{\"name\": \"kabosu\"}");
+    }
+
+    #[test]
+    fn object_prints_its_class_in_angle_brackets() {
+        assert_eq!(Value::object(0, "Shibe").to_string(), "<Shibe>");
     }
 }

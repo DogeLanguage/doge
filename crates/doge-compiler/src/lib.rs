@@ -7,6 +7,7 @@ mod diagnostics;
 mod keywords;
 mod lexer;
 mod parser;
+mod stdlib;
 mod token;
 
 pub use ast::{dump, Script};

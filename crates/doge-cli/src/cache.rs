@@ -4,6 +4,10 @@ use std::path::{Path, PathBuf};
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 
+/// Bumped when the generated-code shape changes without a crate version bump, so
+/// binaries cached by an older milestone rebuild instead of running stale.
+const CODEGEN_REV: &str = "m5";
+
 /// The message shown when no writable cache location can be found.
 const NO_CACHE_HOME: &str = "\
 very homeless. much confuse.
@@ -27,6 +31,8 @@ pub fn fnv1a_64(bytes: &[u8]) -> u64 {
 fn cache_key(source: &str) -> String {
     let mut buf = Vec::with_capacity(source.len() + 16);
     buf.extend_from_slice(env!("CARGO_PKG_VERSION").as_bytes());
+    buf.push(0);
+    buf.extend_from_slice(CODEGEN_REV.as_bytes());
     buf.push(0);
     buf.extend_from_slice(source.as_bytes());
     format!("{:016x}", fnv1a_64(&buf))

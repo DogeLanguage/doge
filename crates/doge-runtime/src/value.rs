@@ -12,6 +12,17 @@ pub enum Value {
     None,
     List(Rc<RefCell<Vec<Value>>>),
     Dict(Rc<RefCell<HashMap<String, Value>>>),
+    Object(Rc<RefCell<ObjectData>>),
+}
+
+/// The innards of a `many Name:` instance: which class it is (a compile-time id
+/// plus the display name) and its fields, which appear the moment they are
+/// assigned. Two instances are the same object only when they share this `Rc`.
+#[derive(Debug)]
+pub struct ObjectData {
+    pub class_id: u32,
+    pub class_name: Rc<str>,
+    pub fields: HashMap<String, Value>,
 }
 
 impl Value {
@@ -28,6 +39,16 @@ impl Value {
     /// Build a `Dict` value from string→value pairs.
     pub fn dict(entries: HashMap<String, Value>) -> Value {
         Value::Dict(Rc::new(RefCell::new(entries)))
+    }
+
+    /// Build a fresh instance of the class with `class_id`/`class_name` and no
+    /// fields yet — the constructor fills them in with `attr_set`.
+    pub fn object(class_id: u32, class_name: &str) -> Value {
+        Value::Object(Rc::new(RefCell::new(ObjectData {
+            class_id,
+            class_name: Rc::from(class_name),
+            fields: HashMap::new(),
+        })))
     }
 
     /// Build a `Dict` from key/value pairs evaluated by a dict literal. Every
@@ -62,6 +83,7 @@ impl Value {
             Value::None => false,
             Value::List(items) => !items.borrow().is_empty(),
             Value::Dict(entries) => !entries.borrow().is_empty(),
+            Value::Object(_) => true,
         }
     }
 
@@ -75,6 +97,7 @@ impl Value {
             Value::None => "None",
             Value::List(_) => "List",
             Value::Dict(_) => "Dict",
+            Value::Object(_) => "Object",
         }
     }
 
@@ -108,6 +131,8 @@ mod tests {
         assert!(!Value::list(vec![]).truthy());
         assert!(Value::list(vec![Value::Int(1)]).truthy());
         assert!(!Value::dict(HashMap::new()).truthy());
+        // An object is always truthy, even with no fields.
+        assert!(Value::object(0, "Shibe").truthy());
     }
 
     #[test]
@@ -119,6 +144,7 @@ mod tests {
         assert_eq!(Value::None.type_name(), "None");
         assert_eq!(Value::list(vec![]).type_name(), "List");
         assert_eq!(Value::dict(HashMap::new()).type_name(), "Dict");
+        assert_eq!(Value::object(0, "Shibe").type_name(), "Object");
     }
 
     #[test]
