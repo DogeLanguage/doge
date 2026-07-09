@@ -157,19 +157,41 @@ call's argument count must match the definition (checked at compile time).
 
 Scope and calling rules:
 
-- Definitions live at the top level. A function is defined once at the top of a
-  script; defining a function inside another function lands in a later milestone.
-- A top-level function name is unique. It may not repeat, shadow another
-  top-level name, or take a builtin's name.
+- Functions nest. A `such name:` may be defined inside another function; it is
+  local to the enclosing body, just like a `such` variable.
+- A function name is unique within its scope. It may not repeat, shadow another
+  name in the same scope (a parameter, variable, or sibling function), or take a
+  builtin's name. A function name is a fixed binding — reassigning it is an error.
 - Functions may read and reassign top-level names. A `such`, `for` variable, or
   caught error introduced inside a function is local to that function; its parameters
   are locals too.
+- Closures capture enclosing variables by sharing. A nested function reads and
+  writes the enclosing variables it mentions, and the sharing is live in both
+  directions: a reassignment inside the closure is visible outside, and a later
+  change outside is visible to the closure. Each call of the enclosing function
+  makes a fresh set of captured variables, so two closures built on separate calls
+  never share (a counter factory hands out independent counters).
 - Missing or bare `return` yields `none`. Falling off the end of a body returns
   `none`, and `return` with no value does the same.
 - Recursion is depth-limited. A call chain more than 1000 calls deep stops with a
-  catchable error rather than exhausting the machine.
-- Calls are by name. Using a function's name as a plain value, or calling through
-  a variable or expression, lands in a later milestone.
+  catchable error rather than exhausting the machine. A closure calling itself
+  through its captured name counts the same way.
+
+Functions are values:
+
+- A function name used as a value produces a first-class function you can store,
+  pass as an argument, return, and later call: `such g = greet` then `g("kabosu")`.
+  Builtins (`such f = len`) and module functions (`such s = nerd.sqrt`) become
+  values the same way. Object definitions are not values yet (`such c = Shibe` is a
+  compile error) — that lands in a later milestone.
+- Calling by name is checked at compile time: the argument count must match the
+  definition. Calling through a variable or expression is checked at run time — a
+  wrong count, or calling something that is not a function, is a catchable error
+  (`pls`/`oh no`).
+- `bark`ing a function prints `<function name>`. Two function values are equal only
+  when they come from the same definition over the same captured variables, so
+  `greet == greet` is `true` while two counters from a factory are not. A function
+  is always truthy.
 
 ## 7. Error handling
 

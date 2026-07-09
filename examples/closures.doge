@@ -1,0 +1,42 @@
+# such nesting. much closure. very capture.
+
+# A nested function that reads an enclosing parameter.
+such adder much x:
+    such add_x much n:
+        return n + x
+    wow
+    return add_x(10)
+wow
+
+bark adder(5)
+
+# A closure that writes a captured variable, returned and called later — each
+# call to make_counter gets its own independent count.
+such make_counter:
+    such count = 0
+    such bump:
+        very count = count + 1
+        return count
+    wow
+    return bump
+wow
+
+such c1 = make_counter()
+such c2 = make_counter()
+bark c1()
+bark c1()
+bark c2()
+bark c1()
+
+# A nested function that calls itself.
+such outer:
+    such fib much n:
+        if n < 2:
+            return n
+        return fib(n - 1) + fib(n - 2)
+    wow
+    return fib(10)
+wow
+
+bark outer()
+wow

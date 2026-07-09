@@ -2,7 +2,7 @@
 //! value operation calls a function in `doge-runtime`, so behaviour lives there,
 //! not in these strings.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{BinOp, Expr, Script, Stmt, UnOp};
@@ -23,6 +23,11 @@ const FUNC_PREFIX: &str = "f_";
 /// Prefix on a function's body (`b_greet`): the compiled statements. A distinct
 /// prefix so a user function named `greet` and one named `b_greet` never clash.
 const FUNC_BODY_PREFIX: &str = "b_";
+/// Prefix on a closure's outer wrapper (`c_3`): a nested function, keyed by its
+/// numeric id so the name can never collide with a user function's `f_` pair.
+const CLOSURE_PREFIX: &str = "c_";
+/// Prefix on a closure's body (`cb_3`).
+const CLOSURE_BODY_PREFIX: &str = "cb_";
 /// Prefix on a constructor (`n_0`): builds an instance and runs its `init`.
 const CTOR_PREFIX: &str = "n_";
 /// Prefix on a method's outer wrapper (`mf_0_speak`). The class-id digit means a
@@ -81,12 +86,23 @@ struct Emit<'a> {
     classes: &'a [Class],
     /// Every imported module name → its table entry.
     modules: &'a HashMap<String, &'static Module>,
+    /// The whole-script function analysis: capture info and value ids.
+    analysis: &'a Analysis,
     /// Set once any method-call site is compiled, so the dispatcher is emitted
     /// even when a script calls methods but defines no objects of its own.
     uses_method_call: Cell<bool>,
-    /// Names local to the code being emitted: params plus body-hoisted names.
-    /// Empty while emitting `run`, where every bound name is an `Env` field.
-    locals: HashSet<String>,
+    /// Set once any indirect call is compiled, so the `call_function` dispatcher
+    /// is emitted.
+    uses_call_function: Cell<bool>,
+    /// Every `fn_id` turned into a `Value::function` somewhere — the dispatcher
+    /// arms it must carry.
+    materialized: RefCell<HashSet<u32>>,
+    /// Names local to the code being emitted → how they are stored. Empty while
+    /// emitting `run`, where every bound name is an `Env` field.
+    locals: HashMap<String, Local>,
+    /// Nested-function names in scope → their parameter names, for compile-time
+    /// arity checks on direct calls. Reset per callable.
+    local_funcs: HashMap<String, Vec<String>>,
     /// Monotonic per-file counter naming `'pN` try labels, `attemptN` binders,
     /// and `'lN` loop labels.
     counter: u32,
@@ -106,51 +122,119 @@ impl Emit<'_> {
     /// The imported module named `name`, if one is in scope — but a local of the
     /// same name shadows it (locals always win at a use site).
     fn module(&self, name: &str) -> Option<&'static Module> {
-        if self.locals.contains(name) {
+        if self.locals.contains_key(name) {
             None
         } else {
             self.modules.get(name).copied()
         }
+    }
+
+    /// The dispatcher id for a bare function name used as a value: a top-level
+    /// function, or a builtin. Nested functions are ordinary cell locals, so they
+    /// are not handled here.
+    fn func_value_id(&self, name: &str) -> Option<u32> {
+        self.analysis
+            .top_func_ids
+            .get(name)
+            .copied()
+            .or_else(|| self.analysis.builtin_ids.get(name).copied())
     }
 }
 
 /// A language feature the parser accepts but the current milestone cannot run
 /// yet, with the exact message and the milestone that lands it.
 enum Unsupported {
-    NestedFuncDef,
-    FuncAsValue(String),
     ClassAsValue(String),
-    ModuleFuncAsValue(String),
-    CallIndirect,
 }
 
 impl Unsupported {
     fn detail(&self) -> (String, &'static str) {
         match self {
-            Unsupported::NestedFuncDef => (
-                "functions inside functions land in M6 — define this function at the top level"
-                    .into(),
-                "M6",
-            ),
-            Unsupported::FuncAsValue(name) => (
-                format!("{name} is a function — passing functions as values lands in M6"),
-                "M6",
-            ),
             Unsupported::ClassAsValue(name) => (
                 format!("{name} is an object definition — objects as values land in M6"),
                 "M6",
             ),
-            Unsupported::ModuleFuncAsValue(member) => (
-                format!("{member} is a function — passing functions as values lands in M6"),
-                "M6",
-            ),
-            Unsupported::CallIndirect => (
-                "doge can only call function names and builtins for now — first-class calls land in M6"
-                    .into(),
-                "M6",
-            ),
         }
     }
+}
+
+/// How a name is stored in the code currently being emitted: a plain `Value`
+/// binding, or a shared `Cell` (because a nested closure captures it).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Local {
+    Plain,
+    Cell,
+}
+
+/// The kind of function a [`FnInfo`] describes, which decides how it is emitted
+/// and dispatched.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FnKind {
+    /// A direct top-level `such name:` — a static `f_`/`b_` pair, never captures.
+    TopLevel,
+    /// A nested `such name:` — a `c_`/`cb_` pair that may capture enclosing cells.
+    Closure,
+    /// An object method — an `mf_`/`mb_` pair, no first-class value, no captures.
+    Method,
+}
+
+/// The capture/cell analysis for one function definition, keyed by its span.
+struct FnInfo {
+    /// The dispatcher id, for functions that can become first-class values
+    /// (top-level functions and closures). `None` for methods.
+    fn_id: Option<u32>,
+    name: String,
+    /// Declared parameters (for a method, `self` is prepended).
+    params: Vec<String>,
+    body: Vec<Stmt>,
+    /// Names captured from the enclosing scope, in a fixed (sorted) order — the
+    /// leading cell parameters this function receives.
+    captures: Vec<String>,
+    /// Every name that is a `Cell` in this function's own frame: its captures,
+    /// its nested-function names, and its locals/params a nested closure captures.
+    cell_names: HashSet<String>,
+    kind: FnKind,
+}
+
+/// A cloned snapshot of a [`FnInfo`]'s emission-relevant fields, so a body can be
+/// emitted while `emit` is mutated without holding a borrow into the analysis.
+struct FnInfoView {
+    name: String,
+    params: Vec<String>,
+    body: Vec<Stmt>,
+    captures: Vec<String>,
+    cell_names: HashSet<String>,
+}
+
+/// One arm of the generated `call_function` dispatcher, indexed by `fn_id`.
+enum ArmSpec {
+    /// A top-level function: call its recursion-guarded `f_` wrapper.
+    TopFunc { name: String, arity: usize },
+    /// A closure: call its `c_` wrapper, threading the captured cells first.
+    Closure {
+        name: String,
+        id: u32,
+        arity: usize,
+        captures: usize,
+    },
+    /// A builtin used as a value: call the runtime builtin directly.
+    Builtin { name: &'static str },
+    /// A stdlib module function used as a value: call its runtime function.
+    Module {
+        name: String,
+        runtime_fn: &'static str,
+        arity: usize,
+    },
+}
+
+/// The whole-script function analysis: per-definition capture info, the
+/// dispatcher registry, and the name→id lookups for value construction.
+struct Analysis {
+    fn_info: HashMap<Span, FnInfo>,
+    registry: Vec<ArmSpec>,
+    top_func_ids: HashMap<String, u32>,
+    builtin_ids: HashMap<&'static str, u32>,
+    module_fn_ids: HashMap<(String, String), u32>,
 }
 
 impl Codegen {
@@ -166,17 +250,22 @@ impl Codegen {
 
         // Pre-pass: every imported module, resolved against the table. An unknown
         // module is a real compile error (with a nudge from `math` to `nerd`).
+        // `import_order` keeps source order so module function ids stay stable.
         let mut modules: HashMap<String, &'static Module> = HashMap::new();
+        let mut import_order: Vec<(String, &'static Module)> = Vec::new();
         for stmt in &script.stmts {
             if let Stmt::Import { module, span } = stmt {
                 match stdlib::module(module) {
                     Some(m) => {
                         modules.insert(module.clone(), m);
+                        import_order.push((module.clone(), m));
                     }
                     None => return Err(self.unknown_module(module, *span)),
                 }
             }
         }
+
+        let analysis = analyze_script(script, &import_order);
 
         // Pre-pass: every object definition, in source order — the index is the
         // class id stamped on each instance.
@@ -199,15 +288,20 @@ impl Codegen {
         }
 
         // The `Env` holds the line tracker, the recursion depth, and every
-        // top-level bound name — so a function can read and reassign them.
-        let env_fields = hoisted_names(&script.stmts);
+        // top-level bound name — so a function can read and reassign them. A
+        // direct top-level definition is a static function, not a field.
+        let env_fields = toplevel_hoisted(&script.stmts);
 
         let mut emit = Emit {
             funcs: &funcs,
             classes: &classes,
             modules: &modules,
+            analysis: &analysis,
             uses_method_call: Cell::new(false),
-            locals: HashSet::new(),
+            uses_call_function: Cell::new(false),
+            materialized: RefCell::new(HashSet::new()),
+            locals: HashMap::new(),
+            local_funcs: HashMap::new(),
             counter: 0,
             try_stack: Vec::new(),
             loop_stack: Vec::new(),
@@ -229,11 +323,8 @@ impl Codegen {
 
         let mut funcs_src = String::new();
         for stmt in &script.stmts {
-            if let Stmt::FuncDef {
-                name, params, body, ..
-            } = stmt
-            {
-                self.function(name, params, body, &mut emit, &mut funcs_src)?;
+            if let Stmt::FuncDef { span, .. } = stmt {
+                self.function(*span, &mut emit, &mut funcs_src)?;
             }
         }
 
@@ -250,16 +341,26 @@ impl Codegen {
             };
             self.constructor(class, &mut funcs_src);
             for method in methods {
-                if let Stmt::FuncDef {
-                    name, params, body, ..
-                } = method
-                {
-                    self.method(class, name, params, body, &mut emit, &mut funcs_src)?;
+                if let Stmt::FuncDef { span, .. } = method {
+                    self.method(class, *span, &mut emit, &mut funcs_src)?;
                 }
             }
         }
 
+        // Every closure — nested functions, at any depth — is emitted as a
+        // `c_`/`cb_` pair. Ordered by id for stable output.
+        let mut closures: Vec<&FnInfo> = analysis
+            .fn_info
+            .values()
+            .filter(|info| info.kind == FnKind::Closure)
+            .collect();
+        closures.sort_by_key(|info| info.fn_id);
+        for info in closures {
+            self.closure(info, &mut emit, &mut funcs_src)?;
+        }
+
         let dispatcher = self.dispatcher(&classes, emit.uses_method_call.get());
+        let fn_dispatcher = self.function_dispatcher(&emit);
 
         let mut out = String::new();
         out.push_str("#![allow(warnings)]\n");
@@ -313,6 +414,7 @@ impl Codegen {
 
         out.push_str(&funcs_src);
         out.push_str(&dispatcher);
+        out.push_str(&fn_dispatcher);
         Ok(out)
     }
 
@@ -329,19 +431,15 @@ impl Codegen {
     }
 
     /// Emit a top-level function as an `f_`/`b_` wrapper + body pair.
-    fn function(
-        &self,
-        name: &str,
-        params: &[String],
-        body: &[Stmt],
-        emit: &mut Emit,
-        out: &mut String,
-    ) -> Result<(), Diagnostic> {
-        self.callable(
-            &format!("{FUNC_PREFIX}{name}"),
-            &format!("{FUNC_BODY_PREFIX}{name}"),
-            params,
-            body,
+    fn function(&self, span: Span, emit: &mut Emit, out: &mut String) -> Result<(), Diagnostic> {
+        let info = self.fn_info(emit, span);
+        self.emit_callable(
+            &format!("{FUNC_PREFIX}{}", info.name),
+            &format!("{FUNC_BODY_PREFIX}{}", info.name),
+            &[],
+            &info.params,
+            &info.body,
+            &info.cell_names,
             emit,
             out,
         )
@@ -352,44 +450,84 @@ impl Codegen {
     fn method(
         &self,
         class: &Class,
-        name: &str,
-        params: &[String],
-        body: &[Stmt],
+        span: Span,
         emit: &mut Emit,
         out: &mut String,
     ) -> Result<(), Diagnostic> {
-        let mut with_self = Vec::with_capacity(params.len() + 1);
-        with_self.push("self".to_string());
-        with_self.extend(params.iter().cloned());
-        self.callable(
-            &format!("{METHOD_PREFIX}{}_{name}", class.id),
-            &format!("{METHOD_BODY_PREFIX}{}_{name}", class.id),
-            &with_self,
-            body,
+        let info = self.fn_info(emit, span);
+        // `params` already carries `self` first (added during analysis).
+        self.emit_callable(
+            &format!("{METHOD_PREFIX}{}_{}", class.id, info.name),
+            &format!("{METHOD_BODY_PREFIX}{}_{}", class.id, info.name),
+            &[],
+            &info.params,
+            &info.body,
+            &info.cell_names,
             emit,
             out,
         )
     }
 
+    /// Emit a nested function as a `c_`/`cb_` pair, taking its captured cells as
+    /// leading parameters.
+    fn closure(&self, info: &FnInfo, emit: &mut Emit, out: &mut String) -> Result<(), Diagnostic> {
+        let id = info.fn_id.expect("compiler bug: closure without an id");
+        self.emit_callable(
+            &format!("{CLOSURE_PREFIX}{id}"),
+            &format!("{CLOSURE_BODY_PREFIX}{id}"),
+            &info.captures,
+            &info.params,
+            &info.body,
+            &info.cell_names,
+            emit,
+            out,
+        )
+    }
+
+    /// Look up a definition's capture analysis by its span. Cloned because the
+    /// borrow would otherwise conflict with mutating `emit` while emitting.
+    fn fn_info(&self, emit: &Emit, span: Span) -> FnInfoView {
+        let info = emit
+            .analysis
+            .fn_info
+            .get(&span)
+            .expect("compiler bug: definition was not analyzed");
+        FnInfoView {
+            name: info.name.clone(),
+            params: info.params.clone(),
+            body: info.body.clone(),
+            captures: info.captures.clone(),
+            cell_names: info.cell_names.clone(),
+        }
+    }
+
     /// Emit a wrapper + body pair. The wrapper counts the call against the
     /// recursion limit and undoes it on every exit path — even a `?` inside the
-    /// body — because `exit_call` runs after the body returns.
-    fn callable(
+    /// body — because `exit_call` runs after the body returns. Captured cells lead
+    /// the parameter list; any local a nested closure captures becomes a `Cell`.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_callable(
         &self,
         wrapper_name: &str,
         body_name: &str,
+        captures: &[String],
         params: &[String],
         body: &[Stmt],
+        cell_names: &HashSet<String>,
         emit: &mut Emit,
         out: &mut String,
     ) -> Result<(), Diagnostic> {
-        let wrapper_params = signature(params, false);
+        let wrapper_params = signature(captures, params, false);
         out.push_str(&format!(
             "\nfn {wrapper_name}({wrapper_params}) -> DogeResult<Value> {{\n"
         ));
         out.push_str("    enter_call(&mut env.depth)?;\n");
         let call_args = {
-            let mut v: Vec<String> = params.iter().map(|p| format!("{NAME_PREFIX}{p}")).collect();
+            let mut v: Vec<String> = captures
+                .iter()
+                .chain(params.iter())
+                .map(|p| format!("{NAME_PREFIX}{p}"))
+                .collect();
             v.push("env".to_string());
             v.join(", ")
         };
@@ -398,25 +536,51 @@ impl Codegen {
         out.push_str("    result\n");
         out.push_str("}\n");
 
-        let body_params = signature(params, true);
+        let body_params = signature(captures, params, true);
         out.push_str(&format!(
             "\nfn {body_name}({body_params}) -> DogeResult<Value> {{\n"
         ));
 
-        // The callable's locals are its params plus every name it hoists. Params
-        // are already bound by the signature, so only the rest get a `let`.
-        let hoisted = hoisted_names(body);
-        let mut locals: HashSet<String> = params.iter().cloned().collect();
-        for local in &hoisted {
-            if !params.iter().any(|p| p == local) {
+        let mut locals: HashMap<String, Local> = HashMap::new();
+        // Captured cells arrive already shared, as `Cell` parameters.
+        for name in captures {
+            locals.insert(name.clone(), Local::Cell);
+        }
+        // A value parameter a nested closure captures is rebound to a fresh cell.
+        for param in params {
+            if cell_names.contains(param) {
                 out.push_str(&format!(
-                    "    let mut {NAME_PREFIX}{local}: Value = Value::None;\n"
+                    "    let {NAME_PREFIX}{param} = Rc::new(RefCell::new({NAME_PREFIX}{param}));\n"
                 ));
+                locals.insert(param.clone(), Local::Cell);
+            } else {
+                locals.insert(param.clone(), Local::Plain);
             }
-            locals.insert(local.clone());
+        }
+        // Body-hoisted names (including nested-function names) get a fresh binding:
+        // a `Cell` when captured or a function name, otherwise a plain `Value`.
+        for name in hoisted_names(body) {
+            if params.iter().any(|p| p == &name) {
+                continue;
+            }
+            if cell_names.contains(&name) {
+                out.push_str(&format!(
+                    "    let {NAME_PREFIX}{name}: Cell = Rc::new(RefCell::new(Value::None));\n"
+                ));
+                locals.insert(name, Local::Cell);
+            } else {
+                out.push_str(&format!(
+                    "    let mut {NAME_PREFIX}{name}: Value = Value::None;\n"
+                ));
+                locals.insert(name, Local::Plain);
+            }
         }
 
         emit.locals = locals;
+        emit.local_funcs = child_funcdefs(body)
+            .into_iter()
+            .map(|(name, params, _, _)| (name.to_string(), params.to_vec()))
+            .collect();
         emit.try_stack.clear();
         emit.loop_stack.clear();
         for stmt in body {
@@ -433,7 +597,7 @@ impl Codegen {
     /// the fail suffix, so the `?` on `init` here is correct.
     fn constructor(&self, class: &Class, out: &mut String) {
         let init_params = class.init_params();
-        let ctor_params = signature(init_params, false);
+        let ctor_params = signature(&[], init_params, false);
         out.push_str(&format!(
             "\nfn {CTOR_PREFIX}{}({ctor_params}) -> DogeResult<Value> {{\n",
             class.id
@@ -501,6 +665,124 @@ impl Codegen {
         out
     }
 
+    /// The `call_function` dispatcher: one arm per materialized `fn_id`, each
+    /// checking arity before calling the target — a user function's
+    /// recursion-guarded wrapper, or a builtin/module function directly. Emitted
+    /// only when the script calls something through a value.
+    fn function_dispatcher(&self, emit: &Emit) -> String {
+        if !emit.uses_call_function.get() {
+            return String::new();
+        }
+        let mut ids: Vec<u32> = emit.materialized.borrow().iter().copied().collect();
+        ids.sort_unstable();
+
+        let mut out = String::new();
+        out.push_str(
+            "\nfn call_function(f: &FunctionData, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {\n",
+        );
+        out.push_str("    match f.fn_id {\n");
+        for id in ids {
+            let arm = &emit.analysis.registry[id as usize];
+            out.push_str(&self.function_arm(id, arm));
+        }
+        // Unreachable for any value the runtime built, since `callee_function`
+        // rejects non-functions before dispatch — but keep it non-panicking.
+        out.push_str(
+            "        _ => Err(DogeError::type_error(\"very confuse. much function.\")),\n",
+        );
+        out.push_str("    }\n");
+        out.push_str("}\n");
+        out
+    }
+
+    /// One arm of the `call_function` dispatcher for a given `fn_id`.
+    fn function_arm(&self, id: u32, arm: &ArmSpec) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("        {id}u32 => {{\n"));
+        match arm {
+            ArmSpec::TopFunc { name, arity } => {
+                out.push_str(&Self::arity_guard(name, *arity));
+                let mut call_args: Vec<String> =
+                    (0..*arity).map(|_| "args.remove(0)".into()).collect();
+                call_args.push("&mut *env".into());
+                out.push_str(&format!(
+                    "            {FUNC_PREFIX}{name}({})\n",
+                    call_args.join(", ")
+                ));
+            }
+            ArmSpec::Closure {
+                name,
+                id,
+                arity,
+                captures,
+            } => {
+                out.push_str(&Self::arity_guard(name, *arity));
+                let mut call_args: Vec<String> = (0..*captures)
+                    .map(|i| format!("f.captures[{i}].clone()"))
+                    .collect();
+                call_args.extend((0..*arity).map(|_| "args.remove(0)".into()));
+                call_args.push("&mut *env".into());
+                out.push_str(&format!(
+                    "            {CLOSURE_PREFIX}{id}({})\n",
+                    call_args.join(", ")
+                ));
+            }
+            ArmSpec::Builtin { name } => out.push_str(&self.builtin_arm(name)),
+            ArmSpec::Module {
+                name,
+                runtime_fn,
+                arity,
+            } => {
+                out.push_str(&Self::arity_guard(name, *arity));
+                let call_args: Vec<String> =
+                    (0..*arity).map(|_| "&args.remove(0)".into()).collect();
+                out.push_str(&format!(
+                    "            {runtime_fn}({})\n",
+                    call_args.join(", ")
+                ));
+            }
+        }
+        out.push_str("        }\n");
+        out
+    }
+
+    /// The runtime arity check that opens a dispatcher arm.
+    fn arity_guard(name: &str, arity: usize) -> String {
+        format!(
+            "            if args.len() != {arity} {{ return Err(function_arity_error(\"{}\", {arity}, args.len())); }}\n",
+            escape_str(name)
+        )
+    }
+
+    /// The body of a builtin dispatcher arm, honoring each builtin's own signature
+    /// (some are infallible, `range` takes one or two arguments).
+    fn builtin_arm(&self, name: &str) -> String {
+        match name {
+            "len" => format!(
+                "{}            len(&args.remove(0))\n",
+                Self::arity_guard("len", 1)
+            ),
+            "str" => format!(
+                "{}            Ok(to_str(&args.remove(0)))\n",
+                Self::arity_guard("str", 1)
+            ),
+            "int" => format!(
+                "{}            to_int(&args.remove(0))\n",
+                Self::arity_guard("int", 1)
+            ),
+            "float" => format!(
+                "{}            to_float(&args.remove(0))\n",
+                Self::arity_guard("float", 1)
+            ),
+            "range" => {
+                // `range` accepts one argument (0..n) or two (a..b).
+                "            if args.len() != 1 && args.len() != 2 { return Err(function_arity_error(\"range\", 2, args.len())); }\n\
+                 \x20           if args.len() == 1 { range(&Value::Int(0i64), &args.remove(0)) } else { range(&args.remove(0), &args.remove(0)) }\n".to_string()
+            }
+            _ => unreachable!("compiler bug: unknown builtin in dispatcher"),
+        }
+    }
+
     fn stmt(
         &self,
         stmt: &Stmt,
@@ -513,16 +795,15 @@ impl Codegen {
         match stmt {
             Stmt::Decl { name, expr, .. } | Stmt::ConstDecl { name, expr, .. } => {
                 let value = self.expr(expr, emit)?;
-                let dest = self.resolve_binding(emit, name);
-                out.push_str(&format!("{pad}{dest} = {value};\n"));
+                out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
             }
             Stmt::Assign {
                 target, expr, span, ..
             } => match target {
                 Expr::Ident { name, .. } => {
                     let value = self.expr(expr, emit)?;
-                    let dest = self.resolve_write(emit, name, *span)?;
-                    out.push_str(&format!("{pad}{dest} = {value};\n"));
+                    self.check_writable(emit, name, *span)?;
+                    out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
                 }
                 Expr::Index { obj, index, .. } => {
                     let call = format!(
@@ -593,8 +874,7 @@ impl Codegen {
                 out.push_str(&format!("{pad}'l{label}: for item in {iter_call} {{\n"));
                 emit.loop_stack.push(label);
                 let inner = "    ".repeat(level + 1);
-                let dest = self.resolve_binding(emit, var);
-                out.push_str(&format!("{inner}{dest} = item;\n"));
+                out.push_str(&format!("{inner}{}\n", self.emit_bind(emit, var, "item")));
                 for s in body {
                     self.stmt(s, level + 1, emit, out)?;
                 }
@@ -638,8 +918,10 @@ impl Codegen {
                 out.push_str(&format!("{inner}Ok(())\n"));
                 out.push_str(&format!("{pad}}};\n"));
                 out.push_str(&format!("{pad}if let Err(e) = attempt{label} {{\n"));
-                let dest = self.resolve_binding(emit, err_name);
-                out.push_str(&format!("{inner}{dest} = error_value(&e);\n"));
+                out.push_str(&format!(
+                    "{inner}{}\n",
+                    self.emit_bind(emit, err_name, "error_value(&e)")
+                ));
                 for s in handler {
                     self.stmt(s, level + 1, emit, out)?;
                 }
@@ -678,8 +960,26 @@ impl Codegen {
             Stmt::ExprStmt { expr } => {
                 out.push_str(&format!("{pad}let _ = {};\n", self.expr(expr, emit)?));
             }
-            Stmt::FuncDef { span, .. } => {
-                return Err(self.unsupported(*span, Unsupported::NestedFuncDef))
+            Stmt::FuncDef { name, span, .. } => {
+                let info = self.fn_info(emit, *span);
+                let id = emit
+                    .analysis
+                    .fn_info
+                    .get(span)
+                    .and_then(|i| i.fn_id)
+                    .expect("compiler bug: nested function without an id");
+                emit.materialized.borrow_mut().insert(id);
+                let caps: Vec<String> = info
+                    .captures
+                    .iter()
+                    .map(|c| format!("{NAME_PREFIX}{c}.clone()"))
+                    .collect();
+                let value = format!(
+                    "Value::function({id}u32, \"{}\", vec![{}])",
+                    escape_str(name),
+                    caps.join(", ")
+                );
+                out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
             }
             Stmt::Import { module, span } => {
                 return Err(self
@@ -697,48 +997,70 @@ impl Codegen {
         Ok(())
     }
 
-    /// The Rust place a name is *bound* to: a local, or an `Env` field. Binding
-    /// a fresh name (a `such`, a loop variable, a caught error) never clashes
-    /// with a function — the checker guarantees top-level names are distinct.
-    fn resolve_binding(&self, emit: &Emit, name: &str) -> String {
-        if emit.locals.contains(name) {
-            format!("{NAME_PREFIX}{name}")
-        } else {
-            format!("env.{NAME_PREFIX}{name}")
+    /// A binding statement `name = value` (or the equivalent cell/env write). A
+    /// `Cell` local is written through `cell_set`; a plain local or an `Env` field
+    /// is a direct assignment.
+    fn emit_bind(&self, emit: &Emit, name: &str, value: &str) -> String {
+        match emit.locals.get(name) {
+            Some(Local::Cell) => format!("cell_set(&{NAME_PREFIX}{name}, {value});"),
+            Some(Local::Plain) => format!("{NAME_PREFIX}{name} = {value};"),
+            None => format!("env.{NAME_PREFIX}{name} = {value};"),
         }
     }
 
-    /// The Rust place an *assignment* writes to. Reassigning a function name is a
-    /// real error: a function is a fixed binding, not a variable.
-    fn resolve_write(&self, emit: &Emit, name: &str, span: Span) -> Result<String, Diagnostic> {
-        if emit.locals.contains(name) {
-            Ok(format!("{NAME_PREFIX}{name}"))
-        } else if emit.funcs.contains_key(name) {
-            Err(self
+    /// Verify an assignment target name is writable: a function, class, or module
+    /// name is a fixed binding, not a variable.
+    fn check_writable(&self, emit: &Emit, name: &str, span: Span) -> Result<(), Diagnostic> {
+        if emit.local_funcs.contains_key(name) {
+            return Err(self
                 .diag(
                     span,
                     format!("{name} is a function — it cannot be reassigned"),
                 )
                 .with_headline("very function. much fixed.")
-                .with_hint("pick a different variable name"))
-        } else if emit.class(name).is_some() {
-            Err(self
+                .with_hint("pick a different variable name"));
+        }
+        if emit.locals.contains_key(name) {
+            return Ok(());
+        }
+        if emit.funcs.contains_key(name) {
+            return Err(self
+                .diag(
+                    span,
+                    format!("{name} is a function — it cannot be reassigned"),
+                )
+                .with_headline("very function. much fixed.")
+                .with_hint("pick a different variable name"));
+        }
+        if emit.class(name).is_some() {
+            return Err(self
                 .diag(
                     span,
                     format!("{name} is an object definition — it cannot be reassigned"),
                 )
                 .with_headline("very object. much fixed.")
-                .with_hint("pick a different variable name"))
-        } else if emit.module(name).is_some() {
-            Err(self
+                .with_hint("pick a different variable name"));
+        }
+        if emit.module(name).is_some() {
+            return Err(self
                 .diag(
                     span,
                     format!("{name} is a module — it cannot be reassigned"),
                 )
                 .with_headline("very module. much fixed.")
-                .with_hint("pick a different variable name"))
-        } else {
-            Ok(format!("env.{NAME_PREFIX}{name}"))
+                .with_hint("pick a different variable name"));
+        }
+        Ok(())
+    }
+
+    /// The Rust expression that reads a name currently in scope: a plain local
+    /// clones, a `Cell` local reads through `cell_get`, and anything else is an
+    /// `Env` field.
+    fn resolve_read(&self, emit: &Emit, name: &str) -> String {
+        match emit.locals.get(name) {
+            Some(Local::Cell) => format!("cell_get(&{NAME_PREFIX}{name})"),
+            Some(Local::Plain) => format!("{NAME_PREFIX}{name}.clone()"),
+            None => format!("env.{NAME_PREFIX}{name}.clone()"),
         }
     }
 
@@ -764,10 +1086,16 @@ impl Codegen {
             Expr::Bool { value, .. } => Ok(format!("Value::Bool({value})")),
             Expr::None { .. } => Ok("Value::None".to_string()),
             Expr::Ident { name, span } => {
-                if emit.locals.contains(name) {
-                    Ok(format!("{NAME_PREFIX}{name}.clone()"))
-                } else if emit.funcs.contains_key(name) || BUILTINS.contains(&name.as_str()) {
-                    Err(self.unsupported(*span, Unsupported::FuncAsValue(name.clone())))
+                if emit.locals.contains_key(name) {
+                    // A nested-function name is a `Cell` holding its function
+                    // value, so reading it yields that value — no special case.
+                    Ok(self.resolve_read(emit, name))
+                } else if let Some(id) = emit.func_value_id(name) {
+                    emit.materialized.borrow_mut().insert(id);
+                    Ok(format!(
+                        "Value::function({id}u32, \"{}\", vec![])",
+                        escape_str(name)
+                    ))
                 } else if emit.class(name).is_some() {
                     Err(self.unsupported(*span, Unsupported::ClassAsValue(name.clone())))
                 } else if let Some(module) = emit.module(name) {
@@ -821,17 +1149,18 @@ impl Codegen {
             }
             Expr::Call { callee, args, span } => self.call(callee, args, *span, emit),
             Expr::Attr { obj, name, span } => {
-                // `module.member` as a value: a const inlines, a function is an
-                // M6 first-class value, an unknown member is a real error.
+                // `module.member` as a value: a const inlines, a function becomes
+                // a first-class function value, an unknown member is a real error.
                 if let Expr::Ident { name: base, .. } = obj.as_ref() {
                     if let Some(module) = emit.module(base) {
                         if let Some(const_expr) = module.const_expr(name) {
                             return Ok(const_expr.to_string());
                         }
                         if module.func(name).is_some() {
-                            return Err(self.unsupported(
-                                *span,
-                                Unsupported::ModuleFuncAsValue(format!("{base}.{name}")),
+                            let id = emit.analysis.module_fn_ids[&(base.clone(), name.clone())];
+                            emit.materialized.borrow_mut().insert(id);
+                            return Ok(format!(
+                                "Value::function({id}u32, \"{base}.{name}\", vec![])"
                             ));
                         }
                         return Err(self.unknown_member(base, name, module, *span));
@@ -905,35 +1234,47 @@ impl Codegen {
         emit: &Emit,
     ) -> Result<String, Diagnostic> {
         match callee {
-            Expr::Ident { name, .. } if BUILTINS.contains(&name.as_str()) => {
-                self.builtin_call(name, args, span, emit)
-            }
-            Expr::Ident { name, .. } if emit.funcs.contains_key(name) => {
-                let params = &emit.funcs[name];
-                self.check_user_arity(name, params, args, span)?;
-                let mut parts = Vec::with_capacity(args.len() + 1);
-                for arg in args {
-                    parts.push(self.expr(arg, emit)?);
+            Expr::Ident { name, .. } => {
+                // A local shadows every other meaning — call through its value. A
+                // known nested function still gets a compile-time arity check.
+                if emit.locals.contains_key(name) {
+                    if let Some(params) = emit.local_funcs.get(name) {
+                        self.check_user_arity(name, params, args, span)?;
+                    }
+                    let callee_val = self.resolve_read(emit, name);
+                    return self.indirect_call(&callee_val, args, emit);
                 }
-                parts.push("&mut *env".to_string());
-                let call = format!("{FUNC_PREFIX}{name}({})", parts.join(", "));
-                Ok(self.fail(emit, call))
-            }
-            // `Shibe(...)` — a constructor. Resolves statically: arity is checked
-            // against `init` here, and the instance is built by `n_<id>`.
-            Expr::Ident { name, .. } if emit.class(name).is_some() => {
-                self.constructor_call(name, args, span, emit)
-            }
-            // A module name is not itself callable — you call one of its members.
-            Expr::Ident { name, .. } if emit.module(name).is_some() => {
-                let module = emit.module(name).expect("compiler bug: module vanished");
-                Err(self
-                    .diag(span, format!("{name} is a module, not a function"))
-                    .with_headline("very module. much confuse.")
-                    .with_hint(format!(
-                        "call a member — {name}.{}(…)",
-                        module.first_member()
-                    )))
+                if BUILTINS.contains(&name.as_str()) {
+                    return self.builtin_call(name, args, span, emit);
+                }
+                if emit.funcs.contains_key(name) {
+                    let params = &emit.funcs[name];
+                    self.check_user_arity(name, params, args, span)?;
+                    let mut parts = Vec::with_capacity(args.len() + 1);
+                    for arg in args {
+                        parts.push(self.expr(arg, emit)?);
+                    }
+                    parts.push("&mut *env".to_string());
+                    let call = format!("{FUNC_PREFIX}{name}({})", parts.join(", "));
+                    return Ok(self.fail(emit, call));
+                }
+                // `Shibe(...)` — a constructor, resolved statically.
+                if emit.class(name).is_some() {
+                    return self.constructor_call(name, args, span, emit);
+                }
+                // A module name is not itself callable — you call one of its members.
+                if let Some(module) = emit.module(name) {
+                    return Err(self
+                        .diag(span, format!("{name} is a module, not a function"))
+                        .with_headline("very module. much confuse.")
+                        .with_hint(format!(
+                            "call a member — {name}.{}(…)",
+                            module.first_member()
+                        )));
+                }
+                // A top-level variable holding a function value: call it indirectly.
+                let callee_val = format!("env.{NAME_PREFIX}{name}.clone()");
+                self.indirect_call(&callee_val, args, emit)
             }
             // `nerd.sqrt(16)` — a stdlib member call, when the base is a module.
             Expr::Attr { obj, name, .. } if matches!(obj.as_ref(), Expr::Ident { name: base, .. } if emit.module(base).is_some()) =>
@@ -959,8 +1300,36 @@ impl Codegen {
                 );
                 Ok(self.fail(emit, call))
             }
-            _ => Err(self.unsupported(span, Unsupported::CallIndirect)),
+            // Any other callee expression — `f()()`, `xs[0]()` — is called through
+            // the value it evaluates to.
+            _ => {
+                let callee_val = self.expr(callee, emit)?;
+                self.indirect_call(&callee_val, args, emit)
+            }
         }
+    }
+
+    /// Call a function *value*: type-check the callee, then dispatch through
+    /// `call_function`. Both steps are fallible and routed through [`Codegen::fail`].
+    fn indirect_call(
+        &self,
+        callee_val: &str,
+        args: &[Expr],
+        emit: &Emit,
+    ) -> Result<String, Diagnostic> {
+        emit.uses_call_function.set(true);
+        let mut arg_parts = Vec::with_capacity(args.len());
+        for arg in args {
+            arg_parts.push(self.expr(arg, emit)?);
+        }
+        // `&*` derefs the `Rc<FunctionData>` explicitly: relying on deref coercion
+        // through the `?` here trips rustc's expected-type propagation.
+        let func = self.fail(emit, format!("callee_function(&{callee_val})"));
+        let call = format!(
+            "call_function(&*{func}, vec![{}], &mut *env)",
+            arg_parts.join(", ")
+        );
+        Ok(self.fail(emit, call))
     }
 
     /// A constructor call `Shibe(args)`: static arity against `init`, then a
@@ -1150,30 +1519,48 @@ impl Codegen {
     }
 }
 
-/// Build a comma-joined parameter list ending in the shared `env`. `owned` adds
-/// `mut` so a body can reassign its parameters; the wrapper takes them plain.
-fn signature(params: &[String], owned: bool) -> String {
-    let mut parts: Vec<String> = params
+/// Build a comma-joined parameter list: captured cells first (always `Cell`),
+/// then value parameters, then the shared `env`. `owned` adds `mut` to value
+/// parameters so a body can reassign them; the wrapper takes them plain.
+fn signature(captures: &[String], params: &[String], owned: bool) -> String {
+    let mut parts: Vec<String> = captures
         .iter()
-        .map(|p| {
-            if owned {
-                format!("mut {NAME_PREFIX}{p}: Value")
-            } else {
-                format!("{NAME_PREFIX}{p}: Value")
-            }
-        })
+        .map(|c| format!("{NAME_PREFIX}{c}: Cell"))
         .collect();
+    parts.extend(params.iter().map(|p| {
+        if owned {
+            format!("mut {NAME_PREFIX}{p}: Value")
+        } else {
+            format!("{NAME_PREFIX}{p}: Value")
+        }
+    }));
     parts.push("env: &mut Env".to_string());
     parts.join(", ")
 }
 
-/// Every top-level bound name — `such`/`so` declarations, `for` loop variables,
-/// and `oh no` error names — in first-seen order, each once. These become the
-/// `Env` fields (or, per function, that function's hoisted locals). Function
-/// definitions are not descended into: their names belong to their own scope.
+/// Every bound name in one scope — `such`/`so` declarations, `for` loop
+/// variables, `oh no` error names, and nested function definitions — in
+/// first-seen order, each once. These become the scope's `Env` fields or hoisted
+/// locals. A nested function's own body is not descended into: its inner names
+/// belong to its own scope.
 pub(crate) fn hoisted_names(stmts: &[Stmt]) -> Vec<String> {
     let mut names = Vec::new();
     collect_hoisted(stmts, &mut names);
+    names
+}
+
+/// The top-level hoisted names for `Env` fields: like [`hoisted_names`] but a
+/// direct top-level `such name:` / `many Name:` is a static definition, not an
+/// `Env` field, so those direct definitions are skipped (a function nested inside
+/// a top-level `if`/`for` block is still a closure and does get a field).
+pub(crate) fn toplevel_hoisted(stmts: &[Stmt]) -> Vec<String> {
+    let mut names = Vec::new();
+    for stmt in stmts {
+        if matches!(stmt, Stmt::FuncDef { .. } | Stmt::ObjDef { .. }) {
+            continue;
+        }
+        collect_hoisted(std::slice::from_ref(stmt), &mut names);
+    }
     names
 }
 
@@ -1181,6 +1568,8 @@ fn collect_hoisted(stmts: &[Stmt], names: &mut Vec<String>) {
     for stmt in stmts {
         match stmt {
             Stmt::Decl { name, .. } | Stmt::ConstDecl { name, .. } => push_unique(names, name),
+            // A nested function binds its name in this scope; its body is its own.
+            Stmt::FuncDef { name, .. } => push_unique(names, name),
             Stmt::For { var, body, .. } => {
                 push_unique(names, var);
                 collect_hoisted(body, names);
@@ -1216,6 +1605,348 @@ fn collect_hoisted(stmts: &[Stmt], names: &mut Vec<String>) {
 fn push_unique(names: &mut Vec<String>, name: &str) {
     if !names.iter().any(|n| n == name) {
         names.push(name.to_string());
+    }
+}
+
+/// Every identifier referenced anywhere in an expression (attribute names are
+/// dynamic, not variables, so they are not collected).
+fn expr_idents(expr: &Expr, out: &mut HashSet<String>) {
+    match expr {
+        Expr::Ident { name, .. } => {
+            out.insert(name.clone());
+        }
+        Expr::List { items, .. } => {
+            for item in items {
+                expr_idents(item, out);
+            }
+        }
+        Expr::Dict { entries, .. } => {
+            for (key, value) in entries {
+                expr_idents(key, out);
+                expr_idents(value, out);
+            }
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            expr_idents(lhs, out);
+            expr_idents(rhs, out);
+        }
+        Expr::Unary { operand, .. } => expr_idents(operand, out),
+        Expr::Call { callee, args, .. } => {
+            expr_idents(callee, out);
+            for arg in args {
+                expr_idents(arg, out);
+            }
+        }
+        Expr::Index { obj, index, .. } => {
+            expr_idents(obj, out);
+            expr_idents(index, out);
+        }
+        Expr::Attr { obj, .. } => expr_idents(obj, out),
+        _ => {}
+    }
+}
+
+/// Names referenced in a body, plus the free names of every nested function it
+/// contains (which the enclosing scope must supply). Does not descend into a
+/// nested function's own body — that is folded in through its free set.
+fn collect_used(stmts: &[Stmt], used: &mut HashSet<String>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Decl { expr, .. }
+            | Stmt::ConstDecl { expr, .. }
+            | Stmt::Bark { expr, .. }
+            | Stmt::Bonk { expr, .. }
+            | Stmt::ExprStmt { expr } => expr_idents(expr, used),
+            Stmt::Assign { target, expr, .. } => {
+                expr_idents(target, used);
+                expr_idents(expr, used);
+            }
+            Stmt::If {
+                branches,
+                else_body,
+                ..
+            } => {
+                for (cond, body) in branches {
+                    expr_idents(cond, used);
+                    collect_used(body, used);
+                }
+                if let Some(body) = else_body {
+                    collect_used(body, used);
+                }
+            }
+            Stmt::For { iter, body, .. } => {
+                expr_idents(iter, used);
+                collect_used(body, used);
+            }
+            Stmt::While { cond, body, .. } => {
+                expr_idents(cond, used);
+                collect_used(body, used);
+            }
+            Stmt::Try { body, handler, .. } => {
+                collect_used(body, used);
+                collect_used(handler, used);
+            }
+            Stmt::Return {
+                expr: Some(expr), ..
+            } => expr_idents(expr, used),
+            Stmt::FuncDef { params, body, .. } => {
+                for name in free_names(params, body) {
+                    used.insert(name);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The names a function body references but does not bind — the names it needs
+/// from an enclosing scope (or that resolve to globals/builtins).
+fn free_names(params: &[String], body: &[Stmt]) -> HashSet<String> {
+    let mut bound: HashSet<String> = params.iter().cloned().collect();
+    for name in hoisted_names(body) {
+        bound.insert(name);
+    }
+    let mut used = HashSet::new();
+    collect_used(body, &mut used);
+    used.retain(|name| !bound.contains(name));
+    used
+}
+
+/// The nested functions defined directly in this scope — crossing `if`/`for`/
+/// `while`/`pls` blocks (names leak, Python-style) but never another function's
+/// body. Returns each `(name, params, body, span)`.
+fn child_funcdefs(stmts: &[Stmt]) -> Vec<(&str, &[String], &[Stmt], Span)> {
+    let mut out = Vec::new();
+    collect_child_funcdefs(stmts, &mut out);
+    out
+}
+
+fn collect_child_funcdefs<'a>(
+    stmts: &'a [Stmt],
+    out: &mut Vec<(&'a str, &'a [String], &'a [Stmt], Span)>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::FuncDef {
+                name,
+                params,
+                body,
+                span,
+            } => out.push((name, params, body, *span)),
+            Stmt::If {
+                branches,
+                else_body,
+                ..
+            } => {
+                for (_, body) in branches {
+                    collect_child_funcdefs(body, out);
+                }
+                if let Some(body) = else_body {
+                    collect_child_funcdefs(body, out);
+                }
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => collect_child_funcdefs(body, out),
+            Stmt::Try { body, handler, .. } => {
+                collect_child_funcdefs(body, out);
+                collect_child_funcdefs(handler, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The subset of a scope's own bound names that must be shared cells: every
+/// nested-function name, plus any local or parameter a nested closure captures.
+fn celled_locals(params: &[String], body: &[Stmt]) -> HashSet<String> {
+    let mut candidates: HashSet<String> = params.iter().cloned().collect();
+    for name in hoisted_names(body) {
+        candidates.insert(name);
+    }
+    let mut child_free: HashSet<String> = HashSet::new();
+    for (_, child_params, child_body, _) in child_funcdefs(body) {
+        for name in free_names(child_params, child_body) {
+            child_free.insert(name);
+        }
+    }
+    let funcnames: HashSet<&str> = child_funcdefs(body)
+        .iter()
+        .map(|(name, _, _, _)| *name)
+        .collect();
+    candidates
+        .into_iter()
+        .filter(|name| funcnames.contains(name.as_str()) || child_free.contains(name))
+        .collect()
+}
+
+/// State threaded through the recursive capture analysis.
+struct Analyzer {
+    fn_info: HashMap<Span, FnInfo>,
+    registry: Vec<ArmSpec>,
+    top_func_ids: HashMap<String, u32>,
+    next_id: u32,
+}
+
+impl Analyzer {
+    /// Analyze one function definition: record its capture info, assign its
+    /// dispatcher id, and recurse into its nested functions. `enclosing_cells`
+    /// are the cell names available in the enclosing frame. Returns this
+    /// function's own cell names, so the caller can pass them down.
+    fn analyze(
+        &mut self,
+        name: &str,
+        params: &[String],
+        body: &[Stmt],
+        span: Span,
+        kind: FnKind,
+        enclosing_cells: &HashSet<String>,
+    ) {
+        let free = free_names(params, body);
+        let mut captures: Vec<String> = free
+            .iter()
+            .filter(|n| enclosing_cells.contains(*n))
+            .cloned()
+            .collect();
+        captures.sort();
+
+        let mut cell_names = celled_locals(params, body);
+        cell_names.extend(captures.iter().cloned());
+
+        let fn_id = match kind {
+            FnKind::Method => None,
+            FnKind::TopLevel => {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.registry.push(ArmSpec::TopFunc {
+                    name: name.to_string(),
+                    arity: params.len(),
+                });
+                self.top_func_ids.insert(name.to_string(), id);
+                Some(id)
+            }
+            FnKind::Closure => {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.registry.push(ArmSpec::Closure {
+                    name: name.to_string(),
+                    id,
+                    arity: params.len(),
+                    captures: captures.len(),
+                });
+                Some(id)
+            }
+        };
+
+        self.fn_info.insert(
+            span,
+            FnInfo {
+                fn_id,
+                name: name.to_string(),
+                params: params.to_vec(),
+                body: body.to_vec(),
+                captures,
+                cell_names: cell_names.clone(),
+                kind,
+            },
+        );
+
+        for (child_name, child_params, child_body, child_span) in child_funcdefs(body) {
+            self.analyze(
+                child_name,
+                child_params,
+                child_body,
+                child_span,
+                FnKind::Closure,
+                &cell_names,
+            );
+        }
+    }
+}
+
+/// Walk the whole script and build the function analysis: capture info per
+/// definition, the dispatcher registry, and the name→id lookups. `import_order`
+/// lists the imported modules in source order so their function ids are stable.
+fn analyze_script(script: &Script, import_order: &[(String, &'static Module)]) -> Analysis {
+    let mut analyzer = Analyzer {
+        fn_info: HashMap::new(),
+        registry: Vec::new(),
+        top_func_ids: HashMap::new(),
+        next_id: 0,
+    };
+    let empty = HashSet::new();
+
+    // Direct top-level functions: static, never capture.
+    for stmt in &script.stmts {
+        if let Stmt::FuncDef {
+            name,
+            params,
+            body,
+            span,
+        } = stmt
+        {
+            analyzer.analyze(name, params, body, *span, FnKind::TopLevel, &empty);
+        }
+    }
+    // Object methods: `self` is a bound local; a nested closure may capture it.
+    for stmt in &script.stmts {
+        if let Stmt::ObjDef { methods, .. } = stmt {
+            for method in methods {
+                if let Stmt::FuncDef {
+                    name,
+                    params,
+                    body,
+                    span,
+                } = method
+                {
+                    let mut with_self = Vec::with_capacity(params.len() + 1);
+                    with_self.push("self".to_string());
+                    with_self.extend(params.iter().cloned());
+                    analyzer.analyze(name, &with_self, body, *span, FnKind::Method, &empty);
+                }
+            }
+        }
+    }
+    // Functions nested inside a top-level block: closures whose enclosing scope is
+    // `run`, which holds no cells — so they capture nothing.
+    for stmt in &script.stmts {
+        if matches!(
+            stmt,
+            Stmt::If { .. } | Stmt::For { .. } | Stmt::While { .. } | Stmt::Try { .. }
+        ) {
+            for (name, params, body, span) in child_funcdefs(std::slice::from_ref(stmt)) {
+                analyzer.analyze(name, params, body, span, FnKind::Closure, &empty);
+            }
+        }
+    }
+
+    // Builtins as first-class values, then imported module functions. Their ids
+    // follow every user function so user ids stay stable across imports.
+    let mut builtin_ids = HashMap::new();
+    for builtin in BUILTINS {
+        let id = analyzer.next_id;
+        analyzer.next_id += 1;
+        analyzer.registry.push(ArmSpec::Builtin { name: builtin });
+        builtin_ids.insert(*builtin, id);
+    }
+    let mut module_fn_ids = HashMap::new();
+    for (module_name, module) in import_order {
+        for func in module.funcs {
+            let id = analyzer.next_id;
+            analyzer.next_id += 1;
+            analyzer.registry.push(ArmSpec::Module {
+                name: format!("{module_name}.{}", func.name),
+                runtime_fn: func.runtime_fn,
+                arity: func.arity,
+            });
+            module_fn_ids.insert((module_name.clone(), func.name.to_string()), id);
+        }
+    }
+
+    Analysis {
+        fn_info: analyzer.fn_info,
+        registry: analyzer.registry,
+        top_func_ids: analyzer.top_func_ids,
+        builtin_ids,
+        module_fn_ids,
     }
 }
 
@@ -1488,33 +2219,80 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
     }
 
     #[test]
-    fn function_as_value_lands_m6() {
-        let err = gen("such greet:\n    bark 1\nwow\nsuch g = greet\nwow\n").unwrap_err();
-        assert_eq!(err.headline, "very soon. much roadmap.");
-        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    fn function_as_value_constructs_a_function_value() {
+        let out = gen("such greet:\n    bark 1\nwow\nsuch g = greet\nwow\n").unwrap();
+        // A top-level function name used as a value builds a `Value::function`.
+        assert!(out.contains("env.v_g = Value::function(0u32, \"greet\", vec![]);"));
     }
 
     #[test]
-    fn builtin_as_value_lands_m6() {
+    fn builtin_as_value_constructs_a_function_value() {
         // `bark len` — a bare builtin name used as a value.
-        let err = gen("bark len\nwow\n").unwrap_err();
-        assert_eq!(err.headline, "very soon. much roadmap.");
-        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+        let out = gen("bark len\nwow\n").unwrap();
+        assert!(out.contains("Value::function(0u32, \"len\", vec![])"));
     }
 
     #[test]
-    fn indirect_call_lands_m6() {
-        let err = gen("such x = 1\nx()\nwow\n").unwrap_err();
-        assert_eq!(err.headline, "very soon. much roadmap.");
-        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    fn indirect_call_goes_through_the_dispatcher() {
+        let out = gen("such x = 1\nx()\nwow\n").unwrap();
+        assert!(
+            out.contains("call_function(&*callee_function(&env.v_x.clone())?, vec![], &mut *env)?")
+        );
+        assert!(out.contains("fn call_function(f: &FunctionData"));
     }
 
     #[test]
-    fn nested_funcdef_lands_m6() {
-        let err =
-            gen("such outer:\n    such inner:\n        bark 1\n    wow\nwow\nwow\n").unwrap_err();
-        assert_eq!(err.headline, "very soon. much roadmap.");
-        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    fn nested_funcdef_becomes_a_closure() {
+        let out = gen("such outer:\n    such inner:\n        bark 1\n    wow\nwow\nwow\n").unwrap();
+        // The nested name is a hoisted cell, set to a closure value; the closure
+        // body is emitted as a `c_`/`cb_` pair.
+        assert!(out.contains("let v_inner: Cell = Rc::new(RefCell::new(Value::None));"));
+        assert!(out.contains("cell_set(&v_inner, Value::function(1u32, \"inner\", vec![]));"));
+        assert!(out.contains("fn c_1(env: &mut Env)"));
+        assert!(out.contains("fn cb_1(env: &mut Env)"));
+    }
+
+    #[test]
+    fn closure_captures_an_enclosing_variable() {
+        // `bump` reads and writes `count`, which becomes a shared cell in `outer`.
+        let out = gen(
+            "such outer:\n    such count = 0\n    such bump:\n        very count = count + 1\n        return count\n    wow\n    return bump()\nwow\nwow\n",
+        )
+        .unwrap();
+        assert!(out.contains("let v_count: Cell = Rc::new(RefCell::new(Value::None));"));
+        // The closure receives `count` as a leading cell parameter.
+        assert!(out.contains("fn cb_1(v_count: Cell, env: &mut Env)"));
+        assert!(out.contains("cell_set(&v_count, add(cell_get(&v_count), Value::Int(1i64))?);"));
+        // Construction threads the shared cell into the function value.
+        assert!(out.contains(
+            "cell_set(&v_bump, Value::function(1u32, \"bump\", vec![v_count.clone()]));"
+        ));
+    }
+
+    #[test]
+    fn direct_nested_call_keeps_compile_time_arity() {
+        let err = gen(
+            "such outer:\n    such add2 much a, b:\n        return a + b\n    wow\n    return add2(1)\nwow\nwow\n",
+        )
+        .unwrap_err();
+        assert_eq!(err.headline, "very args. much wrong.");
+        assert_eq!(err.message, "add2 takes 2 arguments, got 1");
+    }
+
+    #[test]
+    fn reassigning_a_nested_function_is_an_error() {
+        let err = gen(
+            "such outer:\n    such inner:\n        bark 1\n    wow\n    very inner = 5\nwow\nwow\n",
+        )
+        .unwrap_err();
+        assert_eq!(err.headline, "very function. much fixed.");
+    }
+
+    #[test]
+    fn module_func_as_value_constructs_a_function_value() {
+        let out = gen("so nerd\nsuch s = nerd.sqrt\nwow\n").unwrap();
+        assert!(out.contains("Value::function("));
+        assert!(out.contains("\"nerd.sqrt\", vec![]"));
     }
 
     #[test]
@@ -1578,11 +2356,11 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
     }
 
     #[test]
-    fn module_func_as_value_lands_m6() {
-        let err = gen("so nerd\nbark nerd.sqrt\nwow\n").unwrap_err();
-        assert_eq!(err.headline, "very soon. much roadmap.");
-        assert!(err.message.contains("nerd.sqrt is a function"));
-        assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    fn bare_module_func_is_a_value() {
+        // `bark nerd.sqrt` prints the function value rather than erroring.
+        let out = gen("so nerd\nbark nerd.sqrt\nwow\n").unwrap();
+        assert!(out.contains("Value::function("));
+        assert!(out.contains("\"nerd.sqrt\", vec![]"));
     }
 
     #[test]

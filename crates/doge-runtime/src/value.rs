@@ -2,6 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// A shared, mutable binding cell. Closures capture enclosing variables by
+/// sharing these: a `such`/param captured by a nested function becomes a `Cell`,
+/// so a reassignment on either side is visible to the other.
+pub type Cell = Rc<RefCell<Value>>;
+
 /// A dynamically typed Doge value.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -13,6 +18,18 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>),
     Dict(Rc<RefCell<HashMap<String, Value>>>),
     Object(Rc<RefCell<ObjectData>>),
+    Function(Rc<FunctionData>),
+}
+
+/// A first-class function value: which compiled function it is (`fn_id`, matched
+/// by the generated `call_function` dispatcher), the name it prints and errors
+/// under, and the cells it captured from its enclosing scope. Two function values
+/// are equal only when they share both the definition and the captured cells.
+#[derive(Debug)]
+pub struct FunctionData {
+    pub fn_id: u32,
+    pub name: Rc<str>,
+    pub captures: Vec<Cell>,
 }
 
 /// The innards of a `many Name:` instance: which class it is (a compile-time id
@@ -51,6 +68,17 @@ impl Value {
         })))
     }
 
+    /// Build a first-class function value with `fn_id`, display `name`, and the
+    /// captured `captures` cells (empty for a top-level function or a closure that
+    /// captures nothing).
+    pub fn function(fn_id: u32, name: &str, captures: Vec<Cell>) -> Value {
+        Value::Function(Rc::new(FunctionData {
+            fn_id,
+            name: Rc::from(name),
+            captures,
+        }))
+    }
+
     /// Build a `Dict` from key/value pairs evaluated by a dict literal. Every
     /// key must be a `Str`; anything else is a catchable type error. Pairs are
     /// inserted in order, so when a key repeats the last entry wins.
@@ -84,6 +112,7 @@ impl Value {
             Value::List(items) => !items.borrow().is_empty(),
             Value::Dict(entries) => !entries.borrow().is_empty(),
             Value::Object(_) => true,
+            Value::Function(_) => true,
         }
     }
 
@@ -98,6 +127,7 @@ impl Value {
             Value::List(_) => "List",
             Value::Dict(_) => "Dict",
             Value::Object(_) => "Object",
+            Value::Function(_) => "Function",
         }
     }
 
@@ -133,6 +163,8 @@ mod tests {
         assert!(!Value::dict(HashMap::new()).truthy());
         // An object is always truthy, even with no fields.
         assert!(Value::object(0, "Shibe").truthy());
+        // A function is always truthy.
+        assert!(Value::function(0, "greet", vec![]).truthy());
     }
 
     #[test]
@@ -145,6 +177,7 @@ mod tests {
         assert_eq!(Value::list(vec![]).type_name(), "List");
         assert_eq!(Value::dict(HashMap::new()).type_name(), "Dict");
         assert_eq!(Value::object(0, "Shibe").type_name(), "Object");
+        assert_eq!(Value::function(0, "greet", vec![]).type_name(), "Function");
     }
 
     #[test]

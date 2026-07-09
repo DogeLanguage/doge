@@ -1,5 +1,5 @@
 /// A 1-based source position pointing at the first character of a token.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub line: u32,
     pub col: u32,

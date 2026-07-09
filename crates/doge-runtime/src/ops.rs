@@ -172,6 +172,17 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         }
         // Objects are equal only when they are the very same instance.
         (Value::Object(x), Value::Object(y)) => Rc::ptr_eq(x, y),
+        // Functions are equal when they share a definition and the very same
+        // captured cells: `greet == greet` holds, but two closures built from the
+        // same definition over different environments do not.
+        (Value::Function(x), Value::Function(y)) => {
+            x.fn_id == y.fn_id
+                && x.captures.len() == y.captures.len()
+                && x.captures
+                    .iter()
+                    .zip(y.captures.iter())
+                    .all(|(p, q)| Rc::ptr_eq(p, q))
+        }
         _ => false,
     }
 }

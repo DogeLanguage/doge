@@ -1,0 +1,39 @@
+# such value. much function. wow first-class.
+
+such double much n:
+    return n * 2
+wow
+
+# A function stored in a variable and called through it.
+such d = double
+bark d(21)
+
+# A function passed as an argument to another function.
+such apply much f, x:
+    return f(x)
+wow
+
+bark apply(double, 21)
+
+# A builtin used as a value.
+such measure = len
+bark measure([1, 2, 3])
+
+# A stdlib module function used as a value.
+so nerd
+such root = nerd.sqrt
+bark root(16)
+
+# Calling a non-function is a catchable error.
+pls
+    such nope = 5
+    nope()
+oh no err!
+    bark err
+
+# A wrong argument count through a variable is caught at run time.
+pls
+    d(1, 2)
+oh no err!
+    bark err
+wow

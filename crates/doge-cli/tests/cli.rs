@@ -146,10 +146,26 @@ fn runtime_error_reports_path_and_line() {
 }
 
 #[test]
-fn bark_on_m6_feature_says_soon() {
-    // func_value.doge uses a bare function name as a value — first-class function
-    // values land in M6.
+fn bark_prints_a_function_value() {
+    // func_value.doge uses a bare function name as a value — now a first-class
+    // function that `bark` prints as `<function name>`.
     let fixture = cli_fixtures_dir().join("func_value.doge");
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(output.status.success(), "a function value runs cleanly");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert_eq!(stdout, "<function shout>\n");
+}
+
+#[test]
+fn bark_on_m6_feature_says_soon() {
+    // class_value.doge uses an object definition as a value — objects as values
+    // still land in M6.
+    let fixture = cli_fixtures_dir().join("class_value.doge");
     let output = doge_cached()
         .arg("bark")
         .arg(&fixture)

@@ -42,6 +42,7 @@ impl fmt::Display for Value {
                 write!(f, "{{{inner}}}")
             }
             Value::Object(o) => write!(f, "<{}>", o.borrow().class_name),
+            Value::Function(func) => write!(f, "<function {}>", func.name),
         }
     }
 }
@@ -77,5 +78,13 @@ mod tests {
     #[test]
     fn object_prints_its_class_in_angle_brackets() {
         assert_eq!(Value::object(0, "Shibe").to_string(), "<Shibe>");
+    }
+
+    #[test]
+    fn function_prints_its_name_in_angle_brackets() {
+        assert_eq!(
+            Value::function(0, "greet", vec![]).to_string(),
+            "<function greet>"
+        );
     }
 }

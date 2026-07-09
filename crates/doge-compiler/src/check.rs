@@ -130,13 +130,20 @@ impl Checker {
                 name, params, body, ..
             } => {
                 ctx.locals.insert(name.clone());
-                self.check_function(params, body, false)?;
+                // A nested function sees the enclosing function's locals; a
+                // top-level function only sees globals (added inside check_function).
+                let enclosing = if ctx.in_function {
+                    ctx.locals.clone()
+                } else {
+                    HashSet::new()
+                };
+                self.check_function(params, body, false, &enclosing)?;
             }
             Stmt::ObjDef { name, methods, .. } => {
                 ctx.locals.insert(name.clone());
                 for method in methods {
                     if let Stmt::FuncDef { params, body, .. } = method {
-                        self.check_function(params, body, true)?;
+                        self.check_function(params, body, true, &HashSet::new())?;
                     }
                 }
             }
@@ -188,7 +195,7 @@ impl Checker {
     /// hoisted variable/loop/error name. Within an object, method names must be
     /// unique too.
     fn check_unique_toplevel(&self, script: &Script) -> Result<(), Diagnostic> {
-        let hoisted = crate::codegen::hoisted_names(&script.stmts);
+        let hoisted = crate::codegen::toplevel_hoisted(&script.stmts);
         let hoisted: HashSet<&str> = hoisted.iter().map(String::as_str).collect();
 
         let mut seen: HashSet<&str> = HashSet::new();
@@ -247,19 +254,28 @@ impl Checker {
             .with_hint("pick a different name for the method")
     }
 
-    /// Check a function or method body in its own fresh scope.
+    /// Check a function or method body. Its scope starts from the enclosing
+    /// function's locals (empty for a top-level function or method, which only
+    /// see globals), plus `self`, its parameters, and every nested-function name
+    /// it defines — the last so siblings can call each other regardless of order.
     fn check_function(
         &mut self,
         params: &[String],
         body: &[Stmt],
         is_method: bool,
+        enclosing: &HashSet<String>,
     ) -> Result<(), Diagnostic> {
-        let mut locals = HashSet::new();
+        self.check_scope_collisions(params, body)?;
+
+        let mut locals = enclosing.clone();
         if is_method {
             locals.insert("self".to_string());
         }
         for param in params {
             locals.insert(param.clone());
+        }
+        for name in nested_func_names(body) {
+            locals.insert(name);
         }
         let mut ctx = Ctx {
             locals,
@@ -267,6 +283,23 @@ impl Checker {
             loop_depth: 0,
         };
         self.check_stmts(body, &mut ctx)
+    }
+
+    /// A nested-function name is a fixed binding: it may not repeat, clash with a
+    /// parameter, or clash with a variable/loop/error name in the same body.
+    fn check_scope_collisions(&self, params: &[String], body: &[Stmt]) -> Result<(), Diagnostic> {
+        let mut others: HashSet<String> = params.iter().cloned().collect();
+        collect_var_bindings(body, &mut others);
+        let mut seen: HashSet<&str> = HashSet::new();
+        for (name, span) in nested_funcs_with_span(body) {
+            if BUILTINS.contains(&name) {
+                return Err(self.name_clash(span, format!("{name} is already a builtin")));
+            }
+            if others.contains(name) || !seen.insert(name) {
+                return Err(self.name_clash(span, format!("{name} is already defined")));
+            }
+        }
+        Ok(())
     }
 
     /// Verify an assignment target: the name must already be declared, and must
@@ -371,6 +404,88 @@ impl Checker {
             .cloned()
             .unwrap_or_default();
         Diagnostic::new(&self.path, span.line, span.col, source_line, message)
+    }
+}
+
+/// Every nested function defined directly in a body — crossing `if`/`for`/
+/// `while`/`pls` blocks but not another function's body — with its name span.
+fn nested_funcs_with_span(body: &[Stmt]) -> Vec<(&str, Span)> {
+    let mut out = Vec::new();
+    collect_nested_funcs(body, &mut out);
+    out
+}
+
+fn nested_func_names(body: &[Stmt]) -> HashSet<String> {
+    nested_funcs_with_span(body)
+        .into_iter()
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+/// The variable-like bindings of one scope — `such`/`so` declarations, `for`
+/// loop variables, and `oh no` error names — crossing blocks but not another
+/// function's body. Nested-function names are handled separately.
+fn collect_var_bindings(body: &[Stmt], out: &mut HashSet<String>) {
+    for stmt in body {
+        match stmt {
+            Stmt::Decl { name, .. } | Stmt::ConstDecl { name, .. } => {
+                out.insert(name.clone());
+            }
+            Stmt::For { var, body, .. } => {
+                out.insert(var.clone());
+                collect_var_bindings(body, out);
+            }
+            Stmt::If {
+                branches,
+                else_body,
+                ..
+            } => {
+                for (_, b) in branches {
+                    collect_var_bindings(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_var_bindings(b, out);
+                }
+            }
+            Stmt::While { body, .. } => collect_var_bindings(body, out),
+            Stmt::Try {
+                body,
+                err_name,
+                handler,
+                ..
+            } => {
+                out.insert(err_name.clone());
+                collect_var_bindings(body, out);
+                collect_var_bindings(handler, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_nested_funcs<'a>(body: &'a [Stmt], out: &mut Vec<(&'a str, Span)>) {
+    for stmt in body {
+        match stmt {
+            Stmt::FuncDef { name, span, .. } => out.push((name, *span)),
+            Stmt::If {
+                branches,
+                else_body,
+                ..
+            } => {
+                for (_, b) in branches {
+                    collect_nested_funcs(b, out);
+                }
+                if let Some(b) = else_body {
+                    collect_nested_funcs(b, out);
+                }
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => collect_nested_funcs(body, out),
+            Stmt::Try { body, handler, .. } => {
+                collect_nested_funcs(body, out);
+                collect_nested_funcs(handler, out);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -524,5 +639,42 @@ mod tests {
         // `y` is a top-level name, but used before its declaration line.
         let err = check_src("bark y\nsuch y = 1\nwow\n").unwrap_err();
         assert_eq!(err.headline, "very unknown. much name.");
+    }
+
+    #[test]
+    fn nested_function_sees_enclosing_locals() {
+        // `inner` reads and writes `count`, a local of `outer`.
+        let src = "such outer:\n    such count = 0\n    such inner:\n        very count = count + 1\n    wow\n    inner()\nwow\nwow\n";
+        assert!(check_src(src).is_ok());
+    }
+
+    #[test]
+    fn nested_sibling_functions_can_call_each_other() {
+        // `a` calls `b`, defined later in the same body — forward reference.
+        let src = "such outer:\n    such a:\n        b()\n    wow\n    such b:\n        bark 1\n    wow\n    a()\nwow\nwow\n";
+        assert!(check_src(src).is_ok());
+    }
+
+    #[test]
+    fn unknown_name_in_a_nested_function_is_still_an_error() {
+        let src = "such outer:\n    such inner:\n        bark nope\n    wow\nwow\nwow\n";
+        let err = check_src(src).unwrap_err();
+        assert_eq!(err.headline, "very unknown. much name.");
+    }
+
+    #[test]
+    fn nested_function_clashing_with_a_local_is_an_error() {
+        let src = "such outer:\n    such x = 1\n    such x:\n        bark 1\n    wow\nwow\nwow\n";
+        let err = check_src(src).unwrap_err();
+        assert_eq!(err.headline, "very twice. much name.");
+    }
+
+    #[test]
+    fn bork_inside_a_nested_function_cannot_cross_the_outer_loop() {
+        // The loop is in `outer`; `inner`'s body is a fresh function scope, so
+        // `bork` has no loop to break.
+        let src = "such outer:\n    such xs = [1]\n    for x in xs:\n        such inner:\n            bork\n        wow\n    bark 1\nwow\nwow\n";
+        let err = check_src(src).unwrap_err();
+        assert_eq!(err.headline, "very bork. much nowhere.");
     }
 }

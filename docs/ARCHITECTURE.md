@@ -125,6 +125,12 @@ rule, [ERRORS.md](ERRORS.md)):
   error prints the offending line under `path:line` with no Rust backtrace
   ([ERRORS.md](ERRORS.md)).
 
-Nested functions and first-class function values still parse and `check` today but
-do not run yet; codegen rejects them with a `very soon. much roadmap.` diagnostic
-naming the feature rather than emitting Rust that fails to build.
+Nested functions are closures. A capture analysis over the AST decides which
+locals a nested function reads or writes; those become shared `Rc<RefCell<Value>>`
+cells, and the nested function is emitted as a `c_`/`cb_` pair that takes its
+captured cells as leading parameters. Functions are first-class values: every
+top-level function, closure, builtin, and module function has a numeric `fn_id`,
+and a `Value::Function` carries that id plus its captured cells. A call through a
+value routes through a generated `call_function(fn_id, …)` dispatcher, mirroring
+the method dispatcher; direct calls by name stay static and keep their
+compile-time arity check.
