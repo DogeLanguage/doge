@@ -1,0 +1,38 @@
+{
+  "name": "doge",
+  "displayName": "Doge Language",
+  "description": "File icon and language association for .doge scripts. such language. much wow.",
+  "version": "0.1.0",
+  "publisher": "DogeLanguage",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DogeLanguage/doge.git",
+    "directory": "editors/vscode"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "doge",
+        "aliases": [
+          "Doge",
+          "doge"
+        ],
+        "extensions": [
+          ".doge"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/doge.svg",
+          "dark": "./icons/doge.svg"
+        }
+      }
+    ]
+  }
+}

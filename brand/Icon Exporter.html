@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>.doge — Icon Exporter</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<style>
+  :root{ --ink:#2A231C; --amber:#E39B3C; --deep:#C8842B; --cream:#F6ECD8; --paper:#FBF6EC; --bg:#EAE2D2; --muted:#9A8666; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk','Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:960px;margin:0 auto;padding:56px 28px 100px;}
+  .mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,monospace;}
+  h1{font-size:34px;letter-spacing:-.02em;margin:14px 0 6px;}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);}
+  p.lead{color:#6B5D4A;font-size:16px;line-height:1.55;max-width:640px;margin:0 0 8px;}
+  .bar{display:flex;gap:12px;flex-wrap:wrap;margin:26px 0 34px;}
+  button{font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;border:none;border-radius:11px;padding:12px 18px;transition:transform .06s ease, box-shadow .2s ease;}
+  button:active{transform:translateY(1px);}
+  .primary{background:var(--ink);color:var(--paper);box-shadow:0 12px 24px -14px rgba(42,35,28,.9);}
+  .ghost{background:#fff;color:var(--ink);border:1px solid #E0D4BC;}
+  h2{font-size:13px;font-family:'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:34px 0 16px;padding-bottom:10px;border-bottom:1px solid #DCCFB6;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;}
+  .card{background:var(--paper);border:1px solid #E7DBC3;border-radius:16px;padding:18px 16px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 20px 40px -34px rgba(60,40,20,.5);}
+  .stage{width:100%;height:118px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#FFFDF7;border:1px solid #EEE3CD;overflow:hidden;}
+  .stage.dark{background:#201B16;border-color:#2f271f;}
+  .stage.check{background-color:#efe7d6;background-image:linear-gradient(45deg,#e3d8c0 25%,transparent 25%),linear-gradient(-45deg,#e3d8c0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e3d8c0 75%),linear-gradient(-45deg,transparent 75%,#e3d8c0 75%);background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0;}
+  .stage canvas{image-rendering:auto;max-width:100%;max-height:100%;}
+  .lbl{font-weight:600;font-size:14px;}
+  .sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:-6px;}
+  .dl{background:var(--amber);color:var(--ink);border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;width:100%;}
+  .dl:hover{background:#EDB05A;}
+  .note{margin-top:8px;font-size:13px;color:#6B5D4A;line-height:1.5;background:#fff;border:1px solid #E7DBC3;border-radius:12px;padding:14px 16px;max-width:680px;}
+  code{font-family:'JetBrains Mono',monospace;background:#efe6d3;padding:2px 6px;border-radius:5px;font-size:12px;}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:12px 20px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .25s ease;box-shadow:0 18px 40px -16px rgba(0,0,0,.6);}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Doge Language · Brand Assets</div>
+  <h1><span style="color:var(--deep)">.</span>doge icon exporter</h1>
+  <p class="lead">Every icon is drawn live from the master geometry in <em>your</em> browser, so the downloads are pixel-clean. Grab the whole set, or individual files. Nothing is uploaded.</p>
+
+  <div class="bar">
+    <button class="primary" id="dlAll">⬇ Download everything</button>
+    <button class="ghost" id="dlIco">favicon.ico (16·32·48)</button>
+    <button class="ghost" id="dlBanner">README banner PNG</button>
+  </div>
+
+  <h2>Favicons — transparent</h2>
+  <div class="grid" id="gridFav"></div>
+
+  <h2>App / touch icons — cream tile</h2>
+  <div class="grid" id="gridApp"></div>
+
+  <h2>Avatar &amp; hi-res mark</h2>
+  <div class="grid" id="gridBig"></div>
+
+  <div class="note">
+    <strong>Favicon HTML</strong> — drop the files at your site root and paste:<br><br>
+    <code>&lt;link rel="icon" href="/favicon.ico" sizes="any"&gt;</code><br>
+    <code>&lt;link rel="icon" type="image/svg+xml" href="/favicon.svg"&gt;</code><br>
+    <code>&lt;link rel="apple-touch-icon" href="/apple-touch-icon.png"&gt;</code>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const INK='#2A231C', AMBER='#E39B3C', DEEP='#C8842B', CREAM='#F6ECD8', CAT='#FBF6EC';
+function drawDoge(ctx){
+  function poly(pts,fill,stroke,w){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();if(stroke){ctx.lineJoin='round';ctx.lineWidth=w;ctx.strokeStyle=stroke;ctx.stroke();}if(fill){ctx.fillStyle=fill;ctx.fill();}}
+  function circ(x,y,r,fill,stroke,w){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);if(stroke){ctx.lineWidth=w;ctx.strokeStyle=stroke;ctx.stroke();}if(fill){ctx.fillStyle=fill;ctx.fill();}}
+  poly([[70,104],[78,30],[122,86]], INK, INK, 30);
+  poly([[186,104],[178,30],[134,86]], INK, INK, 30);
+  circ(128,142,84, INK, INK, 15);
+  poly([[70,104],[78,30],[122,86]], AMBER, AMBER, 16);
+  poly([[186,104],[178,30],[134,86]], AMBER, AMBER, 16);
+  poly([[87,86],[89,45],[115,84]], DEEP, DEEP, 9);
+  poly([[169,86],[167,45],[141,84]], DEEP, DEEP, 9);
+  circ(128,142,84, AMBER);
+  ctx.save(); ctx.beginPath(); ctx.arc(128,142,84,0,Math.PI*2); ctx.clip();
+  circ(88,176,34,CREAM); circ(168,176,34,CREAM); circ(128,182,46,CREAM);
+  ctx.beginPath(); ctx.ellipse(128,140,26,46,0,0,Math.PI*2); ctx.fillStyle=CREAM; ctx.fill();
+  circ(98,118,12,CREAM); circ(158,118,12,CREAM);
+  ctx.restore();
+  circ(99,136,11,INK); circ(157,136,11,INK);
+  circ(102.5,132,3.4,CAT); circ(160.5,132,3.4,CAT);
+  ctx.beginPath(); ctx.moveTo(116,158); ctx.quadraticCurveTo(128,151,140,158); ctx.quadraticCurveTo(140,170,128,174); ctx.quadraticCurveTo(116,170,116,158); ctx.closePath(); ctx.fillStyle=INK; ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(128,174); ctx.lineTo(128,184); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(128,184); ctx.quadraticCurveTo(112,194,104,181); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(128,184); ctx.quadraticCurveTo(144,194,152,181); ctx.stroke();
+}
+function roundRectPath(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+
+// render mark to a canvas of given css/device size
+function renderIcon(size, {bg=null, margin=0.05, rounded=false, dpr=1}={}){
+  const px = Math.round(size*dpr);
+  const c=document.createElement('canvas'); c.width=px; c.height=px;
+  const g=c.getContext('2d'); g.scale(dpr,dpr);
+  if(bg){ if(rounded){roundRectPath(g,0,0,size,size,size*0.22);g.fillStyle=bg;g.fill();} else {g.fillStyle=bg;g.fillRect(0,0,size,size);} }
+  const span=214, s=size*(1-2*margin)/span;
+  g.save(); g.translate(size/2-128*s, size/2-120*s); g.scale(s,s); drawDoge(g); g.restore();
+  return c;
+}
+function renderBanner(){
+  const W=1280,H=320,dpr=2,c=document.createElement('canvas'); c.width=W*dpr;c.height=H*dpr;
+  const g=c.getContext('2d'); g.scale(dpr,dpr);
+  roundRectPath(g,0,0,W,H,28); g.fillStyle='#201B16'; g.fill();
+  const s=0.75; g.save(); g.translate(120,64); g.scale(s,s); drawDoge(g); g.restore();
+  g.textBaseline='alphabetic';
+  g.fillStyle='#FBF6EC'; g.font='700 76px "Space Grotesk","Helvetica Neue",Arial,sans-serif';
+  const t1='Doge '; g.fillText(t1,360,158); const w1=g.measureText(t1).width;
+  g.fillStyle='#E39B3C'; g.fillText('Language',360+w1,158);
+  g.fillStyle='#A99A82'; g.font='400 26px "JetBrains Mono",Consolas,monospace';
+  g.fillText('much type · very safe · wow',362,206);
+  return c;
+}
+
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1600);}
+function download(canvas,name){canvas.toBlob(b=>{const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1500);},'image/png');}
+
+// spec list
+const FAV=[
+  {name:'favicon-16.png',size:16,margin:0.02},
+  {name:'favicon-32.png',size:32,margin:0.03},
+  {name:'favicon-48.png',size:48,margin:0.04},
+  {name:'favicon-64.png',size:64,margin:0.04},
+];
+const APP=[
+  {name:'apple-touch-icon.png',size:180,margin:0.14,bg:'#FBF6EC'},
+  {name:'icon-192.png',size:192,margin:0.16,bg:'#FBF6EC',rounded:true},
+  {name:'icon-512.png',size:512,margin:0.16,bg:'#FBF6EC',rounded:true},
+];
+const BIG=[
+  {name:'doge-avatar-512.png',size:512,margin:0.13,bg:'#FBF6EC',label:'Org avatar'},
+  {name:'doge-avatar-1024.png',size:1024,margin:0.13,bg:'#FBF6EC',label:'Avatar @2x'},
+  {name:'doge-mark-1024.png',size:1024,margin:0.05,label:'Mark (transparent)',check:true},
+];
+
+function buildCard(spec, gridId){
+  const grid=document.getElementById(gridId);
+  const card=document.createElement('div');card.className='card';
+  const stage=document.createElement('div');
+  stage.className='stage'+(spec.bg?'':' check')+(spec.dark?' dark':'');
+  // preview canvas (css-clamped)
+  const prev=renderIcon(spec.size,{bg:spec.bg,margin:spec.margin,rounded:spec.rounded,dpr:2});
+  const cssW=Math.min(96,spec.size); prev.style.width=cssW+'px'; prev.style.height=cssW+'px';
+  stage.appendChild(prev);
+  const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent=spec.label||spec.name;
+  const sub=document.createElement('div');sub.className='sub';sub.textContent=spec.size+'×'+spec.size+' px';
+  const btn=document.createElement('button');btn.className='dl';btn.textContent='Download';
+  btn.onclick=()=>{download(renderIcon(spec.size,{bg:spec.bg,margin:spec.margin,rounded:spec.rounded,dpr:1}),spec.name);toast('Saved '+spec.name);};
+  card.append(stage,lbl,sub,btn);grid.appendChild(card);
+}
+FAV.forEach(s=>buildCard(s,'gridFav'));
+APP.forEach(s=>buildCard(s,'gridApp'));
+BIG.forEach(s=>buildCard(s,'gridBig'));
+
+// favicon.ico assembly
+function canvasToPngBytes(canvas){return new Promise(res=>canvas.toBlob(async b=>res(new Uint8Array(await b.arrayBuffer())),'image/png'));}
+async function buildIco(){
+  const sizes=[{s:16,m:0.02},{s:32,m:0.03},{s:48,m:0.04}];
+  const imgs=[];
+  for(const q of sizes){imgs.push({size:q.s,png:await canvasToPngBytes(renderIcon(q.s,{margin:q.m,dpr:1}))});}
+  const count=imgs.length,header=6+16*count;let offset=header;
+  const total=header+imgs.reduce((a,b)=>a+b.png.length,0);
+  const ico=new Uint8Array(total),dv=new DataView(ico.buffer);
+  dv.setUint16(0,0,true);dv.setUint16(2,1,true);dv.setUint16(4,count,true);
+  let dir=6;
+  for(const im of imgs){ico[dir]=im.size;ico[dir+1]=im.size;ico[dir+2]=0;ico[dir+3]=0;dv.setUint16(dir+4,1,true);dv.setUint16(dir+6,32,true);dv.setUint32(dir+8,im.png.length,true);dv.setUint32(dir+12,offset,true);ico.set(im.png,offset);offset+=im.png.length;dir+=16;}
+  return new Blob([ico],{type:'image/x-icon'});
+}
+document.getElementById('dlIco').onclick=async()=>{const b=await buildIco();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='favicon.ico';a.click();setTimeout(()=>URL.revokeObjectURL(u),1500);toast('Saved favicon.ico');};
+document.getElementById('dlBanner').onclick=()=>{download(renderBanner(),'doge-banner.png');toast('Saved doge-banner.png');};
+
+document.getElementById('dlAll').onclick=async()=>{
+  const all=[...FAV,...APP,...BIG];
+  for(let i=0;i<all.length;i++){const s=all[i];download(renderIcon(s.size,{bg:s.bg,margin:s.margin,rounded:s.rounded,dpr:1}),s.name);await new Promise(r=>setTimeout(r,320));}
+  await new Promise(r=>setTimeout(r,320)); download(renderBanner(),'doge-banner.png');
+  await new Promise(r=>setTimeout(r,320));
+  const b=await buildIco();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='favicon.ico';a.click();setTimeout(()=>URL.revokeObjectURL(u),1500);
+  toast('Downloaded full icon set 🐕');
+};
+</script>
+</body>
+</html>

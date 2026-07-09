@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Doge Language">
+  <rect x="0" y="0" width="1280" height="320" rx="28" fill="#201B16"></rect>
+  <g transform="translate(120,64) scale(0.75)">
+    <g stroke="#120E0A" stroke-linejoin="round" fill="#120E0A">
+      <polygon points="70,104 78,30 122,86" stroke-width="30"></polygon>
+      <polygon points="186,104 178,30 134,86" stroke-width="30"></polygon>
+      <circle cx="128" cy="142" r="84" stroke-width="15"></circle>
+    </g>
+    <polygon points="70,104 78,30 122,86" fill="#E39B3C" stroke="#E39B3C" stroke-width="16" stroke-linejoin="round"></polygon>
+    <polygon points="186,104 178,30 134,86" fill="#E39B3C" stroke="#E39B3C" stroke-width="16" stroke-linejoin="round"></polygon>
+    <polygon points="87,86 89,45 115,84" fill="#C8842B" stroke="#C8842B" stroke-width="9" stroke-linejoin="round"></polygon>
+    <polygon points="169,86 167,45 141,84" fill="#C8842B" stroke="#C8842B" stroke-width="9" stroke-linejoin="round"></polygon>
+    <circle cx="128" cy="142" r="84" fill="#E39B3C"></circle>
+    <clipPath id="hc3"><circle cx="128" cy="142" r="84"></circle></clipPath>
+    <g clip-path="url(#hc3)">
+      <circle cx="88" cy="176" r="34" fill="#F6ECD8"></circle>
+      <circle cx="168" cy="176" r="34" fill="#F6ECD8"></circle>
+      <circle cx="128" cy="182" r="46" fill="#F6ECD8"></circle>
+      <ellipse cx="128" cy="140" rx="26" ry="46" fill="#F6ECD8"></ellipse>
+      <circle cx="98" cy="118" r="12" fill="#F6ECD8"></circle>
+      <circle cx="158" cy="118" r="12" fill="#F6ECD8"></circle>
+    </g>
+    <circle cx="99" cy="136" r="11" fill="#201B16"></circle>
+    <circle cx="157" cy="136" r="11" fill="#201B16"></circle>
+    <circle cx="102.5" cy="132" r="3.4" fill="#FBF6EC"></circle>
+    <circle cx="160.5" cy="132" r="3.4" fill="#FBF6EC"></circle>
+    <path d="M116 158 Q128 151 140 158 Q140 170 128 174 Q116 170 116 158 Z" fill="#201B16"></path>
+    <path d="M128 174 L128 184" stroke="#201B16" stroke-width="5" stroke-linecap="round" fill="none"></path>
+    <path d="M128 184 Q112 194 104 181" stroke="#201B16" stroke-width="5" stroke-linecap="round" fill="none"></path>
+    <path d="M128 184 Q144 194 152 181" stroke="#201B16" stroke-width="5" stroke-linecap="round" fill="none"></path>
+  </g>
+  <text x="360" y="158" font-family="&#39;Space Grotesk&#39;,&#39;Helvetica Neue&#39;,Arial,sans-serif" font-size="76" font-weight="700" letter-spacing="-2"><tspan fill="#FBF6EC">Doge </tspan><tspan fill="#E39B3C">Language</tspan></text>
+  <text x="362" y="212" font-family="&#39;JetBrains Mono&#39;,&#39;SFMono-Regular&#39;,Consolas,monospace" font-size="26" letter-spacing="1" fill="#A99A82">much type · very safe · wow</text>
+</svg>

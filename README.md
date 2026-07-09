@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="doge, such language, much wow" width="640">
+  <img src="brand/assets/doge-banner.svg" alt="doge, such language, much wow" width="720">
 </p>
 
 ## Why doge?

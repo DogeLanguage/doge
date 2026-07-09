@@ -106,6 +106,8 @@ crates/
   doge-cli/         # EXISTS (M5): `doge` binary — hand-rolled args, bark/build/check subcommands, build cache (cache.rs) + cargo build glue (build.rs)
 examples/           # EXISTS: .doge example programs (hello, tour, objects, control_flow, collections) — double as integration tests; a `.out` sibling means the example runs and its stdout is asserted
 docs/               # EXISTS: authoritative language spec — SYNTAX, GRAMMAR, STDLIB, ERRORS, ARCHITECTURE, CLI
+brand/              # EXISTS: logo/brand kit — mark, lockup, banner, favicon SVGs + icon exporter and brand guide
+editors/            # EXISTS: editor integrations — vscode/ (.doge language association + file icon)
 ```
 
 **Where does code belong?** Anything about *what the language means at runtime* → `doge-runtime`. Anything about *turning source into Rust* → `doge-compiler`. Anything about *the user's terminal experience* (subcommands, caching, install hints) → `doge-cli`. A concern never lives in two crates.
