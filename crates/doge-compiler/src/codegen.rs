@@ -863,7 +863,7 @@ impl Codegen {
     fn binary(&self, op: BinOp, lhs: &Expr, rhs: &Expr, emit: &Emit) -> Result<String, Diagnostic> {
         // `and`/`or` are Rust block expressions with the right operand INSIDE the
         // guard, so it is evaluated only when the left operand doesn't decide the
-        // result. Both always yield a Bool (Doge rule, DESIGN §4.2).
+        // result. Both always yield a Bool (Doge rule, docs/SYNTAX.md §3).
         if matches!(op, BinOp::And | BinOp::Or) {
             let l = self.expr(lhs, emit)?;
             let r = self.expr(rhs, emit)?;

@@ -80,7 +80,7 @@ pub fn mul(a: Value, b: Value) -> DogeResult {
     }
 }
 
-/// `/` — always returns a Float (`5 / 2 == 2.5`), per DESIGN §2.
+/// `/` — always returns a Float (`5 / 2 == 2.5`), per the sharp-edges table in docs/README.md.
 pub fn div(a: Value, b: Value) -> DogeResult {
     match (as_f64(&a), as_f64(&b)) {
         (Some(_), Some(0.0)) => Err(div_by_zero("/")),

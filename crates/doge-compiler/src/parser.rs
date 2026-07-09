@@ -185,7 +185,7 @@ impl Parser {
     }
 
     /// `such` is contextual: `such NAME =` is a variable, `such NAME :` or
-    /// `such NAME much …:` is a function definition (DESIGN §5).
+    /// `such NAME much …:` is a function definition (docs/GRAMMAR.md).
     fn parse_such(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         self.eat(TokenKind::Such)?;
@@ -231,7 +231,7 @@ impl Parser {
     }
 
     /// `so` is contextual: `so NAME =` is a constant, bare `so NAME` is an
-    /// import (DESIGN §5).
+    /// import (docs/GRAMMAR.md).
     fn parse_so(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         self.eat(TokenKind::So)?;
@@ -436,7 +436,7 @@ impl Parser {
         }
     }
 
-    /// A block: `NEWLINE INDENT { statement } DEDENT` (DESIGN §5).
+    /// A block: `NEWLINE INDENT { statement } DEDENT` (docs/GRAMMAR.md).
     fn parse_block(&mut self) -> Result<Vec<Stmt>, Diagnostic> {
         self.eat(TokenKind::Newline)?;
         self.eat(TokenKind::Indent).map_err(|_| {

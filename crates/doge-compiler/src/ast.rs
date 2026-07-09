@@ -7,7 +7,7 @@ pub struct Script {
     pub stmts: Vec<Stmt>,
 }
 
-/// One statement. Variants mirror the DESIGN §5 grammar.
+/// One statement. Variants mirror the docs/GRAMMAR.md grammar.
 // `ExprStmt` is the conventional AST name for a bare-expression statement; the
 // suffix intentionally echoes the enum name, so silence that one style lint.
 #[allow(clippy::enum_variant_names)]

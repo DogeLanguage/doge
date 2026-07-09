@@ -10,9 +10,9 @@ Match the task against this table and do the listed action **before** reading co
 | If the task involves… | Then first… |
 | --- | --- |
 | Feature work — "add", "implement", "build", "create", "extend", "refactor" | Run `/function-index` |
-| The language surface — a keyword, grammar rule, operator, type, or semantic change | Read [DESIGN.md](../DESIGN.md) §3–§5 — and update it in the same change |
-| Compiler pipeline or crate boundaries (lexer/parser/checks/codegen/runtime) | Read [DESIGN.md](../DESIGN.md) §6 |
-| Error messages or diagnostics | Read [DESIGN.md](../DESIGN.md) §7 — meme framing, precise content |
+| The language surface — a keyword, grammar rule, operator, type, or semantic change | Read [docs/SYNTAX.md](../docs/SYNTAX.md) and [docs/GRAMMAR.md](../docs/GRAMMAR.md) — and update them in the same change |
+| Compiler pipeline or crate boundaries (lexer/parser/checks/codegen/runtime) | Read [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
+| Error messages or diagnostics | Read [docs/ERRORS.md](../docs/ERRORS.md) — meme framing, precise content |
 | Adding or removing a crate or folder | Run `/maintaining-claude` afterwards |
 | Deciding where any new piece of code belongs | Crate table in Project Structure — every concern has exactly one home |
 
@@ -22,15 +22,15 @@ Breaking any of these is never acceptable — including during debugging or spik
 
 1. **No `unsafe` anywhere** — not in the runtime, not in generated code, not "temporarily".
 2. **The runtime never panics on user-program errors** — every fallible operation returns `Result<Value, DogeError>` so `pls`/`oh no` can catch it. Panics are reserved for compiler bugs.
-3. **Language surface changes require a DESIGN.md update in the same change** — keywords, grammar, semantics, and CLI behaviour must never drift from the spec.
+3. **Language surface changes require a docs/ update in the same change** — keywords, grammar, semantics, and CLI behaviour must never drift from the spec ([docs/SYNTAX.md](../docs/SYNTAX.md), [docs/GRAMMAR.md](../docs/GRAMMAR.md), [docs/CLI.md](../docs/CLI.md)).
 4. **One source of truth for keywords** — a single keywords module in `doge-compiler` that the lexer, parser, and diagnostics all use. Never a second keyword list.
 5. **Generated Rust is thin glue** — behaviour lives in `doge-runtime`; codegen only wires calls together. If codegen is emitting logic, it belongs in the runtime.
 6. **Every language feature ships with a `.doge` example under `examples/`** that runs as an integration test — untested syntax doesn't exist.
-7. **Roadmap items (DESIGN.md §8) beyond the current milestone are not instructions** — implement only when explicitly asked.
-8. **Doge-flavored errors always carry real information** — file, line, caret, and a concrete fix hint. Never sacrifice clarity for the joke (DESIGN.md §7).
+7. **Roadmap items (tracked as GitHub issues) beyond the current milestone are not instructions** — implement only when explicitly asked.
+8. **Doge-flavored errors always carry real information** — file, line, caret, and a concrete fix hint. Never sacrifice clarity for the joke ([docs/ERRORS.md](../docs/ERRORS.md)).
 9. **Compile-time checks stay honest** — a check (missing `wow`, const reassignment, undeclared name) is either fully enforced or not shipped; no warnings that lie.
 10. **Minimal dependencies** — lexer and parser are hand-written (contextual keywords demand it). A new crate dependency needs a stated reason in the PR/commit.
-11. **Rust never leaks to the user** — no rustc output, Rust type names, or Rust panics in anything a Doge user sees. Generated code compiles by construction; a rustc rejection or a panic from generated code is a Doge compiler bug, reported as one (DESIGN.md §2 "sharp edges" table is a tested guarantee, not documentation).
+11. **Rust never leaks to the user** — no rustc output, Rust type names, or Rust panics in anything a Doge user sees. Generated code compiles by construction; a rustc rejection or a panic from generated code is a Doge compiler bug, reported as one (the "sharp edges" table in the Design rationale section below is a tested guarantee, not documentation).
 12. **Never fan out to subagents unless explicitly asked** — do the work directly in the main thread. Only spawn agents (Agent tool, workflows, parallel task fan-out) when the user explicitly requests it.
 
 ## Domain
@@ -41,7 +41,46 @@ Doge is a dynamically typed, indentation-based scripting language:
 - **Pipeline:** lexer (indentation-aware, fuses `oh no`) → recursive-descent parser → AST checks → Rust codegen → `rustc`/`cargo` build → cached native binary.
 - **Memory model:** `Rc`/`RefCell` reference counting in the runtime — no GC, no `unsafe`.
 
-Full spec — keywords, grammar, semantics, architecture, roadmap: [DESIGN.md](../DESIGN.md). It is the authoritative reference; when code and DESIGN.md disagree, that's a bug in one of them — fix the mismatch, don't work around it.
+Full spec — keywords, grammar, semantics, architecture, roadmap: [docs/](../docs/README.md). It is the authoritative reference; when code and the docs disagree, that's a bug in one of them — fix the mismatch, don't work around it.
+
+---
+
+## Design rationale
+
+### Trade-off accepted with transpilation
+
+First run of a script pays rustc compile time (seconds). Mitigations:
+
+- Aggressive build caching: hash the source, keep compiled binaries in
+  `~/.cache/doge/`, so `doge bark script.doge` is instant when unchanged.
+- Generated Rust is thin glue over a precompiled `doge-runtime` crate, so per-script
+  compile units stay small.
+- A REPL/interpreter mode is deferred to a later milestone (transpilation doesn't suit
+  interactive use).
+
+### Shielding users from Rust's sharp edges
+
+Doge compiles to Rust, but Rust's weird and illogical-feeling parts must never reach
+the user. These are guarantees, not aspirations; each one gets integration tests:
+
+| Rust pain | What Doge does instead |
+|---|---|
+| Borrow checker, ownership, moves, lifetimes | Don't exist for the user. The runtime uses `Rc`/`RefCell`; assigning or passing a value never "moves it away" or invalidates anything |
+| `String` vs `&str`, byte-indexed slicing that can panic mid-UTF-8 | One `Str` type. Indexing and `len()` are character-based, never byte-based: `"héllo"[1]` is `"é"` |
+| Integer division truncates (`5 / 2 == 2`) | `/` always returns a Float; `//` is explicit integer division |
+| Mixed-type math needs casts (`x as f64`) | Int and Float mix freely; promotion is automatic |
+| Overflow panics in debug builds but silently wraps in release | Overflow is a catchable runtime error (`pls`/`oh no`) with the same behaviour in every build, never silent wraparound |
+| `unwrap()` panics; `Option`/`Result` ceremony everywhere | `none` is an ordinary value; every runtime error is catchable with `pls`/`oh no`, so there is no unwrap to forget |
+| Out-of-bounds indexing panics and kills the program | Catchable runtime error with file/line/caret |
+| `.clone()`, `&`, `*`, `let mut` ceremony | Invisible: `such x = y` and function calls just work |
+| Multi-screen compiler errors about trait bounds | Doge diagnostics: one issue at a time, file/line/caret, concrete fix hint ([docs/ERRORS.md](../docs/ERRORS.md)) |
+| Semicolons and expression-vs-statement rules | Newlines end statements; there are no semicolons |
+
+The "Rust never leaks" rule: the user must never see rustc output, Rust type
+names, or a Rust panic. Generated code always compiles by construction. If `rustc`
+rejects it, or generated code panics at runtime, that is a Doge compiler bug and is
+reported as one (`"very bug. much sorry. pls report: <url>"` plus the internal log),
+never shown as raw Rust errors.
 
 ---
 
@@ -66,7 +105,7 @@ crates/
   doge-compiler/    # EXISTS (M5): keywords (single source of truth), lexer, parser, AST + dump, semantic checks, diagnostics, stdlib module table, Rust codegen (codegen.rs — Env struct, functions, objects/imports, pls/oh no, bonk)
   doge-cli/         # EXISTS (M5): `doge` binary — hand-rolled args, bark/build/check subcommands, build cache (cache.rs) + cargo build glue (build.rs)
 examples/           # EXISTS: .doge example programs (hello, tour, objects, control_flow, collections) — double as integration tests; a `.out` sibling means the example runs and its stdout is asserted
-DESIGN.md           # authoritative language spec + architecture + roadmap
+docs/               # EXISTS: authoritative language spec — SYNTAX, GRAMMAR, STDLIB, ERRORS, ARCHITECTURE, CLI
 ```
 
 **Where does code belong?** Anything about *what the language means at runtime* → `doge-runtime`. Anything about *turning source into Rust* → `doge-compiler`. Anything about *the user's terminal experience* (subcommands, caching, install hints) → `doge-cli`. A concern never lives in two crates.
@@ -104,7 +143,7 @@ Write for the developer maintaining this 12 months from now.
 - **No magic values.** Keyword strings → the keywords module; cache paths, CLI strings, limits → a constants module per crate.
 - **Consistent patterns.** New AST nodes, checks, and codegen arms follow the existing shape — read one existing example first.
 - **Single source per behaviour.** Before writing the same block a second time, lift it into a shared helper in the lowest crate that both users can reach.
-- **Spec is binding.** If a change pressures the language spec or a crate boundary, update DESIGN.md in the same change — never silently diverge.
+- **Spec is binding.** If a change pressures the language spec or a crate boundary, update docs/ in the same change — never silently diverge.
 - **Explicit over clever.** Obvious code beats a one-liner that needs context — especially in the parser, where the next reader is debugging a syntax error at 2am.
 - **Default to zero comments.** Do not narrate what the code does — names and structure must carry that. Write a comment *only* when the code genuinely cannot explain itself: a grammar ambiguity, a non-obvious trade-off, or a *why* the next reader would otherwise get wrong. If in doubt, leave it out. Never add comments to explain code you just wrote.
 
@@ -116,7 +155,7 @@ Write for the developer maintaining this 12 months from now.
 
 - Run `/function-index` for every feature request — it identifies the files to read and existing functions to reuse or extend.
 - Read only the files you'll touch plus their direct imports. Grep for the existing pattern and match it exactly.
-- **Ask before assuming.** If a task implies a language-design decision not settled in DESIGN.md (new syntax, changed semantics, an open question from §9) — stop and ask. Never invent language surface silently.
+- **Ask before assuming.** If a task implies a language-design decision not settled in docs/ (new syntax, changed semantics, anything beyond what the spec already settles) — stop and ask. Never invent language surface silently.
 - **Ask when genuinely split** between two sound designs with real trade-offs. Don't pick arbitrarily.
 
 **While writing:**
@@ -128,8 +167,8 @@ Write for the developer maintaining this 12 months from now.
 **Definition of done — all must hold:**
 
 - `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --workspace` all green.
-- Language surface touched? DESIGN.md updated in the same change (Hard Rule 3) and an `examples/*.doge` test added (Hard Rule 6).
-- New diagnostics follow the DESIGN.md §7 style: meme framing, file/line/caret, fix hint.
+- Language surface touched? docs/ updated in the same change (Hard Rule 3) and an `examples/*.doge` test added (Hard Rule 6).
+- New diagnostics follow the docs/ERRORS.md style: meme framing, file/line/caret, fix hint.
 - Crate added/removed or folder layout changed? Run `/maintaining-claude`.
 
 **Maintaining these docs:**

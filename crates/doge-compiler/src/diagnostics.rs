@@ -1,4 +1,4 @@
-/// A single compile error. The front end stops at the first one (DESIGN §7:
+/// A single compile error. The front end stops at the first one (docs/ERRORS.md:
 /// "one issue at a time"), so a failed compile yields exactly one `Diagnostic`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
@@ -54,7 +54,7 @@ impl Diagnostic {
         self
     }
 
-    /// Render the diagnostic in the exact DESIGN §7 shape:
+    /// Render the diagnostic in the exact docs/ERRORS.md shape:
     ///
     /// ```text
     /// very error. much confuse.
