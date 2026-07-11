@@ -5,6 +5,6 @@ members = ["crates/*"]
 # Shared metadata so every crate moves in lockstep on one version — the build
 # cache is salted with this version, so a bump reliably invalidates stale builds.
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.74"
