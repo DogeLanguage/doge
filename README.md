@@ -2,6 +2,10 @@
   <img src="brand/assets/doge-banner.svg" alt="doge, such language, much wow" width="720">
 </p>
 
+<p align="center">
+  <a href="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml"><img src="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+</p>
+
 Doge is a scripting language with the ease of Python and the engine of Rust underneath. Rust's skill floor — ownership, lifetimes, the borrow checker — is too high for casual scripting, while Python proved that a clear, low-ceremony language is what most people reach for. Doge aims to be that language:
 
 - **Rust underneath** — reference counting, no GC, no `unsafe`.
@@ -56,7 +60,7 @@ The `examples/` folder tours the language; start with `examples/tour.doge`.
 |---|---|
 | [SYNTAX.md](docs/SYNTAX.md) | Keywords, literals, variables, control flow, functions, error handling, objects, imports |
 | [GRAMMAR.md](docs/GRAMMAR.md) | Grammar sketch (EBNF) and disambiguation rules |
-| [STDLIB.md](docs/STDLIB.md) | Builtins and the `nerd`, `strings`, `lists` modules |
+| [STDLIB.md](docs/STDLIB.md) | Builtins, list/dict methods, and the `nerd`, `strings` modules |
 | [ERRORS.md](docs/ERRORS.md) | Diagnostic and runtime error message style |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 | [CLI.md](docs/CLI.md) | The `doge` binary and the build cache |
@@ -64,9 +68,10 @@ The `examples/` folder tours the language; start with `examples/tour.doge`.
 ## Status
 
 The core language works end-to-end: variables, control flow, functions,
-`pls`/`oh no` error handling, `many Name:` objects, and the `nerd`/`strings`/`lists`
-stdlib. Remaining features (closures, first-class functions, `.doge` imports, a REPL)
-are tracked as [issues](https://github.com/DogeLanguage/doge/issues).
+closures and first-class functions, `pls`/`oh no` error handling, `many Name:`
+objects, list/dict methods, the `nerd`/`strings` stdlib, and `.doge` module
+imports. Remaining features (objects as first-class values, a REPL) are tracked
+as [issues](https://github.com/DogeLanguage/doge/issues).
 
 ## License
 

@@ -1,6 +1,7 @@
 #![allow(clippy::result_large_err)]
 
 mod ast;
+mod builtins;
 mod check;
 mod codegen;
 mod diagnostics;

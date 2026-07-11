@@ -1,8 +1,8 @@
 //! The compiler-side view of the standard library: the modules a `so` import can
 //! name, their members, and the `doge-runtime` function each member call wires to.
-//! Mirrors the runtime `stdlib` (like [`crate::check::BUILTINS`] mirrors the
-//! builtin functions) — a member here must have a matching `{module}_{member}`
-//! function there.
+//! Mirrors the runtime `stdlib` (like [`crate::builtins`] mirrors the builtin
+//! functions) — a member here must have a matching `{module}_{member}` function
+//! there.
 
 /// One callable member of a module: its arity, the runtime function a call emits,
 /// and the call-shape hint shown in arity diagnostics.

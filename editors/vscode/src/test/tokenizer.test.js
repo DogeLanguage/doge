@@ -64,6 +64,40 @@ test('`so` groups both an import and a constant', () => {
   assert.equal(c.get('PI')[0], 1);
 });
 
+test('a used variable reuses its definition colour', () => {
+  const c = coloursByText('such age = 7\nbark age\nwow');
+  const defColour = c.get('such')[0];
+  assert.deepEqual(c.get('age'), [defColour, defColour], 'binding and use share the colour');
+});
+
+test('a called function reuses its definition colour', () => {
+  const c = coloursByText('such greet much x:\n    bark x\nwow\ngreet(1)');
+  const defColour = c.get('greet')[0];
+  assert.equal(c.get('greet')[1], defColour, 'the call site matches the definition');
+});
+
+test('an imported name reuses its import colour', () => {
+  const c = coloursByText('so nerd\nbark nerd(7)');
+  assert.deepEqual(c.get('nerd'), [0, 0], 'import and use both colour 0');
+});
+
+test('an undeclared identifier used in an expression stays uncoloured', () => {
+  const c = coloursByText('such age = other + 1\nwow');
+  assert.equal(c.get('other'), undefined, 'a name never bound gets no token');
+});
+
+test('tokens stay sorted by (line, start) after the use pass', () => {
+  const toks = tokenize('such age = 7\nbark age\nwow');
+  for (let i = 1; i < toks.length; i++) {
+    const prev = toks[i - 1];
+    const cur = toks[i];
+    assert.ok(
+      cur.line > prev.line || (cur.line === prev.line && cur.start >= prev.start),
+      'tokens are in ascending document order'
+    );
+  }
+});
+
 test('universal keywords and literals are not rainbow-coloured', () => {
   const toks = tokenize('for x in xs:\n    if x:\n        return none');
   assert.equal(toks.length, 0);

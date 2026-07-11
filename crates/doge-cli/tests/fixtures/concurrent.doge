@@ -1,0 +1,6 @@
+# Built by several `doge` processes at once in one test
+# (concurrent_builds_of_one_script_all_succeed in cli.rs) to prove the build lock
+# stops two builds from racing on the same cached binary. Its line is the expected
+# stdout of every one of those runs.
+bark "much concurrent. very safe."
+wow

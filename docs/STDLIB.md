@@ -80,4 +80,5 @@ A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
 from a module table in the compiler that mirrors the runtime.
 
-Importing other `.doge` files is a later milestone.
+A `so <name>` import that is not a stdlib module resolves to the user file
+`<name>.doge` next to the importer; see [SYNTAX.md](SYNTAX.md) §9.

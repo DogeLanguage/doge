@@ -103,34 +103,39 @@ impl TokenKind {
     /// to name the token it did not expect.
     pub fn describe(&self) -> String {
         match self {
-            TokenKind::Pls => "pls".into(),
-            TokenKind::Bork => "bork".into(),
-            TokenKind::Bonk => "bonk".into(),
-            TokenKind::Bark => "bark".into(),
-            TokenKind::Wow => "wow".into(),
-            TokenKind::Such => "such".into(),
-            TokenKind::Much => "much".into(),
-            TokenKind::Many => "many".into(),
-            TokenKind::So => "so".into(),
-            TokenKind::Very => "very".into(),
+            // Keyword tokens carry their spelling in the KEYWORDS table, so the
+            // spelling lives in one place; a new keyword variant makes this match
+            // non-exhaustive until it is added here too.
+            TokenKind::Pls
+            | TokenKind::Bork
+            | TokenKind::Bonk
+            | TokenKind::Bark
+            | TokenKind::Wow
+            | TokenKind::Such
+            | TokenKind::Much
+            | TokenKind::Many
+            | TokenKind::So
+            | TokenKind::Very
+            | TokenKind::If
+            | TokenKind::Elif
+            | TokenKind::Else
+            | TokenKind::For
+            | TokenKind::While
+            | TokenKind::In
+            | TokenKind::Return
+            | TokenKind::Continue
+            | TokenKind::And
+            | TokenKind::Or
+            | TokenKind::Not
+            | TokenKind::True
+            | TokenKind::False
+            | TokenKind::None
+            | TokenKind::Def
+            | TokenKind::Class
+            | TokenKind::Amaze => crate::keywords::keyword_spelling(self)
+                .expect("compiler bug: keyword token missing from KEYWORDS table")
+                .into(),
             TokenKind::OhNo => "oh no".into(),
-            TokenKind::If => "if".into(),
-            TokenKind::Elif => "elif".into(),
-            TokenKind::Else => "else".into(),
-            TokenKind::For => "for".into(),
-            TokenKind::While => "while".into(),
-            TokenKind::In => "in".into(),
-            TokenKind::Return => "return".into(),
-            TokenKind::Continue => "continue".into(),
-            TokenKind::And => "and".into(),
-            TokenKind::Or => "or".into(),
-            TokenKind::Not => "not".into(),
-            TokenKind::True => "true".into(),
-            TokenKind::False => "false".into(),
-            TokenKind::None => "none".into(),
-            TokenKind::Def => "def".into(),
-            TokenKind::Class => "class".into(),
-            TokenKind::Amaze => "amaze".into(),
             TokenKind::Ident(name) => format!("name '{name}'"),
             TokenKind::Int(n) => format!("the number {n}"),
             TokenKind::Float(f) => format!("the number {f}"),
@@ -163,5 +168,32 @@ impl TokenKind {
             TokenKind::Dedent => "less indentation".into(),
             TokenKind::Eof => "the end of the script".into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keywords::{keyword_spelling, lookup, KEYWORDS};
+
+    #[test]
+    fn every_keyword_round_trips_through_lookup_and_describe() {
+        for (spelling, kind) in KEYWORDS {
+            assert_eq!(lookup(spelling).as_ref(), Some(kind));
+            assert_eq!(keyword_spelling(kind), Some(*spelling));
+            assert_eq!(kind.describe(), *spelling);
+        }
+    }
+
+    #[test]
+    fn non_keyword_tokens_have_no_keyword_spelling() {
+        assert_eq!(keyword_spelling(&TokenKind::OhNo), None);
+        assert_eq!(keyword_spelling(&TokenKind::Plus), None);
+        assert_eq!(keyword_spelling(&TokenKind::Eof), None);
+    }
+
+    #[test]
+    fn ohno_describes_as_two_words() {
+        assert_eq!(TokenKind::OhNo.describe(), "oh no");
     }
 }

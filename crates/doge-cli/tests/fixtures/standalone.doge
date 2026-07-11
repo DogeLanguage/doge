@@ -1,0 +1,7 @@
+# Fixture for the `doge build` standalone-binary test (build_produces_standalone_binary
+# in cli.rs). It has its own script — not hello.doge — because the build cache is
+# keyed by source: another test builds hello.doge in parallel, and sharing a source
+# would race two builds on the same cached binary. Its printed line is the test's
+# expected stdout.
+bark "much standalone. very wow."
+wow
