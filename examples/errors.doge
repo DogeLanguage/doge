@@ -15,6 +15,28 @@ pls
 oh no err!
     bark "raised: " + err
 
+# Caught errors are structured: err.type and err.message.
+such nums = [1, 2, 3]
+pls
+    bark nums[99]
+oh no err!
+    bark err.type
+    bark err.message
+
+# bonk err re-raises with the original type and raise location intact.
+such reraise:
+    pls
+        such d = {"a": 1}
+        bark d["nope"]
+    oh no err!
+        bonk err
+wow
+
+pls
+    reraise()
+oh no err!
+    bark err.type
+
 such xs = [1, 2, 3]
 for x in xs:
     pls

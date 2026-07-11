@@ -53,7 +53,7 @@
       "name": "keyword.other.doge"
     },
     "operators": {
-      "match": "//|[+\\-*/%<>=!]=?|[=:,\\[\\]().]",
+      "match": "\\*\\*=?|//=?|<<=?|>>=?|[+\\-*/%&|^<>=!]=?|~|[:,\\[\\]().]",
       "name": "keyword.operator.doge"
     }
   }

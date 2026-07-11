@@ -98,9 +98,52 @@ test('tokens stay sorted by (line, start) after the use pass', () => {
   }
 });
 
-test('universal keywords and literals are not rainbow-coloured', () => {
-  const toks = tokenize('for x in xs:\n    if x:\n        return none');
-  assert.equal(toks.length, 0);
+test('universal keywords and literals are not themselves rainbow-coloured', () => {
+  // `for`/`in`/`if`/`return`/`none` never get a token; only the loop variable
+  // `x` (a fresh binding) and its use in the body do.
+  const c = coloursByText('for x in xs:\n    if x:\n        return none');
+  assert.equal(c.get('for'), undefined);
+  assert.equal(c.get('in'), undefined);
+  assert.equal(c.get('if'), undefined);
+  assert.equal(c.get('return'), undefined);
+  assert.equal(c.get('none'), undefined);
+  // `xs` is never bound, so it stays the theme default (no token).
+  assert.equal(c.get('xs'), undefined);
+});
+
+test('a for-loop variable and its body uses share one fresh colour', () => {
+  const c = coloursByText('for item in items:\n    bark item\nwow');
+  const varColour = c.get('item')[0];
+  assert.equal(c.get('item')[1], varColour, 'the body use matches the binding');
+});
+
+test('a for-loop variable reuses an already-declared name colour', () => {
+  const c = coloursByText('such item = 1\nfor item in items:\n    bark item\nwow');
+  const declColour = c.get('such')[0];
+  // Every `item` — the declaration, the loop header, and the body use — is the
+  // colour the `such` binding first gave it.
+  for (const colour of c.get('item')) {
+    assert.equal(colour, declColour);
+  }
+});
+
+test('a destructuring declaration paints every target name', () => {
+  const c = coloursByText('such a, b, many rest = xs\nwow');
+  const suchColour = c.get('such')[0];
+  // Each leading name, the `many` collector keyword, and the collector name all
+  // join the one `such` group.
+  assert.equal(c.get('a')[0], suchColour, 'a joins the group');
+  assert.equal(c.get('b')[0], suchColour, 'b joins the group');
+  assert.equal(c.get('many')[0], suchColour, 'the collector keyword joins');
+  assert.equal(c.get('rest')[0], suchColour, 'the collector name joins');
+});
+
+test('a for-loop paints every destructuring variable', () => {
+  const c = coloursByText('for k, v in d:\n    bark k\n    bark v\nwow');
+  const kColour = c.get('k')[0];
+  assert.equal(c.get('v')[0], kColour, 'both loop variables share the group');
+  assert.equal(c.get('k')[1], kColour, 'the body use of k matches');
+  assert.equal(c.get('v')[1], kColour, 'the body use of v matches');
 });
 
 test('colour indices stay within the palette', () => {

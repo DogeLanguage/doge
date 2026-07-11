@@ -1,0 +1,28 @@
+# such membership. much in.
+such pets = ["kabosu", "cheems", "doge"]
+bark "cheems" in pets
+bark "grumpy" in pets
+bark "doge" not in pets
+
+such ages = {"kabosu": 18, "cheems": 4}
+bark "kabosu" in ages
+bark "shiba" in ages
+
+bark "bos" in "kabosu"
+bark "xyz" not in "kabosu"
+
+such first_known = none
+for pet in pets:
+    if pet in ages:
+        very first_known = pet
+        bork
+bark first_known
+
+if "kabosu" in ages and "cheems" in ages:
+    bark "much complete"
+
+pls
+    bark 5 in 5
+oh no err!
+    bark "much type error"
+wow

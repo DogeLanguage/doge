@@ -1,10 +1,40 @@
 use super::*;
 
+/// A call's parsed arguments: positional expressions, then `(name, value)`
+/// keyword arguments in source order.
+type CallArgs = (Vec<Expr>, Vec<(String, Expr)>);
+
 impl Parser {
     // ----- expressions (lowest to highest precedence) -----
 
     pub(super) fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {
-        self.parse_or()
+        self.parse_ternary()
+    }
+
+    /// `then if cond else otherwise` (Python's conditional expression). The
+    /// condition and the `then` value are `or`-level; the `else` branch recurses
+    /// so `a if p else b if q else c` nests to the right.
+    pub(super) fn parse_ternary(&mut self) -> Result<Expr, Diagnostic> {
+        let then = self.parse_or()?;
+        if self.is(&TokenKind::If) {
+            let span = self.current_span();
+            self.advance();
+            let cond = self.parse_or()?;
+            self.eat(TokenKind::Else).map_err(|_| {
+                self.diag(self.current_span(), "this a if b needs an else branch")
+                    .with_headline("very half. much ternary.")
+                    .with_hint("a if cond else b — the else is required")
+            })?;
+            let otherwise = self.parse_ternary()?;
+            Ok(Expr::Ternary {
+                cond: Box::new(cond),
+                then: Box::new(then),
+                otherwise: Box::new(otherwise),
+                span,
+            })
+        } else {
+            Ok(then)
+        }
     }
 
     pub(super) fn parse_or(&mut self) -> Result<Expr, Diagnostic> {
@@ -55,13 +85,15 @@ impl Parser {
     }
 
     pub(super) fn parse_comparison(&mut self) -> Result<Expr, Diagnostic> {
-        let lhs = self.parse_add()?;
-        if let Some(op) = comparison_op(self.peek()) {
+        let lhs = self.parse_bitor()?;
+        if let Some((op, tokens)) = self.peek_comparison() {
             let span = self.current_span();
-            self.advance();
-            let rhs = self.parse_add()?;
+            for _ in 0..tokens {
+                self.advance();
+            }
+            let rhs = self.parse_bitor()?;
             // Non-chaining: `1 < x < 10` is a friendly error (M2 decision 2).
-            if comparison_op(self.peek()).is_some() {
+            if self.peek_comparison().is_some() {
                 let bad = self.current_span();
                 return Err(self
                     .diag(bad, "doge does not chain comparisons like this")
@@ -76,6 +108,90 @@ impl Parser {
         } else {
             Ok(lhs)
         }
+    }
+
+    /// The comparison operator at the cursor and how many tokens it spans, or
+    /// `None`. All single-token operators span one; the membership `not in`
+    /// spans two (`not` immediately followed by `in`).
+    fn peek_comparison(&self) -> Option<(BinOp, usize)> {
+        if let Some(op) = comparison_op(self.peek()) {
+            return Some((op, 1));
+        }
+        if self.is(&TokenKind::Not) && self.peek_next() == &TokenKind::In {
+            return Some((BinOp::NotIn, 2));
+        }
+        None
+    }
+
+    // Bitwise precedence, loosest to tightest (Python order): `|` then `^` then
+    // `&` then the shifts, all between comparison and `+`/`-`.
+    pub(super) fn parse_bitor(&mut self) -> Result<Expr, Diagnostic> {
+        let mut lhs = self.parse_bitxor()?;
+        while self.is(&TokenKind::Pipe) {
+            let span = self.current_span();
+            self.advance();
+            let rhs = self.parse_bitxor()?;
+            lhs = Expr::Binary {
+                op: BinOp::BitOr,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
+        }
+        Ok(lhs)
+    }
+
+    pub(super) fn parse_bitxor(&mut self) -> Result<Expr, Diagnostic> {
+        let mut lhs = self.parse_bitand()?;
+        while self.is(&TokenKind::Caret) {
+            let span = self.current_span();
+            self.advance();
+            let rhs = self.parse_bitand()?;
+            lhs = Expr::Binary {
+                op: BinOp::BitXor,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
+        }
+        Ok(lhs)
+    }
+
+    pub(super) fn parse_bitand(&mut self) -> Result<Expr, Diagnostic> {
+        let mut lhs = self.parse_shift()?;
+        while self.is(&TokenKind::Amp) {
+            let span = self.current_span();
+            self.advance();
+            let rhs = self.parse_shift()?;
+            lhs = Expr::Binary {
+                op: BinOp::BitAnd,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
+        }
+        Ok(lhs)
+    }
+
+    pub(super) fn parse_shift(&mut self) -> Result<Expr, Diagnostic> {
+        let mut lhs = self.parse_add()?;
+        loop {
+            let op = match self.peek() {
+                TokenKind::Shl => BinOp::Shl,
+                TokenKind::Shr => BinOp::Shr,
+                _ => break,
+            };
+            let span = self.current_span();
+            self.advance();
+            let rhs = self.parse_add()?;
+            lhs = Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
+        }
+        Ok(lhs)
     }
 
     pub(super) fn parse_add(&mut self) -> Result<Expr, Diagnostic> {
@@ -123,17 +239,38 @@ impl Parser {
     }
 
     pub(super) fn parse_unary(&mut self) -> Result<Expr, Diagnostic> {
-        if self.is(&TokenKind::Minus) {
+        let op = match self.peek() {
+            TokenKind::Minus => UnOp::Neg,
+            TokenKind::Tilde => UnOp::BitNot,
+            _ => return self.parse_power(),
+        };
+        let span = self.current_span();
+        self.advance();
+        let operand = self.parse_unary()?;
+        Ok(Expr::Unary {
+            op,
+            operand: Box::new(operand),
+            span,
+        })
+    }
+
+    /// `base ** exponent` — right-associative, and binding tighter than unary on
+    /// its left (`-2 ** 2` is `-(2 ** 2)`) but looser on its right, since the
+    /// exponent is a full unary expression (`2 ** -1`).
+    pub(super) fn parse_power(&mut self) -> Result<Expr, Diagnostic> {
+        let base = self.parse_postfix()?;
+        if self.is(&TokenKind::StarStar) {
             let span = self.current_span();
             self.advance();
-            let operand = self.parse_unary()?;
-            Ok(Expr::Unary {
-                op: UnOp::Neg,
-                operand: Box::new(operand),
+            let exponent = self.parse_unary()?;
+            Ok(Expr::Binary {
+                op: BinOp::Pow,
+                lhs: Box::new(base),
+                rhs: Box::new(exponent),
                 span,
             })
         } else {
-            self.parse_postfix()
+            Ok(base)
         }
     }
 
@@ -144,24 +281,19 @@ impl Parser {
                 TokenKind::LParen => {
                     let span = self.current_span();
                     self.advance();
-                    let args = self.parse_call_args()?;
+                    let (args, kwargs) = self.parse_call_args()?;
                     self.eat(TokenKind::RParen)?;
                     expr = Expr::Call {
                         callee: Box::new(expr),
                         args,
+                        kwargs,
                         span,
                     };
                 }
                 TokenKind::LBracket => {
                     let span = self.current_span();
                     self.advance();
-                    let index = self.parse_expr()?;
-                    self.eat(TokenKind::RBracket)?;
-                    expr = Expr::Index {
-                        obj: Box::new(expr),
-                        index: Box::new(index),
-                        span,
-                    };
+                    expr = self.parse_subscript(expr, span)?;
                 }
                 TokenKind::Dot => {
                     let span = self.current_span();
@@ -179,20 +311,97 @@ impl Parser {
         Ok(expr)
     }
 
-    pub(super) fn parse_call_args(&mut self) -> Result<Vec<Expr>, Diagnostic> {
+    /// The subscript after a consumed `[`: a plain index `obj[e]`, or a slice
+    /// `obj[start:end:step]` where every part is optional. The opening `[` is
+    /// already eaten; this consumes through the closing `]`.
+    pub(super) fn parse_subscript(&mut self, obj: Expr, span: Span) -> Result<Expr, Diagnostic> {
+        // No leading `:` means a start expression is present. `obj[]` reaches
+        // parse_expr on `]` and yields the usual "expected a value" error.
+        let start = if self.is(&TokenKind::Colon) {
+            None
+        } else {
+            Some(Box::new(self.parse_expr()?))
+        };
+
+        if !self.is(&TokenKind::Colon) {
+            self.eat(TokenKind::RBracket)?;
+            let index = start.expect("compiler bug: a non-slice subscript has a start expr");
+            return Ok(Expr::Index {
+                obj: Box::new(obj),
+                index,
+                span,
+            });
+        }
+
+        self.advance(); // first ':'
+        let end = if self.is(&TokenKind::Colon) || self.is(&TokenKind::RBracket) {
+            None
+        } else {
+            Some(Box::new(self.parse_expr()?))
+        };
+        let step = if self.is(&TokenKind::Colon) {
+            self.advance(); // second ':'
+            if self.is(&TokenKind::RBracket) {
+                None
+            } else {
+                Some(Box::new(self.parse_expr()?))
+            }
+        } else {
+            None
+        };
+        self.eat(TokenKind::RBracket)?;
+        Ok(Expr::Slice {
+            obj: Box::new(obj),
+            start,
+            end,
+            step,
+            span,
+        })
+    }
+
+    /// Call arguments after the consumed `(`: positional arguments, then any
+    /// keyword arguments `name = value`. A positional argument may not follow a
+    /// keyword one, and a keyword name may not repeat (docs/GRAMMAR.md).
+    pub(super) fn parse_call_args(&mut self) -> Result<CallArgs, Diagnostic> {
         let mut args = Vec::new();
+        let mut kwargs: Vec<(String, Expr)> = Vec::new();
         loop {
             if self.is(&TokenKind::RParen) {
                 break;
             }
-            args.push(self.parse_expr()?);
+            // `name = value` — a keyword argument. Any other leading form is a
+            // positional expression (which never begins with `IDENT =`).
+            if matches!(self.peek(), TokenKind::Ident(_)) && self.peek_next() == &TokenKind::Eq {
+                let (name, span) = self.eat_ident("a keyword argument name")?;
+                self.eat(TokenKind::Eq)?;
+                let value = self.parse_expr()?;
+                if kwargs.iter().any(|(n, _)| n == &name) {
+                    return Err(self
+                        .diag(span, format!("keyword argument {name} is given twice"))
+                        .with_headline("very keyword. much repeat.")
+                        .with_hint("pass each keyword argument once"));
+                }
+                kwargs.push((name, value));
+            } else {
+                if !kwargs.is_empty() {
+                    let span = self.current_span();
+                    return Err(self
+                        .diag(
+                            span,
+                            "a positional argument cannot follow a keyword argument",
+                        )
+                        .with_headline("very order. much muddle.")
+                        .with_hint("put positional arguments before keyword ones"));
+                }
+                args.push(self.parse_expr()?);
+            }
             if self.is(&TokenKind::Comma) {
                 self.advance();
             } else {
                 break;
             }
         }
-        Ok(args)
+        Ok((args, kwargs))
     }
 
     /// Turn a lexed interpolated string into an [`Expr::StrInterp`]: literal
@@ -337,6 +546,7 @@ fn comparison_op(kind: &TokenKind) -> Option<BinOp> {
         TokenKind::LtEq => Some(BinOp::LtEq),
         TokenKind::Gt => Some(BinOp::Gt),
         TokenKind::GtEq => Some(BinOp::GtEq),
+        TokenKind::In => Some(BinOp::In),
         _ => None,
     }
 }

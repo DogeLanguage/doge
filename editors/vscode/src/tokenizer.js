@@ -8,14 +8,17 @@
 // doge-meme text rather than one colour per keyword.
 //
 // A name carries its group's colour to every later *use*: the first binding of a
-// name (`such age`, `so nerd`, `much a`, `oh no err`, …) records its colour, and
-// every bare reference to that name is painted the same colour instead of the
-// theme default, so an identifier reads consistently wherever it appears.
+// name (`such age`, `so nerd`, `much a`, `oh no err`, a `for` loop variable, …)
+// records its colour, and every bare reference to that name is painted the same
+// colour instead of the theme default, so an identifier reads consistently
+// wherever it appears.
 //
 // The doge keyword set mirrors crates/doge-compiler/src/keywords.rs (`lookup`).
-// Universal keywords (if/for/return/...) and literals (true/false/none) are
-// intentionally NOT rainbow-coloured — the TextMate grammar themes those, so the
-// rainbow stays exclusively doge-speak. Keep this list in sync with keywords.rs.
+// Universal keywords (if/for/in/return/...) and literals (true/false/none) are
+// themselves NOT rainbow-coloured — the TextMate grammar themes those, so the
+// rainbow stays exclusively doge-speak. The one identifier a universal keyword
+// binds is the exception: a `for` loop variable joins the rainbow so it and its
+// uses in the body read as one colour. Keep this list in sync with keywords.rs.
 
 const PALETTE_SIZE = 8;
 
@@ -120,6 +123,35 @@ function tokenize(text) {
     if (!defColor.has(name)) defColor.set(name, color % PALETTE_SIZE);
   };
   const isName = (tok) => tok && tok.kind === 'word' && !RESERVED.has(tok.text);
+  const isComma = (tok) => tok && tok.kind === 'other' && tok.text === ',';
+  const isMany = (tok) => tok && tok.kind === 'word' && tok.text === 'many';
+
+  // Bind a comma-separated destructuring target list starting at index `i` —
+  // `a, b` or `a, many rest` — painting each name (and the `many` collector) into
+  // the current group. Returns the index just past the list. Shared by
+  // `such`/`very` declarations and `for` headers.
+  const bindTargetList = (i) => {
+    while (true) {
+      if (isMany(flat[i])) {
+        emit(i); // the `many` collector keyword
+        i++;
+        if (isName(flat[i])) {
+          bind(i);
+          i++;
+        }
+        break;
+      }
+      if (!isName(flat[i])) break;
+      bind(i);
+      i++;
+      if (isComma(flat[i])) {
+        i++;
+        continue;
+      }
+      break;
+    }
+    return i;
+  };
 
   let i = 0;
   while (i < flat.length) {
@@ -146,7 +178,11 @@ function tokenize(text) {
     if (KEYWORD_WITH_NAME.has(word)) {
       emit(i);
       i++;
-      if (isName(flat[i])) {
+      // `such`/`very` may declare a destructuring target list (`such a, b = …`);
+      // `so`/`many` bind a single name.
+      if (word === 'such' || word === 'very') {
+        i = bindTargetList(i);
+      } else if (isName(flat[i])) {
         bind(i);
         i++;
       }
@@ -175,6 +211,38 @@ function tokenize(text) {
       emit(i);
       color++;
       i++;
+      continue;
+    }
+
+    if (word === 'for') {
+      // `for x in …:` / `for k, v in …:` — `for` and `in` stay theme keywords
+      // (never emitted), but the loop variables join the rainbow. A fresh name
+      // starts its own group so its uses in the body match; a name already bound
+      // is left for the use pass, which repaints it with the colour it has.
+      i++;
+      let bound = false;
+      while (true) {
+        let collector = false;
+        if (isMany(flat[i])) {
+          emit(i);
+          i++;
+          collector = true;
+        }
+        if (!isName(flat[i])) break;
+        if (!defColor.has(flat[i].text)) {
+          bind(i);
+          bound = true;
+        }
+        i++;
+        if (!collector && isComma(flat[i])) {
+          i++;
+          continue;
+        }
+        break;
+      }
+      if (bound) {
+        color++;
+      }
       continue;
     }
 

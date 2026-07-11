@@ -3,12 +3,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml"><img src="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/DogeLanguage/doge/ci.yml?branch=main&color=f4b400&label=very%20build" alt="CI"></a>
+  <a href="https://github.com/DogeLanguage/doge/stargazers"><img src="https://img.shields.io/github/stars/DogeLanguage/doge?style=flat&label=doges%20wowed&color=f4b400" alt="Stars"></a>
+  <a href="https://github.com/DogeLanguage/doge/commits/main"><img src="https://img.shields.io/github/last-commit/DogeLanguage/doge/main?color=f4b400&label=last%20bark" alt="Last commit"></a>
+  <a href="https://github.com/DogeLanguage/doge/issues"><img src="https://img.shields.io/github/issues/DogeLanguage/doge?color=f4b400&label=such%20bonks" alt="Open issues"></a>
+  <a href="https://github.com/DogeLanguage/doge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DogeLanguage/doge?color=f4b400&label=much%20license" alt="License"></a>
 </p>
 
-Doge is a scripting language with the ease of Python and the engine of Rust underneath. Rust's skill floor — ownership, lifetimes, the borrow checker — is too high for casual scripting, while Python proved that a clear, low-ceremony language is what most people reach for. Doge aims to be that language:
+Doge is a scripting language inspired by the ease of use from Python and with the Rust engine underneath. Rust's skill floor is too high for casual scripting, while Python proved that a clear, low-ceremony language is what most people reach for. Doge aims to be the language with:
 
-- **Rust underneath** — reference counting, no GC, no `unsafe`.
+- **The stability of Rust underneath** — reference counting, no GC, no `unsafe`.
 - **Transpiled to native** — a `.doge` script becomes Rust source, built by `rustc` into a native binary. Native speed, never a line of Rust.
 - **Wrapped in the meme** — keywords come from doge-speak where it aids readability, staying universal (`if`, `for`, `while`) where convention wins.
 

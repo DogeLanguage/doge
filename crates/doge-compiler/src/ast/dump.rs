@@ -1,4 +1,4 @@
-use super::{Expr, InterpPart, Script, Stmt};
+use super::{Expr, InterpPart, Params, Script, Stmt};
 
 /// Render a script as an indented tree (two spaces per level). Stable and
 /// language-agnostic — this is what `doge check` prints on success.
@@ -23,6 +23,17 @@ fn line(level: usize, text: &str, out: &mut String) {
     out.push('\n');
 }
 
+/// Render a binding-target name list for a destructuring `Decl`/`For` header:
+/// the leading names comma-joined, then a trailing `many rest` collector when one
+/// is present, e.g. `a, b` or `a, many rest`.
+fn name_list(names: &[String], rest: Option<&str>) -> String {
+    let mut parts: Vec<String> = names.to_vec();
+    if let Some(rest) = rest {
+        parts.push(format!("many {rest}"));
+    }
+    parts.join(", ")
+}
+
 fn dump_block(label: &str, body: &[Stmt], level: usize, out: &mut String) {
     line(level, label, out);
     for stmt in body {
@@ -32,8 +43,14 @@ fn dump_block(label: &str, body: &[Stmt], level: usize, out: &mut String) {
 
 fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
     match stmt {
-        Stmt::Decl { name, expr, .. } => {
-            line(level, &format!("Decl {name}"), out);
+        Stmt::Decl {
+            names, rest, expr, ..
+        } => {
+            line(
+                level,
+                &format!("Decl {}", name_list(names, rest.as_deref())),
+                out,
+            );
             dump_expr(expr, level + 1, out);
         }
         Stmt::ConstDecl { name, expr, .. } => {
@@ -42,14 +59,20 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         }
         Stmt::Import { module, .. } => line(level, &format!("Import {module}"), out),
         Stmt::Assign {
-            target,
+            targets,
+            rest,
             expr,
             flavored,
             ..
         } => {
             let label = if *flavored { "Assign very" } else { "Assign" };
             line(level, label, out);
-            dump_block_expr("target", target, level + 1, out);
+            for target in targets {
+                dump_block_expr("target", target, level + 1, out);
+            }
+            if let Some(rest) = rest {
+                dump_block_expr("many target", rest, level + 1, out);
+            }
             dump_block_expr("value", expr, level + 1, out);
         }
         Stmt::Bark { expr, .. } => {
@@ -72,9 +95,17 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             }
         }
         Stmt::For {
-            var, iter, body, ..
+            vars,
+            rest,
+            iter,
+            body,
+            ..
         } => {
-            line(level, &format!("For {var}"), out);
+            line(
+                level,
+                &format!("For {}", name_list(vars, rest.as_deref())),
+                out,
+            );
             dump_block_expr("in", iter, level + 1, out);
             dump_block("body", body, level + 1, out);
         }
@@ -89,7 +120,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             let params = if params.is_empty() {
                 String::new()
             } else {
-                format!(" much {}", params.join(", "))
+                format!(" much {}", dump_params(params))
             };
             dump_block(&format!("FuncDef {name}{params}"), body, level, out);
         }
@@ -124,6 +155,26 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             dump_expr(expr, level + 1, out);
         }
     }
+}
+
+/// Render a parameter list for the `much …` header line: `name`, `mood = …` for
+/// a defaulted parameter, `many rest` for the variadic.
+fn dump_params(params: &Params) -> String {
+    let mut parts: Vec<String> = params
+        .params
+        .iter()
+        .map(|p| {
+            if p.default.is_some() {
+                format!("{} = …", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect();
+    if let Some(rest) = &params.vararg {
+        parts.push(format!("many {rest}"));
+    }
+    parts.join(", ")
 }
 
 /// Dump an expression under a named sub-heading, e.g. `cond` / `target`.
@@ -163,17 +214,52 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             line(level, &format!("Unary {}", op.symbol()), out);
             dump_expr(operand, level + 1, out);
         }
-        Expr::Call { callee, args, .. } => {
+        Expr::Call {
+            callee,
+            args,
+            kwargs,
+            ..
+        } => {
             line(level, "Call", out);
             dump_block_expr("callee", callee, level + 1, out);
             for arg in args {
                 dump_block_expr("arg", arg, level + 1, out);
+            }
+            for (name, value) in kwargs {
+                dump_block_expr(&format!("kwarg {name}"), value, level + 1, out);
             }
         }
         Expr::Index { obj, index, .. } => {
             line(level, "Index", out);
             dump_block_expr("obj", obj, level + 1, out);
             dump_block_expr("index", index, level + 1, out);
+        }
+        Expr::Slice {
+            obj,
+            start,
+            end,
+            step,
+            ..
+        } => {
+            line(level, "Slice", out);
+            dump_block_expr("obj", obj, level + 1, out);
+            for (label, part) in [("start", start), ("end", end), ("step", step)] {
+                match part {
+                    Some(expr) => dump_block_expr(label, expr, level + 1, out),
+                    None => line(level + 1, &format!("{label} none"), out),
+                }
+            }
+        }
+        Expr::Ternary {
+            cond,
+            then,
+            otherwise,
+            ..
+        } => {
+            line(level, "Ternary", out);
+            dump_block_expr("cond", cond, level + 1, out);
+            dump_block_expr("then", then, level + 1, out);
+            dump_block_expr("else", otherwise, level + 1, out);
         }
         Expr::Attr { obj, name, .. } => {
             line(level, &format!("Attr {name}"), out);

@@ -35,6 +35,11 @@ pub fn add(a: Value, b: Value) -> DogeResult {
             .map(Value::Int)
             .ok_or_else(|| overflow("+", *x, *y)),
         (Value::Str(x), Value::Str(y)) => Ok(Value::str(format!("{x}{y}"))),
+        // An Error concatenates with a Str as its message, so `"caught: " + err`
+        // reads the same as barking the error. Every other `Str + x` stays a type
+        // error — an Error is special only because its payload is text.
+        (Value::Str(x), Value::Error(e)) => Ok(Value::str(format!("{x}{}", e.message))),
+        (Value::Error(e), Value::Str(y)) => Ok(Value::str(format!("{}{y}", e.message))),
         (Value::List(x), Value::List(y)) => {
             let mut joined = x.borrow().clone();
             joined.extend(y.borrow().iter().cloned());
@@ -133,6 +138,26 @@ pub fn rem(a: Value, b: Value) -> DogeResult {
                 Ok(Value::Float(m))
             }
             _ => Err(type_err_binop("%", &a, &b)),
+        },
+    }
+}
+
+/// `**` — exponentiation. Int raised to a non-negative Int stays an Int
+/// (checked, so it overflows catchably); a negative exponent or any Float
+/// operand promotes to Float. `0 ** <negative>` is a catchable division by zero.
+pub fn pow(a: Value, b: Value) -> DogeResult {
+    match (&a, &b) {
+        (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
+            let e = u32::try_from(*exp).map_err(|_| overflow("**", *base, *exp))?;
+            base.checked_pow(e)
+                .map(Value::Int)
+                .ok_or_else(|| overflow("**", *base, *exp))
+        }
+        (Value::Int(0), Value::Int(_)) => Err(div_by_zero("**")),
+        _ => match (as_f64(&a), as_f64(&b)) {
+            (Some(0.0), Some(y)) if y < 0.0 => Err(div_by_zero("**")),
+            (Some(x), Some(y)) => Ok(Value::Float(x.powf(y))),
+            _ => Err(type_err_binop("**", &a, &b)),
         },
     }
 }

@@ -1,0 +1,81 @@
+# such operators. much power. very slice. wow
+
+such xs = [10, 20, 30, 40, 50]
+
+# Negative indexing counts from the end.
+bark xs[-1]
+bark xs[-2]
+bark "kabosu"[-1]
+
+# Slicing: start:end:step, every part optional, negative step reverses.
+bark xs[1:3]
+bark xs[:2]
+bark xs[3:]
+bark xs[-2:]
+bark xs[::2]
+bark xs[::-1]
+bark "doge"[1:3]
+bark "doge"[::-1]
+
+# Exponent: right-associative, tighter than unary minus.
+bark 2 ** 10
+bark 2 ** -1
+bark -2 ** 2
+bark 2 ** 3 ** 2
+
+# Bitwise operators (Int-only).
+bark 6 & 3
+bark 6 | 1
+bark 6 ^ 3
+bark 1 << 4
+bark 32 >> 2
+bark ~0
+
+# Ternary: only the taken branch runs.
+such n = 7
+bark "odd" if n % 2 == 1 else "even"
+
+# Augmented assignment on a name.
+such count = 10
+count += 5
+bark count
+count *= 2
+bark count
+count //= 7
+bark count
+
+# Augmented assignment on a list item (index evaluated once).
+such ys = [1, 2, 3]
+ys[0] += 100
+ys[-1] *= 10
+bark ys
+
+# Augmented assignment on an object field.
+many Counter:
+    such init:
+        self.total = 0
+    wow
+wow
+
+such c = Counter()
+c.total += 40
+c.total -= 5
+bark c.total
+
+# Every one of these errors is catchable with pls / oh no.
+pls
+    such bad = xs[::0]
+oh no err!
+    bark "caught step zero"
+
+pls
+    such oops = 0 ** -1
+oh no err!
+    bark "caught zero to a negative power"
+
+pls
+    such nope = ~"not an int"
+oh no err!
+    bark "caught bitwise on a non-int"
+
+wow

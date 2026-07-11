@@ -11,6 +11,9 @@ bark nums[0]
 such info = {"name": "kabosu", "kind": "shibe"}
 bark info["name"]
 
+for k in info:
+    bark k + ": " + info[k]
+
 such total = 0
 for k in range(4):
     very total = total + k

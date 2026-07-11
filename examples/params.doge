@@ -1,0 +1,71 @@
+# such flexible. much call. default, keyword, and many.
+
+# A default parameter is a literal, evaluated fresh at every call.
+such greet much name, mood = "happy":
+    return "much hello {name}, very {mood}"
+wow
+
+bark greet("kabosu")
+bark greet("cheems", "excite")
+bark greet("walter", mood = "sleepy")
+
+# Keyword arguments may reorder — evaluation stays left to right.
+such describe much subject, verb, object:
+    return "{subject} {verb} {object}"
+wow
+
+bark describe("doge", object = "bork", verb = "says")
+
+# A fresh list default is not shared between calls.
+such collect much item, into = []:
+    into.append(item)
+    return into
+wow
+
+bark collect("a")
+bark collect("b")
+
+# A variadic parameter gathers the surplus arguments into a list.
+such party much host, many guests:
+    bark "host {host} invites {len(guests)}"
+    for guest in guests:
+        bark "  guest {guest}"
+wow
+
+party("kabosu")
+party("kabosu", "cheems", "walter")
+
+# Defaults and variadics work through a function value, too.
+such g = greet
+bark g("shibe")
+
+# Methods carry defaults and variadics like any function.
+many Counter:
+    such init much start = 0:
+        self.n = start
+    wow
+
+    such bump much by = 1:
+        self.n = self.n + by
+        return self.n
+    wow
+
+    such total much many extra:
+        such sum = self.n
+        for e in extra:
+            such sum = sum + e
+        return sum
+    wow
+wow
+
+such c = Counter(start = 10)
+bark c.bump()
+bark c.bump(5)
+bark c.total(1, 2, 3)
+
+# A wrong argument count through a value is a catchable runtime error.
+pls
+    bark g()
+oh no err!
+    bark "caught: {err}"
+wow

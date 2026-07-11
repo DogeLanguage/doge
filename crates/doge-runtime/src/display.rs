@@ -43,6 +43,7 @@ impl fmt::Display for Value {
             }
             Value::Object(o) => write!(f, "<{}>", o.borrow().class_name),
             Value::Function(func) => write!(f, "<function {}>", func.name),
+            Value::Error(e) => write!(f, "{}", e.message),
         }
     }
 }
@@ -90,5 +91,17 @@ mod tests {
             Value::function(0, "greet", vec![]).to_string(),
             "<function greet>"
         );
+    }
+
+    #[test]
+    fn error_prints_its_message() {
+        let err = crate::error::error_value(
+            &crate::error::DogeError::type_error("much wrong"),
+            "s.doge",
+            2,
+        );
+        assert_eq!(err.to_string(), "much wrong");
+        // Nested in a container it stays bare (it is not a Str), like objects.
+        assert_eq!(Value::list(vec![err]).to_string(), "[much wrong]");
     }
 }

@@ -19,4 +19,5 @@ shibe
 {}
 cannot pop from an empty List
 a List has no method flop
-cannot call nope on an Int
+an Int has no methods
+AttrError

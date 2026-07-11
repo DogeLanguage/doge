@@ -1,6 +1,6 @@
 pub(super) use std::collections::HashSet;
 
-pub(super) use crate::ast::{for_each_child_block, Expr, InterpPart, Script, Stmt};
+pub(super) use crate::ast::{for_each_child_block, Expr, InterpPart, Params, Script, Stmt};
 pub(super) use crate::diagnostics::Diagnostic;
 pub(super) use crate::modules::Program;
 pub(super) use crate::token::Span;
@@ -71,8 +71,16 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
     // Pre-pass: every top-level name, and the top-level constants.
     for stmt in &script.stmts {
         match stmt {
-            Stmt::Decl { name, .. } | Stmt::FuncDef { name, .. } | Stmt::ObjDef { name, .. } => {
+            Stmt::FuncDef { name, .. } | Stmt::ObjDef { name, .. } => {
                 checker.globals.insert(name.clone());
+            }
+            Stmt::Decl { names, rest, .. } => {
+                for name in names {
+                    checker.globals.insert(name.clone());
+                }
+                if let Some(rest) = rest {
+                    checker.globals.insert(rest.clone());
+                }
             }
             Stmt::Import { module, .. } => {
                 checker.globals.insert(module.clone());

@@ -143,7 +143,7 @@ impl Codegen {
         emit.locals = locals;
         emit.local_funcs = child_funcdefs(body)
             .into_iter()
-            .map(|(name, params, _, _)| (name.to_string(), params.to_vec()))
+            .map(|(name, params, _, _)| (name.to_string(), params.clone()))
             .collect();
         emit.try_stack.clear();
         emit.loop_stack.clear();
@@ -160,8 +160,8 @@ impl Codegen {
     /// class has one), and return the object. The callsite wraps the `n_` call in
     /// the fail suffix, so the `?` on `init` here is correct.
     pub(super) fn constructor(&self, class: &Class, out: &mut String) {
-        let init_params = class.init_params();
-        let ctor_params = signature(&[], init_params, false);
+        let init_binding = class.init_params().binding_names();
+        let ctor_params = signature(&[], &init_binding, false);
         out.push_str(&format!(
             "\nfn {CTOR_PREFIX}{}({ctor_params}) -> DogeResult<Value> {{\n",
             class.id
@@ -173,7 +173,7 @@ impl Codegen {
         ));
         if class.methods.iter().any(|(name, _)| name == "init") {
             let mut args: Vec<String> = vec!["obj.clone()".to_string()];
-            args.extend(init_params.iter().map(|p| format!("{NAME_PREFIX}{p}")));
+            args.extend(init_binding.iter().map(|p| format!("{NAME_PREFIX}{p}")));
             args.push("env".to_string());
             out.push_str(&format!(
                 "    {METHOD_PREFIX}{}_init({})?;\n",

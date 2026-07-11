@@ -29,6 +29,12 @@ very error. much broken.
 Tone: meme in the framing, precision in the content. Never sacrifice clarity for
 the joke.
 
+A *caught* error (`pls`/`oh no`) is not just this text: `oh no err!` binds a
+structured `Error` value carrying the same category, message, and raise location
+the report above shows — `err.type` / `err.message` / `err.file` / `err.line`.
+The value's fields and `bonk err` re-raise semantics live in
+[SYNTAX.md](SYNTAX.md) §7.
+
 Rules:
 
 - One issue at a time, never a wall of errors.
@@ -63,3 +69,35 @@ each pointing at the offending `so` line in the file that wrote it:
 
 An uncaught runtime error inside an imported module reports *that module's* file
 and line, not the entry script's.
+
+## Function-header and call diagnostics
+
+Parameters with defaults, keyword arguments, and variadics ([SYNTAX.md](SYNTAX.md)
+§6) each carry their own diagnostic:
+
+- **Arity out of range** — `very args. much wrong.` — a call supplies too few or
+  too many arguments. The message states the accepted span: `greet takes 1 to 2
+  arguments, got 0`, a plain `add2 takes 2 arguments, got 1` for a fixed header, or
+  `party takes at least 1 argument, got 0` when a variadic makes the top unbounded.
+  The hint echoes the call shape (`greet(name, mood = …, many rest)`). A direct
+  call is caught at compile time; a call through a value at run time.
+- **Required after default** — `very order. much default.` — a parameter with no
+  default follows one with a default; the hint is to move defaulted parameters to
+  the end.
+- **Variadic not last** — `very rest. much greedy.` — `many rest` is followed by
+  another parameter; it must be the final one.
+- **Non-literal default** — `very default. much dynamic.` — a default value is not
+  a literal; the hint lists the allowed forms (`0`, `"hi"`, `true`, `none`, `[ ]`).
+- **Duplicate parameter** — `very twice. much name.` — a parameter (or the
+  variadic) repeats a name in the same header.
+- **Keyword ordering** — `very order. much muddle.` — a positional argument follows
+  a keyword one.
+- **Repeated keyword** — `very keyword. much repeat.` — the same keyword name is
+  passed twice at a call, or a keyword names a parameter already filled
+  positionally.
+- **Unknown keyword** — `very keyword. much unknown.` — a keyword name matches no
+  parameter (or names the variadic, which cannot be filled by keyword); the hint
+  shows the call shape.
+- **Keyword where none is allowed** — `very keyword. much dynamic.` — a keyword
+  argument is passed to a method, a stored function value, or a builtin; the hint
+  is to pass it positionally or call the function by a name doge knows.

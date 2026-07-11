@@ -28,18 +28,18 @@ pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult 
     match recv {
         Value::List(_) => list_method(recv, name, args),
         Value::Dict(_) => dict_method(recv, name, args),
-        // No other value has builtin methods. Listed by variant rather than a
+        // The dispatcher routes objects to its own class match, never here; this
+        // defensive branch names the class rather than claiming "no methods".
+        Value::Object(_) => Err(crate::objects::no_such_method(recv, name)),
+        // No other value has methods at all. Listed by variant rather than a
         // wildcard, so a new Value variant with methods forces a decision here.
         Value::Int(_)
         | Value::Float(_)
         | Value::Str(_)
         | Value::Bool(_)
         | Value::None
-        | Value::Object(_)
-        | Value::Function(_) => Err(DogeError::type_error(format!(
-            "cannot call {name} on {}",
-            recv.describe()
-        ))),
+        | Value::Function(_)
+        | Value::Error(_) => Err(crate::objects::no_methods_error(recv)),
     }
 }
 
@@ -54,7 +54,13 @@ pub(super) fn check_arity(
     if got == expected {
         Ok(())
     } else {
-        Err(method_arity_error(class, method, expected, got))
+        Err(method_arity_error(
+            class,
+            method,
+            expected,
+            Some(expected),
+            got,
+        ))
     }
 }
 

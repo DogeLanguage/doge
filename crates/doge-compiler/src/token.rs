@@ -1,3 +1,5 @@
+use crate::ast::BinOp;
+
 /// A 1-based source position pointing at the first character of a token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -70,9 +72,16 @@ pub enum TokenKind {
     Plus,
     Minus,
     Star,
+    StarStar,
     Slash,
     SlashSlash,
     Percent,
+    Amp,
+    Pipe,
+    Caret,
+    Tilde,
+    Shl,
+    Shr,
     EqEq,
     NotEq,
     Lt,
@@ -80,6 +89,9 @@ pub enum TokenKind {
     Gt,
     GtEq,
     Eq,
+    /// A compound assignment `op=`, e.g. `+=`, `//=`, `<<=`. Carries the binary
+    /// operator applied before the store.
+    AugAssign(BinOp),
     Colon,
     Bang,
     Comma,
@@ -143,9 +155,16 @@ impl TokenKind {
             TokenKind::Plus => "+".into(),
             TokenKind::Minus => "-".into(),
             TokenKind::Star => "*".into(),
+            TokenKind::StarStar => "**".into(),
             TokenKind::Slash => "/".into(),
             TokenKind::SlashSlash => "//".into(),
             TokenKind::Percent => "%".into(),
+            TokenKind::Amp => "&".into(),
+            TokenKind::Pipe => "|".into(),
+            TokenKind::Caret => "^".into(),
+            TokenKind::Tilde => "~".into(),
+            TokenKind::Shl => "<<".into(),
+            TokenKind::Shr => ">>".into(),
             TokenKind::EqEq => "==".into(),
             TokenKind::NotEq => "!=".into(),
             TokenKind::Lt => "<".into(),
@@ -153,6 +172,7 @@ impl TokenKind {
             TokenKind::Gt => ">".into(),
             TokenKind::GtEq => ">=".into(),
             TokenKind::Eq => "=".into(),
+            TokenKind::AugAssign(op) => format!("{}=", op.symbol()),
             TokenKind::Colon => ":".into(),
             TokenKind::Bang => "!".into(),
             TokenKind::Comma => ",".into(),

@@ -12,6 +12,21 @@ fn clean_program_passes() {
 }
 
 #[test]
+fn a_default_and_variadic_header_checks_cleanly() {
+    assert!(
+        check_src("such f much a, b = 2, many rest:\n    return a\nwow\nbark f(1)\nwow\n").is_ok()
+    );
+}
+
+#[test]
+fn duplicate_parameter_names_are_rejected() {
+    let err = check_src("such f much a, a:\n    return a\nwow\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very twice. much name.");
+    let variadic = check_src("such f much a, many a:\n    return a\nwow\nwow\n").unwrap_err();
+    assert_eq!(variadic.headline, "very twice. much name.");
+}
+
+#[test]
 fn assign_to_undeclared_is_an_error() {
     let err = check_src("x = 1\nwow\n").unwrap_err();
     assert_eq!(err.headline, "very undeclared. much assign.");
@@ -32,6 +47,61 @@ fn reassigning_a_const_is_an_error() {
 #[test]
 fn reading_an_undeclared_name_is_an_error() {
     let err = check_src("bark nope\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very unknown. much name.");
+}
+
+#[test]
+fn augmented_assign_to_undeclared_is_an_error() {
+    let err = check_src("count += 1\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very undeclared. much assign.");
+}
+
+#[test]
+fn augmented_assign_to_a_const_is_an_error() {
+    let err = check_src("so N = 3\nN += 1\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very const. much fixed.");
+}
+
+#[test]
+fn augmented_assign_to_a_declared_name_passes() {
+    assert!(check_src("such n = 1\nn += 2\nbark n\nwow\n").is_ok());
+}
+
+#[test]
+fn destructuring_declaration_binds_every_name() {
+    assert!(check_src(
+        "such xs = [1, 2, 3]\nsuch a, b, many rest = xs\nbark a\nbark b\nbark rest\nwow\n"
+    )
+    .is_ok());
+}
+
+#[test]
+fn destructuring_reassignment_needs_declared_targets() {
+    let err = check_src("such a = 1\nsuch xs = [1, 2]\na, b = xs\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very undeclared. much assign.");
+}
+
+#[test]
+fn repeated_destructuring_name_is_an_error() {
+    let err = check_src("such xs = [1, 2]\nsuch a, a = xs\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very twice. much name.");
+}
+
+#[test]
+fn for_loop_destructuring_binds_its_variables() {
+    assert!(
+        check_src("such d = {\"a\": 1}\nfor k, v in d:\n    bark k\n    bark v\nwow\n").is_ok()
+    );
+}
+
+#[test]
+fn slice_and_ternary_resolve_their_names() {
+    assert!(check_src("such xs = [1, 2, 3]\nbark xs[0:2]\nwow\n").is_ok());
+    // A name used only inside a slice bound must still be declared.
+    let err = check_src("such xs = [1]\nbark xs[lo:hi]\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very unknown. much name.");
+    // Both ternary branches are checked.
+    let err = check_src("bark 1 if true else missing\nwow\n").unwrap_err();
     assert_eq!(err.headline, "very unknown. much name.");
 }
 

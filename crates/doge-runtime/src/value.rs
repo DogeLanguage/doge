@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::error::{ErrorData, ErrorKind};
 use crate::ordered_map::OrderedMap;
 
 /// A shared, mutable binding cell. Closures capture enclosing variables by
@@ -21,6 +22,7 @@ pub enum Value {
     Dict(Rc<RefCell<OrderedMap>>),
     Object(Rc<RefCell<ObjectData>>),
     Function(Rc<FunctionData>),
+    Error(Rc<ErrorData>),
 }
 
 /// A first-class function value: which compiled function it is (`fn_id`, matched
@@ -70,6 +72,18 @@ impl Value {
         })))
     }
 
+    /// Build a caught `Error` value from a raised error's category, message, and
+    /// the file/line it was raised at (`err.type` / `err.message` / `err.file` /
+    /// `err.line`). Built by [`crate::error::error_value`] at each catch site.
+    pub fn error(kind: ErrorKind, message: &str, file: Rc<str>, line: u32) -> Value {
+        Value::Error(Rc::new(ErrorData {
+            kind,
+            message: Rc::from(message),
+            file,
+            line,
+        }))
+    }
+
     /// Build a first-class function value with `fn_id`, display `name`, and the
     /// captured `captures` cells (empty for a top-level function or a closure that
     /// captures nothing).
@@ -115,6 +129,7 @@ impl Value {
             Value::Dict(entries) => !entries.borrow().is_empty(),
             Value::Object(_) => true,
             Value::Function(_) => true,
+            Value::Error(_) => true,
         }
     }
 
@@ -130,6 +145,7 @@ impl Value {
             Value::Dict(_) => "Dict",
             Value::Object(_) => "Object",
             Value::Function(_) => "Function",
+            Value::Error(_) => "Error",
         }
     }
 

@@ -50,15 +50,35 @@ impl Parser {
         self.eat(TokenKind::Such)?;
         let (name, _) = self.eat_ident("a name after such")?;
 
+        // `such a, b = …` — a destructuring declaration. A name list is always a
+        // declaration (a function has a single name), so `=` and values follow.
+        if self.is(&TokenKind::Comma) {
+            let (names, rest) = self.parse_target_names(name)?;
+            self.expect_destructure_eq()?;
+            let expr = self.parse_assign_rhs(true)?;
+            self.eat(TokenKind::Newline)?;
+            return Ok(Stmt::Decl {
+                names,
+                rest,
+                expr,
+                span,
+            });
+        }
+
         match self.peek() {
             TokenKind::Eq => {
                 self.advance();
-                let expr = self.parse_expr()?;
+                let expr = self.parse_assign_rhs(false)?;
                 self.eat(TokenKind::Newline)?;
-                Ok(Stmt::Decl { name, expr, span })
+                Ok(Stmt::Decl {
+                    names: vec![name],
+                    rest: None,
+                    expr,
+                    span,
+                })
             }
             TokenKind::Much | TokenKind::Colon => {
-                let mut params = Vec::new();
+                let mut params = Params::default();
                 if self.is(&TokenKind::Much) {
                     self.advance();
                     params = self.parse_params()?;
@@ -153,20 +173,31 @@ impl Parser {
     pub(super) fn parse_very(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         self.eat(TokenKind::Very)?;
-        let target = self.parse_expr()?;
-        self.eat(TokenKind::Eq).map_err(|_| {
-            self.diag(
-                target.span(),
-                "very always reassigns — doge expects = after the target",
-            )
-            .with_hint("very age = 9")
-        })?;
-        let expr = self.parse_expr()?;
+        let first = self.parse_expr()?;
+        if self.is(&TokenKind::Comma) {
+            return self.finish_multi_assign(first, true, span);
+        }
+        let op = match self.peek() {
+            TokenKind::Eq => None,
+            TokenKind::AugAssign(op) => Some(*op),
+            _ => {
+                return Err(self
+                    .diag(
+                        first.span(),
+                        "very always reassigns — doge expects = after the target",
+                    )
+                    .with_hint("very age = 9"))
+            }
+        };
+        self.advance();
+        let expr = self.parse_assign_rhs(false)?;
         self.eat(TokenKind::Newline)?;
-        self.require_target(&target)?;
+        self.require_target(&first)?;
         Ok(Stmt::Assign {
-            target,
+            targets: vec![first],
+            rest: None,
             expr,
+            op,
             flavored: true,
             span,
         })
@@ -223,13 +254,19 @@ impl Parser {
     pub(super) fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         self.eat(TokenKind::For)?;
-        let (var, _) = self.eat_ident("a loop variable after for")?;
+        let (first, _) = self.eat_ident("a loop variable after for")?;
+        let (vars, rest) = if self.is(&TokenKind::Comma) {
+            self.parse_target_names(first)?
+        } else {
+            (vec![first], None)
+        };
         self.eat(TokenKind::In)?;
         let iter = self.parse_expr()?;
         self.eat(TokenKind::Colon)?;
         let body = self.parse_block()?;
         Ok(Stmt::For {
-            var,
+            vars,
+            rest,
             iter,
             body,
             span,
@@ -278,14 +315,25 @@ impl Parser {
     pub(super) fn parse_expr_or_assign(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         let expr = self.parse_expr()?;
-        if self.is(&TokenKind::Eq) {
+        if self.is(&TokenKind::Comma) {
+            return self.finish_multi_assign(expr, false, span);
+        }
+        // `Some(None)` is a plain `=`; `Some(Some(op))` is an augmented `op=`.
+        let assign = match self.peek() {
+            TokenKind::Eq => Some(None),
+            TokenKind::AugAssign(op) => Some(Some(*op)),
+            _ => None,
+        };
+        if let Some(op) = assign {
             self.advance();
-            let value = self.parse_expr()?;
+            let value = self.parse_assign_rhs(false)?;
             self.eat(TokenKind::Newline)?;
             self.require_target(&expr)?;
             Ok(Stmt::Assign {
-                target: expr,
+                targets: vec![expr],
+                rest: None,
                 expr: value,
+                op,
                 flavored: false,
                 span,
             })
@@ -293,6 +341,46 @@ impl Parser {
             self.eat(TokenKind::Newline)?;
             Ok(Stmt::ExprStmt { expr })
         }
+    }
+
+    /// Finish a destructuring assignment once a `,` after the first target has
+    /// revealed it: collect the remaining targets (with an optional trailing
+    /// `many` collector), reject an augmented operator (destructuring is `=`
+    /// only), then bind the comma-list right-hand side. `flavored` records a
+    /// leading `very`.
+    fn finish_multi_assign(
+        &mut self,
+        first: Expr,
+        flavored: bool,
+        span: Span,
+    ) -> Result<Stmt, Diagnostic> {
+        let (targets, rest) = self.parse_target_exprs(first)?;
+        if let TokenKind::AugAssign(_) = self.peek() {
+            return Err(self
+                .diag(
+                    self.current_span(),
+                    "augmented assignment takes a single target",
+                )
+                .with_headline("very many. much augment.")
+                .with_hint("split it up, e.g. a = a + 1 on its own line"));
+        }
+        self.expect_destructure_eq()?;
+        let value = self.parse_assign_rhs(true)?;
+        self.eat(TokenKind::Newline)?;
+        for target in &targets {
+            self.require_target(target)?;
+        }
+        if let Some(rest) = &rest {
+            self.require_target(rest)?;
+        }
+        Ok(Stmt::Assign {
+            targets,
+            rest,
+            expr: value,
+            op: None,
+            flavored,
+            span,
+        })
     }
 
     /// A block: `NEWLINE INDENT { statement } DEDENT` (docs/GRAMMAR.md).
@@ -317,18 +405,98 @@ impl Parser {
         Ok(stmts)
     }
 
-    pub(super) fn parse_params(&mut self) -> Result<Vec<String>, Diagnostic> {
-        let mut params = Vec::new();
+    /// A function header's parameter list (after the `much`): comma-separated
+    /// parameters, each optionally `name = literal`, with an optional trailing
+    /// `many rest` variadic. Required parameters must precede defaulted ones, and
+    /// the variadic — if present — must come last (docs/GRAMMAR.md).
+    pub(super) fn parse_params(&mut self) -> Result<Params, Diagnostic> {
+        let mut params: Vec<Param> = Vec::new();
+        let mut vararg: Option<String> = None;
         loop {
-            let (name, _) = self.eat_ident("a parameter name")?;
-            params.push(name);
+            if self.is(&TokenKind::Many) {
+                self.advance();
+                let (name, _) = self.eat_ident("a name after many")?;
+                vararg = Some(name);
+                if self.is(&TokenKind::Comma) {
+                    let comma = self.current_span();
+                    return Err(self
+                        .diag(comma, "the many parameter must be the last one")
+                        .with_headline("very rest. much greedy.")
+                        .with_hint("put many rest at the end of the parameter list"));
+                }
+                break;
+            }
+            let (name, span) = self.eat_ident("a parameter name")?;
+            let default = if self.is(&TokenKind::Eq) {
+                self.advance();
+                let expr = self.parse_expr()?;
+                self.require_literal(&expr)?;
+                Some(expr)
+            } else {
+                if params.last().is_some_and(|p| p.default.is_some()) {
+                    return Err(self
+                        .diag(
+                            span,
+                            "a parameter with no default cannot follow one with a default",
+                        )
+                        .with_headline("very order. much default.")
+                        .with_hint("move defaulted parameters to the end of the list"));
+                }
+                None
+            };
+            params.push(Param {
+                name,
+                default,
+                span,
+            });
             if self.is(&TokenKind::Comma) {
                 self.advance();
             } else {
                 break;
             }
         }
-        Ok(params)
+        Ok(Params { params, vararg })
+    }
+
+    /// A default parameter value must be a literal: a number, string, bool,
+    /// `none`, a unary minus on a number, or a list/dict of literals. This keeps a
+    /// default free of names and side effects, so it is evaluated fresh at every
+    /// call (docs/SYNTAX.md §6).
+    pub(super) fn require_literal(&self, expr: &Expr) -> Result<(), Diagnostic> {
+        let ok = match expr {
+            Expr::Int { .. }
+            | Expr::Float { .. }
+            | Expr::Str { .. }
+            | Expr::Bool { .. }
+            | Expr::None { .. } => true,
+            Expr::Unary {
+                op: UnOp::Neg,
+                operand,
+                ..
+            } => matches!(operand.as_ref(), Expr::Int { .. } | Expr::Float { .. }),
+            Expr::List { items, .. } => {
+                for item in items {
+                    self.require_literal(item)?;
+                }
+                true
+            }
+            Expr::Dict { entries, .. } => {
+                for (key, value) in entries {
+                    self.require_literal(key)?;
+                    self.require_literal(value)?;
+                }
+                true
+            }
+            _ => false,
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(self
+                .diag(expr.span(), "a default parameter value must be a literal")
+                .with_headline("very default. much dynamic.")
+                .with_hint("use a fixed value like 0, \"hi\", true, none, or [ ]"))
+        }
     }
 
     pub(super) fn require_target(&self, expr: &Expr) -> Result<(), Diagnostic> {
@@ -338,5 +506,107 @@ impl Parser {
                 .diag(other.span(), "doge cannot assign to this")
                 .with_hint("assign to a name, an item like xs[0], or a field like x.name")),
         }
+    }
+
+    /// The remaining names of a destructuring `such`/`for` header, given the
+    /// already-consumed `first` name and the `,` that follows it: each further
+    /// comma-separated name, then an optional trailing `many rest` collector that
+    /// must be the last target. Used where every target is a plain binding name.
+    fn parse_target_names(
+        &mut self,
+        first: String,
+    ) -> Result<(Vec<String>, Option<String>), Diagnostic> {
+        let mut names = vec![first];
+        let mut rest = None;
+        while self.is(&TokenKind::Comma) {
+            self.advance();
+            if self.is(&TokenKind::Many) {
+                self.advance();
+                let (name, _) = self.eat_ident("a name after many")?;
+                rest = Some(name);
+                self.reject_target_after_collector()?;
+                break;
+            }
+            let (name, _) = self.eat_ident("a name after the comma")?;
+            names.push(name);
+        }
+        Ok((names, rest))
+    }
+
+    /// Like [`parse_target_names`] but for a reassignment, where each target is a
+    /// full assignable expression (`a`, `xs[0]`, `dog.name`) rather than a plain
+    /// name. `require_target` validates each one at the call site.
+    fn parse_target_exprs(&mut self, first: Expr) -> Result<(Vec<Expr>, Option<Expr>), Diagnostic> {
+        let mut targets = vec![first];
+        let mut rest = None;
+        while self.is(&TokenKind::Comma) {
+            self.advance();
+            if self.is(&TokenKind::Many) {
+                self.advance();
+                rest = Some(self.parse_expr()?);
+                self.reject_target_after_collector()?;
+                break;
+            }
+            targets.push(self.parse_expr()?);
+        }
+        Ok((targets, rest))
+    }
+
+    /// A `many rest` collector must be the final target: a `,` after it is an
+    /// error, mirroring the same rule on a `much rest` function parameter.
+    fn reject_target_after_collector(&self) -> Result<(), Diagnostic> {
+        if self.is(&TokenKind::Comma) {
+            return Err(self
+                .diag(
+                    self.current_span(),
+                    "the many collector must be the last target",
+                )
+                .with_headline("very rest. much greedy.")
+                .with_hint("put many rest at the end of the target list"));
+        }
+        Ok(())
+    }
+
+    /// The right-hand side of an assignment. In a multiple-assignment position
+    /// (`multi`), a comma-separated list of values builds an implicit List, so
+    /// `a, b = b, a` swaps; a single value is returned as-is (unpacked at
+    /// runtime). Outside multiple assignment a trailing comma is an error, so
+    /// `such x = 1, 2` stays rejected rather than silently building a List.
+    fn parse_assign_rhs(&mut self, multi: bool) -> Result<Expr, Diagnostic> {
+        let first = self.parse_expr()?;
+        if !self.is(&TokenKind::Comma) {
+            return Ok(first);
+        }
+        if !multi {
+            return Err(self
+                .diag(
+                    self.current_span(),
+                    "doge sees extra values but only one name to hold them",
+                )
+                .with_headline("very many. much value.")
+                .with_hint("give the left side matching names, or wrap the values in [ ]"));
+        }
+        let span = first.span();
+        let mut items = vec![first];
+        while self.is(&TokenKind::Comma) {
+            self.advance();
+            items.push(self.parse_expr()?);
+        }
+        Ok(Expr::List { items, span })
+    }
+
+    /// A destructuring header's target list must be followed by `=` and values.
+    fn expect_destructure_eq(&mut self) -> Result<(), Diagnostic> {
+        if !self.is(&TokenKind::Eq) {
+            return Err(self
+                .diag(
+                    self.current_span(),
+                    "a destructuring assignment needs = and values",
+                )
+                .with_headline("very unpack. much incomplete.")
+                .with_hint("give matching values, e.g. a, b = [1, 2]"));
+        }
+        self.advance();
+        Ok(())
     }
 }

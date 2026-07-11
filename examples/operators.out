@@ -1,0 +1,30 @@
+50
+40
+u
+[20, 30]
+[10, 20]
+[40, 50]
+[40, 50]
+[10, 30, 50]
+[50, 40, 30, 20, 10]
+og
+egod
+1024
+0.5
+-4
+512
+2
+7
+5
+16
+8
+-1
+odd
+15
+30
+4
+[101, 2, 30]
+35
+caught step zero
+caught zero to a negative power
+caught bitwise on a non-int

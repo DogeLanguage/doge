@@ -189,6 +189,6 @@ fn arity_unknown_method_and_non_collection() {
     assert_eq!(err.kind, ErrorKind::AttrError);
     assert_eq!(err.message, "a List has no method flop");
     let err = call(&Value::Int(5), "append", vec![Value::Int(1)]).unwrap_err();
-    assert_eq!(err.kind, ErrorKind::TypeError);
-    assert_eq!(err.message, "cannot call append on an Int");
+    assert_eq!(err.kind, ErrorKind::AttrError);
+    assert_eq!(err.message, "an Int has no methods");
 }

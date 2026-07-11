@@ -40,6 +40,10 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
                     .zip(y.captures.iter())
                     .all(|(p, q)| Rc::ptr_eq(p, q))
         }
+        // Errors are equal when their type, message, and raise site all match.
+        (Value::Error(x), Value::Error(y)) => {
+            x.kind == y.kind && x.message == y.message && x.file == y.file && x.line == y.line
+        }
         // Cross-type comparisons are simply unequal, never an error. Written by
         // left-hand variant rather than a wildcard, so a new Value variant forces
         // its own same-type case to be added above.
@@ -51,7 +55,8 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         | (Value::List(_), _)
         | (Value::Dict(_), _)
         | (Value::Object(_), _)
-        | (Value::Function(_), _) => false,
+        | (Value::Function(_), _)
+        | (Value::Error(_), _) => false,
     }
 }
 
@@ -63,6 +68,59 @@ pub fn eq(a: Value, b: Value) -> DogeResult {
 /// `!=`.
 pub fn ne(a: Value, b: Value) -> DogeResult {
     Ok(Value::Bool(!values_equal(&a, &b)))
+}
+
+/// Whether `target` is structurally equal to some element of `items`. Shared by
+/// the `in` operator and `List.contains` so their membership rule is identical.
+pub(crate) fn slice_contains(items: &[Value], target: &Value) -> bool {
+    items.iter().any(|element| values_equal(element, target))
+}
+
+/// `needle in container`. Python-style: a List tests element membership, a Dict
+/// tests key membership, a Str tests substring. Every other container type is a
+/// catchable type error. Matched by container variant (not a wildcard) so a new
+/// `Value` variant forces its own decision here.
+pub fn in_(needle: Value, container: Value) -> DogeResult {
+    let found = match &container {
+        Value::List(items) => slice_contains(&items.borrow(), &needle),
+        // A dict is keyed by Str; a non-Str needle can never be a key, so it is
+        // simply absent rather than an error (mirrors cross-type `==`).
+        Value::Dict(entries) => match &needle {
+            Value::Str(k) => entries.borrow().contains_key(k.as_ref()),
+            _ => false,
+        },
+        Value::Str(haystack) => match &needle {
+            Value::Str(sub) => haystack.contains(sub.as_ref()),
+            _ => {
+                return Err(DogeError::type_error(format!(
+                    "can only check if a Str is in a Str, not {}",
+                    needle.describe()
+                )));
+            }
+        },
+        Value::Int(_)
+        | Value::Float(_)
+        | Value::Bool(_)
+        | Value::None
+        | Value::Object(_)
+        | Value::Function(_)
+        | Value::Error(_) => {
+            return Err(DogeError::type_error(format!(
+                "in wants a List, Dict, or Str on the right, not {}",
+                container.describe()
+            )));
+        }
+    };
+    Ok(Value::Bool(found))
+}
+
+/// `needle not in container` — the negation of [`in_`], sharing its type rules so
+/// `x not in xs` and `not (x in xs)` always agree.
+pub fn not_in(needle: Value, container: Value) -> DogeResult {
+    match in_(needle, container)? {
+        Value::Bool(found) => Ok(Value::Bool(!found)),
+        _ => unreachable!("in_ always yields a Bool"),
+    }
 }
 
 /// Ordering for `< <= > >=`: numbers compare across Int/Float, Str compares

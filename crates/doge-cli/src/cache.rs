@@ -6,7 +6,7 @@ const FNV_PRIME: u64 = 0x100000001b3;
 
 /// Bumped when the generated-code shape changes without a crate version bump, so
 /// binaries cached by an older milestone rebuild instead of running stale.
-const CODEGEN_REV: &str = "m6";
+const CODEGEN_REV: &str = "m6-params-defaults-kwargs-varargs";
 
 /// The message shown when no writable cache location can be found.
 const NO_CACHE_HOME: &str = "\
