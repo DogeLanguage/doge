@@ -12,6 +12,15 @@ pub struct Token {
     pub span: Span,
 }
 
+/// One piece of an interpolated string literal (`"a {b} c"`): either literal
+/// text or a `{…}` hole already lexed into its own token stream (with real
+/// source spans, so downstream diagnostics point at the right column).
+#[derive(Debug, Clone, PartialEq)]
+pub enum StrSegment {
+    Lit(String),
+    Hole(Vec<Token>),
+}
+
 /// Every kind of token Doge source can produce.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -54,6 +63,8 @@ pub enum TokenKind {
     Int(i64),
     Float(f64),
     Str(String),
+    /// A string literal containing at least one `{…}` interpolation hole.
+    StrInterp(Vec<StrSegment>),
 
     // --- Operators ---
     Plus,
@@ -123,7 +134,7 @@ impl TokenKind {
             TokenKind::Ident(name) => format!("name '{name}'"),
             TokenKind::Int(n) => format!("the number {n}"),
             TokenKind::Float(f) => format!("the number {f}"),
-            TokenKind::Str(_) => "a string".into(),
+            TokenKind::Str(_) | TokenKind::StrInterp(_) => "a string".into(),
             TokenKind::Plus => "+".into(),
             TokenKind::Minus => "-".into(),
             TokenKind::Star => "*".into(),

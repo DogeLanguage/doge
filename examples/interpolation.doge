@@ -1,0 +1,45 @@
+so strings
+
+such name = "kabosu"
+such age = 7
+
+bark "much hello {name}, age {age + 11}"
+bark "len of name is {len(name)}"
+bark "shouty: {strings.beeg(name)}"
+
+bark "int {age}, float {3.0 / 2}, none {none}, list {[1, 2, 3]}"
+
+bark "literal brace: \{not a hole}"
+bark "a dict looks like \{\"a\": 1}"
+
+bark "nested: {strings.smoll("LOUD {name}")}"
+
+many Shibe:
+    such init much who, years:
+        self.who = who
+        self.years = years
+    wow
+
+    such card:
+        return "{self.who} ({self.years})"
+    wow
+wow
+
+such doge = Shibe("cheems", 4)
+bark doge.card()
+
+such make_greeter much greeting:
+    such greet much who:
+        return "{greeting}, {who}!"
+    wow
+    return greet
+wow
+
+such hi = make_greeter("much hello")
+bark hi("walter")
+
+pls
+    bonk "boom at {age * 2}"
+oh no err!
+    bark "caught: {err}"
+wow

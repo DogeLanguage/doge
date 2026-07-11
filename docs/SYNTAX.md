@@ -73,7 +73,7 @@ Dynamic value types (all runtime-checked):
 |---|---|
 | Int | `42`, `-7` (i64) |
 | Float | `3.14` (f64) |
-| Str | `"much wow"` (double quotes, `\n` escapes) |
+| Str | `"much wow"` (double quotes, `\n` escapes, `{expr}` interpolation) |
 | Bool | `true`, `false` |
 | None | `none` |
 | List | `["kabosu", "cheems"]` |
@@ -84,6 +84,23 @@ Dynamic value types (all runtime-checked):
 Operators: `+ - * / // % == != < <= > >= and or not`, indexing `xs[0]`, string
 concatenation with `+`. Truthiness follows Python (empty string/list/dict, `0`,
 `none`, `false` are falsy).
+
+String interpolation: any double-quoted string may embed expressions in `{…}`
+holes, evaluated and spliced in left to right:
+
+```doge
+such name = "kabosu"
+such age = 7
+bark "much hello {name}, age {age + 11}"     # much hello kabosu, age 18
+```
+
+A hole holds any single expression — arithmetic, a call, an index, a field, even
+a nested string (`"{strings.beeg(name)}"`). Each hole's value is rendered with its
+display form, the same text `bark` prints and `str(x)` returns, so numbers,
+`none`, lists, and objects interpolate without an explicit `str(…)`. Braces are
+always active: write `\{` for a literal `{` (a bare `}` outside a hole is already
+literal), so a dict-looking string is `"\{\"a\": 1}"`. An empty hole `{}` and a
+hole that never closes are compile errors.
 
 `and` and `or` always evaluate to a Bool and short-circuit: `a or b` skips
 `b` when `a` is truthy, `a and b` skips `b` when `a` is falsy. The result is the
@@ -142,7 +159,7 @@ its condition before every pass.
 
 ```doge
 such greet much name, mood:
-    return "much hello " + name + ", very " + mood
+    return "much hello {name}, very {mood}"
 wow
 
 such no_args:             # `much` omitted when there are no parameters

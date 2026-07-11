@@ -5,7 +5,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{BinOp, Expr, Stmt, UnOp};
+use crate::ast::{BinOp, Expr, InterpPart, Stmt, UnOp};
 use crate::check::BUILTINS;
 use crate::diagnostics::Diagnostic;
 use crate::modules::{Program, ProgramFile};
@@ -1329,6 +1329,16 @@ impl Codegen {
                 );
                 Ok(self.fail(emit, call))
             }
+            Expr::StrInterp { parts, .. } => {
+                let mut pieces = Vec::with_capacity(parts.len());
+                for part in parts {
+                    pieces.push(match part {
+                        InterpPart::Lit(text) => format!("Value::str(\"{}\")", escape_str(text)),
+                        InterpPart::Expr(hole) => self.expr(hole, emit)?,
+                    });
+                }
+                Ok(format!("interp(&[{}])", pieces.join(", ")))
+            }
         }
     }
 
@@ -1896,6 +1906,13 @@ fn expr_idents(expr: &Expr, out: &mut HashSet<String>) {
             expr_idents(index, out);
         }
         Expr::Attr { obj, .. } => expr_idents(obj, out),
+        Expr::StrInterp { parts, .. } => {
+            for part in parts {
+                if let InterpPart::Expr(hole) = part {
+                    expr_idents(hole, out);
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -2505,6 +2522,23 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
         assert!(out.contains("'l0: for item in"));
         assert!(out.contains("'p1: {"));
         assert!(out.contains("break 'l0;"));
+    }
+
+    #[test]
+    fn interpolation_emits_an_interp_call() {
+        let out = gen("such name = \"kabosu\"\nbark \"hi {name}, {1 + 1}\"\nwow\n").unwrap();
+        assert!(out.contains("interp(&["));
+        // The literal segments survive escaping and the holes compile as exprs.
+        assert!(out.contains("Value::str(\"hi \")"));
+        assert!(out.contains("add("));
+    }
+
+    #[test]
+    fn interpolation_literal_escapes_survive() {
+        // A literal `"` inside the interpolated text must stay escaped in the
+        // generated Rust string literal.
+        let out = gen("bark \"a \\\" {1}\"\nwow\n").unwrap();
+        assert!(out.contains("Value::str(\"a \\\" \")"));
     }
 
     #[test]

@@ -39,3 +39,8 @@ block       = NEWLINE , INDENT , { statement } , DEDENT ;
 - `oh no` is a compound keyword: the lexer fuses adjacent `oh` + `no` tokens.
 - Newlines end statements, except inside an unclosed `(`, `[`, or `{`, where lines
   join implicitly.
+- A double-quoted string with `{expr}` holes lexes to an interpolated string
+  token: each hole is found on the same physical line (matching nested `{ }` and
+  skipping nested string literals) and lexed into its own token stream, which the
+  parser reads as a full expression. `\{` escapes a literal brace; an empty or
+  unclosed hole is a lex error.

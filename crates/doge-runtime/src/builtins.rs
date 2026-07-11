@@ -27,6 +27,16 @@ pub fn to_str(v: &Value) -> Value {
     Value::str(v.to_string())
 }
 
+/// String interpolation (`"a {b} c"`) — join each part's display form, the same
+/// text `bark`/`str` would show, into one Str. Always succeeds.
+pub fn interp(parts: &[Value]) -> Value {
+    let mut out = String::new();
+    for part in parts {
+        out.push_str(&part.to_string());
+    }
+    Value::str(out)
+}
+
 /// `int(x)` — Int unchanged, Float truncated toward zero, Bool to 0/1, a Str
 /// parsed as a whole number. A Str that isn't a number is a catchable
 /// `ValueError`; other types are a `TypeError`.
@@ -96,6 +106,21 @@ mod tests {
             Value::Int(2)
         ));
         assert_eq!(len(&Value::Int(3)).unwrap_err().kind, ErrorKind::TypeError);
+    }
+
+    #[test]
+    fn interp_joins_display_forms() {
+        let parts = [
+            Value::str("age "),
+            Value::Int(7),
+            Value::str(", "),
+            Value::None,
+        ];
+        assert!(matches!(interp(&parts), Value::Str(s) if &*s == "age 7, none"));
+        // Nested Strs embed bare, matching bark/str, not the quoted repr.
+        let nested = [Value::str("["), Value::str("hi"), Value::str("]")];
+        assert!(matches!(interp(&nested), Value::Str(s) if &*s == "[hi]"));
+        assert!(matches!(interp(&[]), Value::Str(s) if s.is_empty()));
     }
 
     #[test]

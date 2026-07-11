@@ -51,6 +51,9 @@ fn every_fixture_fails_with_the_expected_diagnostic() {
         ("chained_comparison.doge", "chain comparisons"),
         ("bork_outside_loop.doge", "very bork. much nowhere."),
         ("python_def.doge", "very python. much habit."),
+        ("interp_unclosed_hole.doge", "very hole. much open."),
+        ("interp_empty_hole.doge", "very empty. much hole."),
+        ("interp_undeclared.doge", "very unknown. much name."),
     ];
 
     let dir = fixtures_dir();

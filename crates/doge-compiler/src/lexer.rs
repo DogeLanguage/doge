@@ -1,6 +1,6 @@
 use crate::diagnostics::Diagnostic;
 use crate::keywords;
-use crate::token::{Span, Token, TokenKind};
+use crate::token::{Span, StrSegment, Token, TokenKind};
 
 /// Lex `source` (from `path`) into a token stream, or return the first
 /// [`Diagnostic`] encountered.
@@ -157,8 +157,21 @@ impl Lexer {
     /// Lex the content of one physical line, from `start` to its end, appending
     /// tokens. Stops at a `#` comment. Bracket depth may change as a side effect.
     fn lex_line(&mut self, chars: &[char], ln: u32, start: usize) -> Result<(), Diagnostic> {
+        self.lex_range(chars, ln, start, chars.len())
+    }
+
+    /// Lex the half-open character range `[start, end)` of one physical line,
+    /// appending tokens. Stops at a `#` comment. Used both for a whole line
+    /// (`end == chars.len()`) and for the content of a `{…}` interpolation hole.
+    fn lex_range(
+        &mut self,
+        chars: &[char],
+        ln: u32,
+        start: usize,
+        end: usize,
+    ) -> Result<(), Diagnostic> {
         let mut i = start;
-        while i < chars.len() {
+        while i < end {
             let c = chars[i];
             let col = (i + 1) as u32;
 
@@ -266,15 +279,26 @@ impl Lexer {
         }
     }
 
-    /// Lex a double-quoted string starting at the opening quote at `start`.
+    /// Lex a double-quoted string starting at the opening quote at `start`. A
+    /// string with no `{…}` hole becomes a plain [`TokenKind::Str`]; one with at
+    /// least one hole becomes a [`TokenKind::StrInterp`] whose holes are lexed
+    /// into their own token streams (see [`Self::lex_hole`]).
     fn lex_string(&mut self, chars: &[char], ln: u32, start: usize) -> Result<usize, Diagnostic> {
         let col = (start + 1) as u32;
         let mut i = start + 1; // past opening quote
-        let mut value = String::new();
+        let mut lit = String::new();
+        let mut segments: Vec<StrSegment> = Vec::new();
         while i < chars.len() {
             let c = chars[i];
             if c == '"' {
-                self.push(TokenKind::Str(value), ln, col);
+                if segments.is_empty() {
+                    self.push(TokenKind::Str(lit), ln, col);
+                } else {
+                    if !lit.is_empty() {
+                        segments.push(StrSegment::Lit(lit));
+                    }
+                    self.push(TokenKind::StrInterp(segments), ln, col);
+                }
                 return Ok(i + 1);
             }
             if c == '\\' {
@@ -284,10 +308,12 @@ impl Lexer {
                     break; // dangling backslash → unterminated
                 }
                 match chars[i] {
-                    'n' => value.push('\n'),
-                    't' => value.push('\t'),
-                    '"' => value.push('"'),
-                    '\\' => value.push('\\'),
+                    'n' => lit.push('\n'),
+                    't' => lit.push('\t'),
+                    '"' => lit.push('"'),
+                    '\\' => lit.push('\\'),
+                    '{' => lit.push('{'),
+                    '}' => lit.push('}'),
                     other => {
                         return Err(self
                             .diag(
@@ -295,13 +321,36 @@ impl Lexer {
                                 esc_col,
                                 format!("'\\{other}' is not an escape doge knows"),
                             )
-                            .with_hint("known escapes are \\n \\t \\\" and \\\\"));
+                            .with_hint("known escapes are \\n \\t \\\" \\\\ \\{ and \\}"));
                     }
                 }
                 i += 1;
                 continue;
             }
-            value.push(c);
+            if c == '{' {
+                let brace_col = (i + 1) as u32;
+                let content_start = i + 1;
+                let content_end = self.find_hole_end(chars, ln, i, brace_col)?;
+                if chars[content_start..content_end]
+                    .iter()
+                    .all(|c| c.is_whitespace())
+                {
+                    return Err(self
+                        .diag(ln, brace_col, "this {} has nothing to show")
+                        .with_headline("very empty. much hole.")
+                        .with_hint("put an expression inside, or write \\{ for a literal brace"));
+                }
+                if !lit.is_empty() {
+                    segments.push(StrSegment::Lit(std::mem::take(&mut lit)));
+                }
+                let hole = self.lex_hole(chars, ln, content_start, content_end)?;
+                segments.push(StrSegment::Hole(hole));
+                i = content_end + 1; // past the closing `}`
+                continue;
+            }
+            // A `}` outside a hole is an ordinary character; `\}` reaches the
+            // escape arm above.
+            lit.push(c);
             i += 1;
         }
         // Reached end of line with no closing quote (a raw newline can't appear
@@ -310,6 +359,74 @@ impl Lexer {
             .diag(ln, col, "this string never closes")
             .with_headline("very string. much unfinished.")
             .with_hint("add a closing \" on this line"))
+    }
+
+    /// Find the `}` that closes the interpolation hole whose `{` is at `open`.
+    /// Scans the rest of the physical line, matching nested `{ }` (dict literals)
+    /// and skipping over nested string literals so a `}` inside them does not
+    /// close the hole. Returns the index of the closing `}`.
+    fn find_hole_end(
+        &self,
+        chars: &[char],
+        ln: u32,
+        open: usize,
+        brace_col: u32,
+    ) -> Result<usize, Diagnostic> {
+        let mut depth = 1usize;
+        let mut in_string = false;
+        let mut j = open + 1;
+        while j < chars.len() {
+            let c = chars[j];
+            if in_string {
+                if c == '\\' {
+                    j += 2; // skip the escaped character
+                    continue;
+                }
+                if c == '"' {
+                    in_string = false;
+                }
+            } else if c == '"' {
+                in_string = true;
+            } else if c == '{' {
+                depth += 1;
+            } else if c == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(j);
+                }
+            }
+            j += 1;
+        }
+        Err(self
+            .diag(ln, brace_col, "this {…} interpolation never closes")
+            .with_headline("very hole. much open.")
+            .with_hint("add a closing } on this line"))
+    }
+
+    /// Lex the content of an interpolation hole (`[start, end)`) into its own
+    /// token stream, using the same machinery as a normal line so every token
+    /// keeps a real source span. The main token buffer and bracket stack are
+    /// swapped out and restored around the sub-lex.
+    fn lex_hole(
+        &mut self,
+        chars: &[char],
+        ln: u32,
+        start: usize,
+        end: usize,
+    ) -> Result<Vec<Token>, Diagnostic> {
+        let saved_tokens = std::mem::take(&mut self.tokens);
+        let saved_brackets = std::mem::take(&mut self.bracket_stack);
+        self.lex_range(chars, ln, start, end)?;
+        if let Some(open) = self.bracket_stack.first() {
+            let span = *open;
+            return Err(self
+                .diag(span.line, span.col, "this bracket was never closed")
+                .with_headline("very open. much bracket.")
+                .with_hint("add the matching closing bracket"));
+        }
+        let hole = std::mem::replace(&mut self.tokens, saved_tokens);
+        self.bracket_stack = saved_brackets;
+        Ok(hole)
     }
 
     /// Lex a single operator or punctuation token. Two-character operators are
@@ -514,6 +631,71 @@ mod tests {
 
         let bad = lex("test.doge", "bark \"a\\qb\"\n").unwrap_err();
         assert!(bad.message.contains("not an escape"));
+    }
+
+    #[test]
+    fn plain_string_stays_a_str() {
+        let toks = kinds("bark \"much hello\"\n");
+        assert_eq!(toks[1], TokenKind::Str("much hello".into()));
+    }
+
+    #[test]
+    fn interpolated_string_splits_into_segments() {
+        let toks = kinds("bark \"hi {name}!\"\n");
+        let TokenKind::StrInterp(segments) = &toks[1] else {
+            panic!("expected StrInterp, got {:?}", toks[1]);
+        };
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0], StrSegment::Lit("hi ".into()));
+        let StrSegment::Hole(hole) = &segments[1] else {
+            panic!("expected a hole");
+        };
+        assert_eq!(hole[0].kind, TokenKind::Ident("name".into()));
+        // The hole token keeps its real column (the `n` of `name`).
+        assert_eq!(hole[0].span.col, 11);
+        assert_eq!(segments[2], StrSegment::Lit("!".into()));
+    }
+
+    #[test]
+    fn hole_can_hold_a_nested_string() {
+        let toks = kinds("bark \"{f(\"x\")}\"\n");
+        let TokenKind::StrInterp(segments) = &toks[1] else {
+            panic!("expected StrInterp");
+        };
+        let StrSegment::Hole(hole) = &segments[0] else {
+            panic!("expected a hole");
+        };
+        // f ( "x" ) Eof-free: the sub-lex produced these kinds.
+        assert_eq!(hole[0].kind, TokenKind::Ident("f".into()));
+        assert_eq!(hole[1].kind, TokenKind::LParen);
+        assert_eq!(hole[2].kind, TokenKind::Str("x".into()));
+        assert_eq!(hole[3].kind, TokenKind::RParen);
+    }
+
+    #[test]
+    fn escaped_brace_is_a_literal_not_a_hole() {
+        let toks = kinds("bark \"\\{name}\"\n");
+        assert_eq!(toks[1], TokenKind::Str("{name}".into()));
+    }
+
+    #[test]
+    fn bare_close_brace_is_literal() {
+        let toks = kinds("bark \"a } b\"\n");
+        assert_eq!(toks[1], TokenKind::Str("a } b".into()));
+    }
+
+    #[test]
+    fn unclosed_hole_is_an_error() {
+        let err = lex("test.doge", "bark \"oops {1 + 2\"\n").unwrap_err();
+        assert_eq!(err.headline, "very hole. much open.");
+    }
+
+    #[test]
+    fn empty_hole_is_an_error() {
+        let err = lex("test.doge", "bark \"empty {}\"\n").unwrap_err();
+        assert_eq!(err.headline, "very empty. much hole.");
+        let err = lex("test.doge", "bark \"empty {   }\"\n").unwrap_err();
+        assert_eq!(err.headline, "very empty. much hole.");
     }
 
     #[test]

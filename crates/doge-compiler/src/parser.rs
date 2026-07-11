@@ -1,7 +1,7 @@
-use crate::ast::{BinOp, Expr, Script, Stmt, UnOp};
+use crate::ast::{BinOp, Expr, InterpPart, Script, Stmt, UnOp};
 use crate::diagnostics::Diagnostic;
 use crate::lexer;
-use crate::token::{Span, Token, TokenKind};
+use crate::token::{Span, StrSegment, Token, TokenKind};
 
 /// Lex then parse `source` (from `path`) into a [`Script`], or return the first
 /// [`Diagnostic`].
@@ -26,6 +26,18 @@ impl Parser {
         Parser {
             path: path.to_string(),
             lines,
+            tokens,
+            pos: 0,
+        }
+    }
+
+    /// A fresh parser over `tokens`, sharing this parser's path and source lines
+    /// so diagnostics still render the right file and line. Used to parse the
+    /// expression inside a `{…}` interpolation hole.
+    fn sub(&self, tokens: Vec<Token>) -> Parser {
+        Parser {
+            path: self.path.clone(),
+            lines: self.lines.clone(),
             tokens,
             pos: 0,
         }
@@ -675,6 +687,44 @@ impl Parser {
         Ok(args)
     }
 
+    /// Turn a lexed interpolated string into an [`Expr::StrInterp`]: literal
+    /// segments pass through, and each `{…}` hole's tokens are parsed as a full
+    /// expression by a sub-parser. A hole that holds more than one expression is
+    /// a diagnostic anchored at the first leftover token.
+    fn parse_str_interp(
+        &mut self,
+        segments: Vec<StrSegment>,
+        span: Span,
+    ) -> Result<Expr, Diagnostic> {
+        let mut parts = Vec::with_capacity(segments.len());
+        for segment in segments {
+            match segment {
+                StrSegment::Lit(text) => parts.push(InterpPart::Lit(text)),
+                StrSegment::Hole(mut tokens) => {
+                    let end_span = tokens.last().map(|t| t.span).unwrap_or(span);
+                    tokens.push(Token {
+                        kind: TokenKind::Eof,
+                        span: end_span,
+                    });
+                    let mut sub = self.sub(tokens);
+                    let expr = sub.parse_expr()?;
+                    if !sub.is(&TokenKind::Eof) {
+                        let extra = sub.current_span();
+                        return Err(sub.diag(
+                            extra,
+                            format!(
+                                "doge expected one expression in this {{…}} hole, but found {}",
+                                sub.peek().describe()
+                            ),
+                        ));
+                    }
+                    parts.push(InterpPart::Expr(expr));
+                }
+            }
+        }
+        Ok(Expr::StrInterp { parts, span })
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, Diagnostic> {
         let span = self.current_span();
         match self.peek().clone() {
@@ -689,6 +739,10 @@ impl Parser {
             TokenKind::Str(value) => {
                 self.advance();
                 Ok(Expr::Str { value, span })
+            }
+            TokenKind::StrInterp(segments) => {
+                self.advance();
+                self.parse_str_interp(segments, span)
             }
             TokenKind::True => {
                 self.advance();

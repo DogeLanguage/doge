@@ -7,7 +7,7 @@ mod ops;
 mod stdlib;
 mod value;
 
-pub use builtins::{bark, len, range, to_float, to_int, to_str};
+pub use builtins::{bark, interp, len, range, to_float, to_int, to_str};
 pub use error::{bonk_error, enter_call, error_value, exit_call, DogeError, DogeResult, ErrorKind};
 pub use functions::{callee_function, cell_get, cell_set, function_arity_error};
 pub use objects::{attr_get, attr_set, method_arity_error, no_such_method, object_class_id};

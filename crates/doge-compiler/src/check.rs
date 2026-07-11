@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::ast::{Expr, Script, Stmt};
+use crate::ast::{Expr, InterpPart, Script, Stmt};
 use crate::diagnostics::Diagnostic;
 use crate::modules::Program;
 use crate::token::Span;
@@ -453,6 +453,14 @@ impl Checker {
             }
             // Attribute names are dynamic — only the object is a name to resolve.
             Expr::Attr { obj, .. } => self.check_expr(obj, ctx),
+            Expr::StrInterp { parts, .. } => {
+                for part in parts {
+                    if let InterpPart::Expr(hole) = part {
+                        self.check_expr(hole, ctx)?;
+                    }
+                }
+                Ok(())
+            }
         }
     }
 

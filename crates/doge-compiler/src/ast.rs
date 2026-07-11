@@ -148,6 +148,18 @@ pub enum Expr {
         name: String,
         span: Span,
     },
+    StrInterp {
+        parts: Vec<InterpPart>,
+        span: Span,
+    },
+}
+
+/// One piece of a string-interpolation expression (`"a {b} c"`): literal text or
+/// an embedded expression whose display form is spliced in at runtime.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterpPart {
+    Lit(String),
+    Expr(Expr),
 }
 
 /// Binary operators, in the spelling they print with in the dump.
@@ -222,7 +234,8 @@ impl Expr {
             | Expr::Unary { span, .. }
             | Expr::Call { span, .. }
             | Expr::Index { span, .. }
-            | Expr::Attr { span, .. } => *span,
+            | Expr::Attr { span, .. }
+            | Expr::StrInterp { span, .. } => *span,
         }
     }
 }
@@ -405,6 +418,15 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::Attr { obj, name, .. } => {
             line(level, &format!("Attr {name}"), out);
             dump_expr(obj, level + 1, out);
+        }
+        Expr::StrInterp { parts, .. } => {
+            line(level, "StrInterp", out);
+            for part in parts {
+                match part {
+                    InterpPart::Lit(text) => line(level + 1, &format!("Lit {text:?}"), out),
+                    InterpPart::Expr(expr) => dump_block_expr("hole", expr, level + 1, out),
+                }
+            }
         }
     }
 }
