@@ -7,6 +7,11 @@
 // means adjacent groups never share a colour, so a file reads as scattered
 // doge-meme text rather than one colour per keyword.
 //
+// A name carries its group's colour to every later *use*: the first binding of a
+// name (`such age`, `so nerd`, `much a`, `oh no err`, …) records its colour, and
+// every bare reference to that name is painted the same colour instead of the
+// theme default, so an identifier reads consistently wherever it appears.
+//
 // The doge keyword set mirrors crates/doge-compiler/src/keywords.rs (`lookup`).
 // Universal keywords (if/for/return/...) and literals (true/false/none) are
 // intentionally NOT rainbow-coloured — the TextMate grammar themes those, so the
@@ -99,9 +104,20 @@ function tokenize(text) {
   }
 
   const out = [];
+  const emitted = new Set(); // flat indices already coloured in the group pass
+  const defColor = new Map(); // name -> colour of the group that first bound it
   let color = 0;
-  const emit = (tok) => {
-    out.push({ line: tok.line, start: tok.start, length: tok.length, colorIndex: color % PALETTE_SIZE });
+  const emit = (idx, colorIndex = color % PALETTE_SIZE) => {
+    const tok = flat[idx];
+    out.push({ line: tok.line, start: tok.start, length: tok.length, colorIndex });
+    emitted.add(idx);
+  };
+  // Colour a bound name with its group, and remember that colour so the name's
+  // later uses reuse it. First binding wins if a name is bound more than once.
+  const bind = (idx) => {
+    emit(idx);
+    const name = flat[idx].text;
+    if (!defColor.has(name)) defColor.set(name, color % PALETTE_SIZE);
   };
   const isName = (tok) => tok && tok.kind === 'word' && !RESERVED.has(tok.text);
 
@@ -116,11 +132,11 @@ function tokenize(text) {
 
     if (word === 'oh' && flat[i + 1] && flat[i + 1].kind === 'word' && flat[i + 1].text === 'no') {
       // `oh no <name>!` — the lexer fuses `oh no`; colour both plus the bound name.
-      emit(tok);
-      emit(flat[i + 1]);
+      emit(i);
+      emit(i + 1);
       i += 2;
       if (isName(flat[i])) {
-        emit(flat[i]);
+        bind(i);
         i++;
       }
       color++;
@@ -128,10 +144,10 @@ function tokenize(text) {
     }
 
     if (KEYWORD_WITH_NAME.has(word)) {
-      emit(tok);
+      emit(i);
       i++;
       if (isName(flat[i])) {
-        emit(flat[i]);
+        bind(i);
         i++;
       }
       color++;
@@ -140,10 +156,10 @@ function tokenize(text) {
 
     if (word === 'much') {
       // `much a, b, c` — the parameter list is one group with the `much` keyword.
-      emit(tok);
+      emit(i);
       i++;
       while (isName(flat[i])) {
-        emit(flat[i]);
+        bind(i);
         i++;
         if (flat[i] && flat[i].kind === 'other' && flat[i].text === ',') {
           i++;
@@ -156,7 +172,7 @@ function tokenize(text) {
     }
 
     if (KEYWORD_ALONE.has(word)) {
-      emit(tok);
+      emit(i);
       color++;
       i++;
       continue;
@@ -165,6 +181,22 @@ function tokenize(text) {
     i++;
   }
 
+  // Second pass: paint every bare use of a bound name with its definition
+  // colour. Names never bound by doge-speak (loop vars, undeclared identifiers)
+  // stay absent from defColor and keep the theme default.
+  for (let j = 0; j < flat.length; j++) {
+    if (emitted.has(j) || !isName(flat[j])) {
+      continue;
+    }
+    const colorIndex = defColor.get(flat[j].text);
+    if (colorIndex !== undefined) {
+      emit(j, colorIndex);
+    }
+  }
+
+  // The use pass appends out-of-order tokens; VS Code's builder needs ascending
+  // (line, start) positions.
+  out.sort((a, b) => a.line - b.line || a.start - b.start);
   return out;
 }
 

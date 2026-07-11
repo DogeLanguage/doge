@@ -26,6 +26,13 @@ Groups: `so <name>`, `such <name>`, `much <params>`, `many <name>`,
 keywords (`if`, `for`, `return`, …) and literals (`true`/`false`/`none`) keep
 your theme's colours — the rainbow is exclusively doge-speak.
 
+A name carries its group's colour wherever it's used, not just where it's bound:
+once `such age` (or `so nerd`, a `much` parameter, an `oh no` binding, …) fixes a
+colour, every later reference to that name — `bark age`, a call `greet(...)`,
+imported `nerd` — is painted the same colour instead of your theme default. Only
+names bound by doge-speak are tracked; loop variables and undeclared identifiers
+keep the theme colour.
+
 The colours ship as defaults so the rainbow shows in **any** theme (dark or
 light). To change them, override `editor.semanticTokenColorCustomizations` →
 `rules` → `dogeRainbow1`…`dogeRainbow8` in your settings.
