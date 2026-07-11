@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::ordered_map::OrderedMap;
+
 /// A shared, mutable binding cell. Closures capture enclosing variables by
 /// sharing these: a `such`/param captured by a nested function becomes a `Cell`,
 /// so a reassignment on either side is visible to the other.
@@ -16,7 +18,7 @@ pub enum Value {
     Bool(bool),
     None,
     List(Rc<RefCell<Vec<Value>>>),
-    Dict(Rc<RefCell<HashMap<String, Value>>>),
+    Dict(Rc<RefCell<OrderedMap>>),
     Object(Rc<RefCell<ObjectData>>),
     Function(Rc<FunctionData>),
 }
@@ -53,8 +55,8 @@ impl Value {
         Value::List(Rc::new(RefCell::new(items)))
     }
 
-    /// Build a `Dict` value from string→value pairs.
-    pub fn dict(entries: HashMap<String, Value>) -> Value {
+    /// Build a `Dict` value from an insertion-ordered map.
+    pub fn dict(entries: OrderedMap) -> Value {
         Value::Dict(Rc::new(RefCell::new(entries)))
     }
 
@@ -83,7 +85,7 @@ impl Value {
     /// key must be a `Str`; anything else is a catchable type error. Pairs are
     /// inserted in order, so when a key repeats the last entry wins.
     pub fn dict_from_pairs(pairs: Vec<(Value, Value)>) -> crate::error::DogeResult {
-        let mut entries = HashMap::new();
+        let mut entries = OrderedMap::new();
         for (key, value) in pairs {
             match key {
                 Value::Str(k) => {
@@ -160,7 +162,7 @@ mod tests {
         assert!(!Value::None.truthy());
         assert!(!Value::list(vec![]).truthy());
         assert!(Value::list(vec![Value::Int(1)]).truthy());
-        assert!(!Value::dict(HashMap::new()).truthy());
+        assert!(!Value::dict(OrderedMap::new()).truthy());
         // An object is always truthy, even with no fields.
         assert!(Value::object(0, "Shibe").truthy());
         // A function is always truthy.
@@ -175,7 +177,7 @@ mod tests {
         assert_eq!(Value::Bool(true).type_name(), "Bool");
         assert_eq!(Value::None.type_name(), "None");
         assert_eq!(Value::list(vec![]).type_name(), "List");
-        assert_eq!(Value::dict(HashMap::new()).type_name(), "Dict");
+        assert_eq!(Value::dict(OrderedMap::new()).type_name(), "Dict");
         assert_eq!(Value::object(0, "Shibe").type_name(), "Object");
         assert_eq!(Value::function(0, "greet", vec![]).type_name(), "Function");
     }

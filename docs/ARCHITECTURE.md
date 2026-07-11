@@ -24,7 +24,7 @@ Program (entry + modules)
 generated .rs  ──rustc/cargo──►  native binary  ──►  cached & executed
 ```
 
-A `so <name>` import resolves to a built-in module (`nerd`/`strings`/`lists`) or,
+A `so <name>` import resolves to a built-in module (`nerd`/`strings`) or,
 failing that, the user file `<name>.doge` next to the importer. The loader parses
 every reachable file into one `Program`; the whole downstream pipeline works on
 that. Codegen keeps every file's top-level names in one flat Rust namespace by
@@ -53,16 +53,20 @@ instead of bumping crate versions.
 
 ## 3. Runtime model (`doge-runtime`)
 
-- `enum Value { Int(i64), Float(f64), Str(Rc<str>), Bool(bool), None, List(Rc<RefCell<Vec<Value>>>), Dict(Rc<RefCell<HashMap<…>>>), Func(…), Object(…) }`
+- `enum Value { Int(i64), Float(f64), Str(Rc<str>), Bool(bool), None, List(Rc<RefCell<Vec<Value>>>), Dict(Rc<RefCell<OrderedMap>>), Func(…), Object(…) }` — `OrderedMap` is an insertion-ordered string→`Value` map, so dict iteration and printing are deterministic.
 - All fallible operations return `Result<Value, DogeError>`; generated code threads
   `?` through, and `pls`/`oh no` compiles to a `match` on the block's `Result`.
   No panics in the happy path; no `unsafe` anywhere.
 - `bark` is a runtime print with doge-friendly `Display` formatting of values.
-- Stdlib modules (`nerd`, `strings`, `lists`) are Rust functions in the runtime,
+- Stdlib modules (`nerd`, `strings`) are Rust functions in the runtime,
   one per member, named `{module}_{member}` (`nerd_sqrt`, `strings_beeg`).
 - Objects are `Rc<RefCell<ObjectData>>`: a class id, the class name, and a field
   map. `attr_get`/`attr_set` read and write fields, and a generated dispatcher
   routes each method call to the right runtime call.
+- List and dict methods (`xs.append(1)`, `d.keys()`) are not modules: the
+  generated `call_method` dispatcher forwards any non-`Object` receiver to
+  `builtin_method` in the runtime (`methods.rs`), the collection counterpart of
+  the object dispatcher.
 
 ## 4. Codegen
 

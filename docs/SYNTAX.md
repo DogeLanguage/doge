@@ -85,6 +85,10 @@ Operators: `+ - * / // % == != < <= > >= and or not`, indexing `xs[0]`, string
 concatenation with `+`. Truthiness follows Python (empty string/list/dict, `0`,
 `none`, `false` are falsy).
 
+Lists and dicts carry methods called on the value — `xs.append(1)`, `d.keys()` —
+with no import (see [STDLIB.md](STDLIB.md)). Dicts are insertion-ordered: iterating
+their keys/values and printing a dict follow the order keys were first inserted.
+
 String interpolation: any double-quoted string may embed expressions in `{…}`
 holes, evaluated and spliced in left to right:
 
@@ -200,7 +204,9 @@ Functions are values:
   pass as an argument, return, and later call: `such g = greet` then `g("kabosu")`.
   Builtins (`such f = len`) and module functions (`such s = nerd.sqrt`) become
   values the same way. Object definitions are not values yet (`such c = Shibe` is a
-  compile error) — that lands in a later milestone.
+  compile error) — that lands in a later milestone. Collection methods are not
+  first-class either: `such f = xs.append` is a catchable runtime error, since
+  `xs.append` reads a field before any call.
 - Calling by name is checked at compile time: the argument count must match the
   definition. Calling through a variable or expression is checked at run time — a
   wrong count, or calling something that is not a function, is a catchable error
@@ -279,7 +285,6 @@ inheritance in v1. The rules:
 ```doge
 so nerd
 so strings
-so lists
 
 bark nerd.sqrt(16)
 ```
@@ -291,8 +296,9 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available built-in modules (`nerd`, `strings`, `lists`) are documented in
+The available built-in modules (`nerd`, `strings`) are documented in
 [STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
+List and dict operations are methods on the value (`xs.append(1)`), not a module.
 
 ### Importing other `.doge` files
 

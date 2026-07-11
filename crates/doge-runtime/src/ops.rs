@@ -198,8 +198,8 @@ pub fn ne(a: Value, b: Value) -> DogeResult {
 }
 
 /// Ordering for `< <= > >=`: numbers compare across Int/Float, Str compares
-/// lexicographically, anything else is a type error. `lists.sort` reuses this so
-/// its ordering matches the comparison operators exactly.
+/// lexicographically, anything else is a type error. The list `sort` method
+/// reuses this so its ordering matches the comparison operators exactly.
 pub(crate) fn order(a: &Value, b: &Value) -> DogeResult<Ordering> {
     if let (Some(x), Some(y)) = (as_f64(a), as_f64(b)) {
         return x.partial_cmp(&y).ok_or_else(|| {
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn missing_dict_key_is_catchable_error() {
-        let mut map = std::collections::HashMap::new();
+        let mut map = crate::ordered_map::OrderedMap::new();
         map.insert("name".to_string(), Value::str("kabosu"));
         let d = Value::dict(map);
         assert!(
@@ -533,7 +533,7 @@ mod tests {
         index_set(&xs, &int(0), int(99)).unwrap();
         assert!(matches!(index_get(&xs, &int(0)).unwrap(), Value::Int(99)));
 
-        let d = Value::dict(std::collections::HashMap::new());
+        let d = Value::dict(crate::ordered_map::OrderedMap::new());
         index_set(&d, &Value::str("k"), int(7)).unwrap();
         assert!(matches!(
             index_get(&d, &Value::str("k")).unwrap(),

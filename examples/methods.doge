@@ -1,0 +1,49 @@
+# such methods. much collections.
+
+such xs = [3, 1, 2]
+xs.append(4)
+bark xs
+xs.insert(0, 0)
+bark xs
+xs.sort()
+bark xs
+xs.reverse()
+bark xs
+bark xs.contains(2)
+bark xs.index_of(2)
+xs.remove(2)
+bark xs
+bark xs.pop()
+bark xs
+xs.clear()
+bark xs
+
+such d = {"name": "kabosu", "kind": "shibe", "age": 18}
+bark d
+bark d.keys()
+bark d.values()
+bark d.items()
+bark d.has("name")
+bark d.has("tail")
+bark d.remove("kind")
+bark d
+d.clear()
+bark d
+
+pls
+    such empty = []
+    bark empty.pop()
+oh no err!
+    bark err
+
+pls
+    xs.flop()
+oh no err!
+    bark err
+
+pls
+    such n = 5
+    n.nope()
+oh no err!
+    bark err
+wow

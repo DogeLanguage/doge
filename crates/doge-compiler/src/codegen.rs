@@ -756,8 +756,10 @@ impl Codegen {
     }
 
     /// Emit the single `call_method` dispatcher: one arm per (class, method),
-    /// each checking arity at runtime before calling the method wrapper. Emitted
-    /// only when the script defines an object or calls a method somewhere.
+    /// each checking arity at runtime before calling the method wrapper. A
+    /// non-`Object` receiver (a List or Dict method, or a method on any other
+    /// value) is forwarded to the runtime's `builtin_method`. Emitted only when
+    /// the script defines an object or calls a method somewhere.
     fn dispatcher(&self, classes: &[Class], uses_method_call: bool) -> String {
         if classes.is_empty() && !uses_method_call {
             return String::new();
@@ -765,6 +767,9 @@ impl Codegen {
         let mut out = String::new();
         out.push_str(
             "\nfn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {\n",
+        );
+        out.push_str(
+            "    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }\n",
         );
         out.push_str("    match (object_class_id(&recv, name)?, name) {\n");
         for class in classes {
@@ -2662,7 +2667,7 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
             .hint
             .as_deref()
             .unwrap_or_default()
-            .contains("nerd, strings, lists"));
+            .contains("nerd, strings"));
     }
 
     #[test]
@@ -2856,6 +2861,7 @@ fn mb_0_speak(mut v_self: Value, env: &mut Env) -> DogeResult<Value> {
 }
 
 fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
+    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }
     match (object_class_id(&recv, name)?, name) {
         (0u32, "init") => {
             if args.len() != 2 { return Err(method_arity_error("Shibe", "init", 2, args.len())); }
@@ -2894,6 +2900,9 @@ fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> 
                 .unwrap();
         assert!(out.contains("call_method(env.v_a.clone(), \"go\", vec![], &mut *env)?"));
         assert!(out.contains("object_class_id(&recv, name)?"));
+        assert!(out.contains(
+            "if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }"
+        ));
     }
 
     #[test]

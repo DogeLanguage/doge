@@ -172,40 +172,4 @@ pub(crate) const MODULES: &[Module] = &[
         ],
         consts: &[],
     },
-    Module {
-        name: "lists",
-        funcs: &[
-            ModuleFn {
-                name: "push",
-                arity: 2,
-                runtime_fn: "lists_push",
-                hint: "lists.push(xs, item)",
-            },
-            ModuleFn {
-                name: "pop",
-                arity: 1,
-                runtime_fn: "lists_pop",
-                hint: "lists.pop(xs)",
-            },
-            ModuleFn {
-                name: "sort",
-                arity: 1,
-                runtime_fn: "lists_sort",
-                hint: "lists.sort(xs)",
-            },
-            ModuleFn {
-                name: "reverse",
-                arity: 1,
-                runtime_fn: "lists_reverse",
-                hint: "lists.reverse(xs)",
-            },
-            ModuleFn {
-                name: "contains",
-                arity: 2,
-                runtime_fn: "lists_contains",
-                hint: "lists.contains(xs, item)",
-            },
-        ],
-        consts: &[],
-    },
 ];

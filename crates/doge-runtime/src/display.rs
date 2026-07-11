@@ -69,10 +69,14 @@ mod tests {
     }
 
     #[test]
-    fn dict_formats_with_quoted_keys() {
-        let mut map = std::collections::HashMap::new();
+    fn dict_formats_with_quoted_keys_in_insertion_order() {
+        let mut map = crate::ordered_map::OrderedMap::new();
         map.insert("name".to_string(), Value::str("kabosu"));
-        assert_eq!(Value::dict(map).to_string(), "{\"name\": \"kabosu\"}");
+        map.insert("age".to_string(), Value::Int(7));
+        assert_eq!(
+            Value::dict(map).to_string(),
+            "{\"name\": \"kabosu\", \"age\": 7}"
+        );
     }
 
     #[test]

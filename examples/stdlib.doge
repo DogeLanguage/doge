@@ -1,6 +1,5 @@
 so nerd
 so strings
-so lists
 
 bark nerd.sqrt(16)
 bark nerd.min(3, 2.5)
@@ -9,11 +8,4 @@ bark nerd.pi
 bark strings.beeg("wow")
 bark strings.split("a,b,c", ",")
 bark strings.join(["much", "wow"], " ")
-
-such xs = [3, 1, 2]
-lists.push(xs, 0)
-lists.sort(xs)
-bark xs
-bark lists.pop(xs)
-bark lists.contains(xs, 1)
 wow
