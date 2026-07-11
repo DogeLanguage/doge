@@ -291,7 +291,7 @@ fn build_produces_standalone_binary() {
         String::from_utf8_lossy(&build.stderr)
     );
 
-    let dropped = workdir.join("hello");
+    let dropped = workdir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
     assert!(
         dropped.exists(),
         "build should drop ./hello in the work dir"

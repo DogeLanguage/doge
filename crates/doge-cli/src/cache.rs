@@ -79,7 +79,7 @@ pub struct CachePaths {
     pub entry_dir: PathBuf,
     /// `<root>/target` — shared, so `doge-runtime` compiles once for all scripts.
     pub target_dir: PathBuf,
-    /// `<root>/target/release/doge_script_<hash>`.
+    /// `<root>/target/release/doge_script_<hash>` (plus `.exe` on Windows).
     pub binary: PathBuf,
     /// `doge_script_<hash>` — the Cargo package and binary name.
     pub package: String,
@@ -93,7 +93,9 @@ pub fn resolve(source: &str) -> Result<CachePaths, String> {
     let package = format!("doge_script_{hash}");
     let entry_dir = root.join("scripts").join(&hash);
     let target_dir = root.join("target");
-    let binary = target_dir.join("release").join(&package);
+    let binary = target_dir
+        .join("release")
+        .join(format!("{package}{}", std::env::consts::EXE_SUFFIX));
     Ok(CachePaths {
         entry_dir,
         target_dir,

@@ -38,12 +38,13 @@ pub fn spawn(binary: &Path) -> Result<i32, String> {
     }
 }
 
-/// Copy the cached binary next to the user, as `./<stem>`.
+/// Copy the cached binary next to the user, as `./<stem>` (`.exe` on Windows).
 pub fn copy_to_cwd(binary: &Path, stem: &str) -> Result<(), String> {
-    let dest = PathBuf::from(format!("./{stem}"));
+    let name = format!("{stem}{}", std::env::consts::EXE_SUFFIX);
+    let dest = PathBuf::from(format!("./{name}"));
     std::fs::copy(binary, &dest)
         .map(|_| ())
-        .map_err(|err| format!("very disk. much sad.\n\n  doge could not write ./{stem}: {err}"))
+        .map_err(|err| format!("very disk. much sad.\n\n  doge could not write ./{name}: {err}"))
 }
 
 fn detect_toolchain() -> Result<(), String> {

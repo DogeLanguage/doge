@@ -8,7 +8,7 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 | Command | Effect |
 |---|---|
 | `doge bark script.doge` | compile (cached) and run; exits with the script's own code |
-| `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` |
+| `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
 | `doge check script.doge` | parse + checks only, no build |
 
 ## Build cache

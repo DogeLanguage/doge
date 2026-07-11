@@ -1,0 +1,5 @@
+# Golden output fixtures and Doge sources are compared byte-for-byte in tests.
+# Pin them to LF so a Windows checkout never rewrites them to CRLF and breaks
+# stdout comparisons.
+*.out text eol=lf
+*.doge text eol=lf
