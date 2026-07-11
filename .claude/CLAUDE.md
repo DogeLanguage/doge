@@ -107,7 +107,7 @@ crates/
 examples/           # EXISTS: .doge example programs (hello, tour, objects, control_flow, collections) — double as integration tests; a `.out` sibling means the example runs and its stdout is asserted
 docs/               # EXISTS: authoritative language spec — SYNTAX, GRAMMAR, STDLIB, ERRORS, ARCHITECTURE, CLI
 brand/              # EXISTS: logo/brand kit — mark, lockup, banner, favicon SVGs + icon exporter and brand guide
-editors/            # EXISTS: editor integrations — vscode/ (.doge language association + file icon)
+editors/            # EXISTS: editor integrations — vscode/ (.doge language association + file icon + rainbow syntax highlighting: TextMate grammar in syntaxes/ + per-group semantic-token provider in src/, tokenizer unit-tested via `node --test`)
 ```
 
 **Where does code belong?** Anything about *what the language means at runtime* → `doge-runtime`. Anything about *turning source into Rust* → `doge-compiler`. Anything about *the user's terminal experience* (subcommands, caching, install hints) → `doge-cli`. A concern never lives in two crates.

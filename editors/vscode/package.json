@@ -1,8 +1,8 @@
 {
   "name": "doge",
   "displayName": "Doge Language",
-  "description": "File icon and language association for .doge scripts. such language. much wow.",
-  "version": "0.1.0",
+  "description": "Rainbow syntax highlighting, file icon, and language association for .doge scripts. such language. much wow.",
+  "version": "0.2.0",
   "publisher": "DogeLanguage",
   "license": "Apache-2.0",
   "engines": {
@@ -11,10 +11,17 @@
   "categories": [
     "Programming Languages"
   ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:doge"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/DogeLanguage/doge.git",
     "directory": "editors/vscode"
+  },
+  "scripts": {
+    "test": "node --test"
   },
   "contributes": {
     "languages": [
@@ -33,6 +40,56 @@
           "dark": "./icons/doge.svg"
         }
       }
-    ]
+    ],
+    "grammars": [
+      {
+        "language": "doge",
+        "scopeName": "source.doge",
+        "path": "./syntaxes/doge.tmLanguage.json"
+      }
+    ],
+    "semanticTokenTypes": [
+      { "id": "dogeRainbow1", "description": "Doge rainbow colour 1" },
+      { "id": "dogeRainbow2", "description": "Doge rainbow colour 2" },
+      { "id": "dogeRainbow3", "description": "Doge rainbow colour 3" },
+      { "id": "dogeRainbow4", "description": "Doge rainbow colour 4" },
+      { "id": "dogeRainbow5", "description": "Doge rainbow colour 5" },
+      { "id": "dogeRainbow6", "description": "Doge rainbow colour 6" },
+      { "id": "dogeRainbow7", "description": "Doge rainbow colour 7" },
+      { "id": "dogeRainbow8", "description": "Doge rainbow colour 8" }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "doge",
+        "scopes": {
+          "dogeRainbow1": ["keyword.other.doge"],
+          "dogeRainbow2": ["keyword.other.doge"],
+          "dogeRainbow3": ["keyword.other.doge"],
+          "dogeRainbow4": ["keyword.other.doge"],
+          "dogeRainbow5": ["keyword.other.doge"],
+          "dogeRainbow6": ["keyword.other.doge"],
+          "dogeRainbow7": ["keyword.other.doge"],
+          "dogeRainbow8": ["keyword.other.doge"]
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "[doge]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "editor.semanticTokenColorCustomizations": {
+        "enabled": true,
+        "rules": {
+          "dogeRainbow1": "#e0535d",
+          "dogeRainbow2": "#e08f3c",
+          "dogeRainbow3": "#d0a800",
+          "dogeRainbow4": "#4fb84f",
+          "dogeRainbow5": "#2bb3a8",
+          "dogeRainbow6": "#4f8fe0",
+          "dogeRainbow7": "#a86fd8",
+          "dogeRainbow8": "#e05fa9"
+        }
+      }
+    }
   }
 }

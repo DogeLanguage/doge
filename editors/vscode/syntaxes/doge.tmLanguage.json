@@ -1,0 +1,60 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Doge",
+  "scopeName": "source.doge",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#control" },
+    { "include": "#doge-keywords" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.doge"
+    },
+    "strings": {
+      "name": "string.quoted.double.doge",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "match": "\\\\.", "name": "constant.character.escape.doge" },
+        {
+          "name": "meta.interpolation.doge",
+          "begin": "(?<!\\\\)\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.definition.interpolation.begin.doge" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.interpolation.end.doge" } },
+          "patterns": [
+            { "include": "#numbers" },
+            { "include": "#constants" },
+            { "include": "#operators" }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "match": "\\b[0-9]+(\\.[0-9]+)?\\b",
+      "name": "constant.numeric.doge"
+    },
+    "constants": {
+      "match": "\\b(true|false|none)\\b",
+      "name": "constant.language.doge"
+    },
+    "control": {
+      "match": "\\b(if|elif|else|for|while|in|return|continue|and|or|not)\\b",
+      "name": "keyword.control.doge"
+    },
+    "doge-keywords": {
+      "match": "\\b(such|much|many|so|very|pls|bark|bonk|bork|wow)\\b|\\boh\\s+no\\b",
+      "name": "keyword.other.doge"
+    },
+    "operators": {
+      "match": "//|[+\\-*/%<>=!]=?|[=:,\\[\\]().]",
+      "name": "keyword.operator.doge"
+    }
+  }
+}
