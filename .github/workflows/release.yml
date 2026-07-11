@@ -8,8 +8,13 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: verify (CI)
+    uses: ./.github/workflows/ci.yml
+
   create-release:
     name: create draft release
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,8 +34,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-13
-            target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
