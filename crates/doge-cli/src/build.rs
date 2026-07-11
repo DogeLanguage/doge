@@ -13,6 +13,14 @@ very rust. much missing.
 
 such fix: install Rust from https://rustup.rs";
 
+/// How long to wait for a peer's in-progress build before assuming its lock is
+/// stale (a crashed process) and taking it over. A single tiny script builds in
+/// seconds, so this is deliberately far longer than any real build.
+const BUILD_LOCK_STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How often to re-check a peer's build lock while waiting for it to finish.
+const BUILD_LOCK_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// Compile `source` to a cached native binary and return its path, reusing the
 /// cache when the script is unchanged. Every error is a fully rendered,
 /// doge-flavored message ready to print to stderr.
@@ -22,9 +30,68 @@ pub fn ensure_binary(source: &str, generated: &str) -> Result<PathBuf, String> {
         return Ok(paths.binary);
     }
     detect_toolchain()?;
+
+    // Serialize with any other process building this same script: two concurrent
+    // `cargo build`s share one cache entry, and one relinking the binary can hit
+    // the other mid-run ("os error 2"). The lock holder builds; late arrivals
+    // wait, then reuse the binary it produced.
+    let _lock = BuildLock::acquire(&paths.entry_dir)?;
+    if cache::cache_hit(&paths.entry_dir, &paths.binary, source) {
+        return Ok(paths.binary);
+    }
     write_entry(&paths, source, generated)?;
     compile(&paths)?;
     Ok(paths.binary)
+}
+
+/// A held build lock: an exclusive marker file under the script's cache entry
+/// that serializes concurrent builds of the same script. Removed on drop.
+struct BuildLock {
+    path: PathBuf,
+}
+
+impl BuildLock {
+    /// Take the build lock for `entry_dir`, waiting out any peer build. Creates
+    /// the entry dir first so the lock has somewhere to live.
+    fn acquire(entry_dir: &Path) -> Result<BuildLock, String> {
+        std::fs::create_dir_all(entry_dir).map_err(disk_err)?;
+        let path = entry_dir.join("build.lock");
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(_) => return Ok(BuildLock { path }),
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if lock_is_stale(&path) {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                    std::thread::sleep(BUILD_LOCK_POLL);
+                }
+                Err(err) => return Err(disk_err(err)),
+            }
+        }
+    }
+}
+
+impl Drop for BuildLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// A lock older than `BUILD_LOCK_STALE_AFTER`, or one we can no longer stat,
+/// belonged to a build that died — it is safe to steal.
+fn lock_is_stale(path: &Path) -> bool {
+    match std::fs::metadata(path).and_then(|meta| meta.modified()) {
+        Ok(created) => created
+            .elapsed()
+            .map(|age| age > BUILD_LOCK_STALE_AFTER)
+            .unwrap_or(false),
+        Err(_) => true,
+    }
 }
 
 /// Run a freshly built binary with inherited stdio and return its exit code, so

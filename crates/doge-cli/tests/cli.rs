@@ -125,8 +125,15 @@ fn bark_runs_and_caches() {
 }
 
 #[test]
-fn runtime_error_reports_path_and_line() {
+fn runtime_error_reports_path_line_and_source() {
     let fixture = cli_fixtures_dir().join("divide_by_zero.doge");
+    let source_line = std::fs::read_to_string(&fixture)
+        .expect("divide_by_zero.doge")
+        .lines()
+        .nth(2)
+        .expect("line 3")
+        .to_string();
+
     let output = doge_cached()
         .arg("bark")
         .arg(&fixture)
@@ -146,6 +153,10 @@ fn runtime_error_reports_path_and_line() {
     assert!(
         stderr.contains("by zero"),
         "should explain the division error, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains(&source_line),
+        "should embed the offending line-3 source ({source_line:?}), got:\n{stderr}"
     );
 }
 
@@ -189,31 +200,6 @@ fn bark_on_m6_feature_says_soon() {
     assert!(
         stderr.contains("M6"),
         "should name the milestone, got:\n{stderr}"
-    );
-}
-
-#[test]
-fn runtime_error_shows_the_source_line() {
-    // The uncaught-error report embeds the offending source line under path:line.
-    let fixture = cli_fixtures_dir().join("divide_by_zero.doge");
-    let source_line = std::fs::read_to_string(&fixture)
-        .expect("divide_by_zero.doge")
-        .lines()
-        .nth(2)
-        .expect("line 3")
-        .to_string();
-
-    let output = doge_cached()
-        .arg("bark")
-        .arg(&fixture)
-        .output()
-        .expect("the doge binary should run");
-
-    assert_eq!(output.status.code(), Some(1), "a runtime error exits 1");
-    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
-    assert!(
-        stderr.contains(&source_line),
-        "should show the line-3 source ({source_line:?}), got:\n{stderr}"
     );
 }
 
@@ -272,16 +258,19 @@ fn recursion_limit_is_a_catchable_doge_error() {
 
 #[test]
 fn build_produces_standalone_binary() {
-    let hello = examples_dir()
-        .join("hello.doge")
+    // Its own fixture, not hello.doge: the cache is keyed by source, and another
+    // test builds hello.doge concurrently — sharing a source would race two
+    // parallel builds on the same cached binary.
+    let script = cli_fixtures_dir()
+        .join("standalone.doge")
         .canonicalize()
-        .expect("hello.doge should exist");
-    let expected = std::fs::read_to_string(examples_dir().join("hello.out")).expect("hello.out");
+        .expect("standalone.doge should exist");
+    let expected = "much standalone. very wow.\n";
     let workdir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
 
     let build = doge_cached()
         .arg("build")
-        .arg(&hello)
+        .arg(&script)
         .current_dir(&workdir)
         .output()
         .expect("the doge binary should run");
@@ -291,10 +280,10 @@ fn build_produces_standalone_binary() {
         String::from_utf8_lossy(&build.stderr)
     );
 
-    let dropped = workdir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
+    let dropped = workdir.join(format!("standalone{}", std::env::consts::EXE_SUFFIX));
     assert!(
         dropped.exists(),
-        "build should drop ./hello in the work dir"
+        "build should drop ./standalone in the work dir"
     );
 
     // The dropped binary runs standalone, with no doge involvement.
@@ -303,6 +292,38 @@ fn build_produces_standalone_binary() {
         .expect("the built binary should run");
     assert!(run.status.success(), "the standalone binary should exit 0");
     assert_eq!(String::from_utf8_lossy(&run.stdout), expected);
+}
+
+#[test]
+fn concurrent_builds_of_one_script_all_succeed() {
+    // Several `doge` processes building the same script share one cache entry.
+    // Without the build lock, one process's cargo relink races another's run
+    // ("os error 2"); with it, one builds and the rest reuse the binary.
+    let fixture = cli_fixtures_dir().join("concurrent.doge");
+    let expected = "much concurrent. very safe.\n";
+
+    let racers: Vec<_> = (0..4)
+        .map(|_| {
+            let fixture = fixture.clone();
+            std::thread::spawn(move || {
+                doge_cached()
+                    .arg("bark")
+                    .arg(&fixture)
+                    .output()
+                    .expect("the doge binary should run")
+            })
+        })
+        .collect();
+
+    for racer in racers {
+        let output = racer.join().expect("a build thread should not panic");
+        assert!(
+            output.status.success(),
+            "every concurrent build should exit 0, stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    }
 }
 
 #[test]

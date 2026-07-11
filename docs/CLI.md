@@ -22,7 +22,10 @@ gets its own tiny Cargo project at
 dependency on `doge-runtime`; all scripts share one `<cache>/target` dir so the
 runtime compiles once. A cache hit requires both the built binary and a stored
 `source.doge` that reads back byte-identical, which makes hash collisions and torn
-writes harmless (mismatch means rebuild). The cache lives at `$DOGE_CACHE_DIR`, else
+writes harmless (mismatch means rebuild). Concurrent `doge` runs on the same script
+are serialized by a `build.lock` marker in the script's entry dir, so two builds
+never relink one cached binary out from under a run; late arrivals reuse the binary
+the lock holder built. The cache lives at `$DOGE_CACHE_DIR`, else
 `$XDG_CACHE_HOME/doge`, else `$HOME/.cache/doge`.
 
 ## Toolchain handling
