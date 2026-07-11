@@ -170,8 +170,34 @@ fn int_overflow_is_an_error() {
 
 #[test]
 fn unknown_character_is_an_error() {
-    let err = lex("test.doge", "bark ~x\n").unwrap_err();
-    assert!(err.message.contains('~'));
+    let err = lex("test.doge", "bark @x\n").unwrap_err();
+    assert!(err.message.contains('@'));
+}
+
+#[test]
+fn new_operators_lex_longest_match_first() {
+    use crate::ast::BinOp;
+    // `**` and `**=` must win over `*`; `<<`/`>>` over `<`/`>`.
+    let toks = kinds("a ** b\nc **= d\ne << f\ng >>= h\ni & j | k ^ ~l\n");
+    assert!(toks.contains(&TokenKind::StarStar));
+    assert!(toks.contains(&TokenKind::AugAssign(BinOp::Pow)));
+    assert!(toks.contains(&TokenKind::Shl));
+    assert!(toks.contains(&TokenKind::AugAssign(BinOp::Shr)));
+    assert!(toks.contains(&TokenKind::Amp));
+    assert!(toks.contains(&TokenKind::Pipe));
+    assert!(toks.contains(&TokenKind::Caret));
+    assert!(toks.contains(&TokenKind::Tilde));
+    // A lone `*` is still a Star, not swallowed by the `**` rule.
+    assert!(kinds("a * b\n").contains(&TokenKind::Star));
+}
+
+#[test]
+fn augmented_assignment_operators_lex() {
+    use crate::ast::BinOp;
+    let toks = kinds("x += 1\ny //= 2\nz |= 3\n");
+    assert!(toks.contains(&TokenKind::AugAssign(BinOp::Add)));
+    assert!(toks.contains(&TokenKind::AugAssign(BinOp::FloorDiv)));
+    assert!(toks.contains(&TokenKind::AugAssign(BinOp::BitOr)));
 }
 
 #[test]

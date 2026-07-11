@@ -1,4 +1,5 @@
 use std::fmt;
+use std::rc::Rc;
 
 use crate::value::Value;
 
@@ -22,7 +23,8 @@ pub enum ErrorKind {
     KeyError,
     /// A value was the right type but not a usable value (e.g. `int("dog")`).
     ValueError,
-    /// A missing field or method on an object.
+    /// A missing field or method on an object, or a method call on a value whose
+    /// type has no methods at all.
     AttrError,
     /// A `bonk` raised by the program itself.
     Bonk,
@@ -47,11 +49,24 @@ impl ErrorKind {
     }
 }
 
+/// Where an error was raised: the script path and 1-based line it came from.
+/// Present only on a re-raised error (`bonk err`), so its original location
+/// survives instead of being overwritten by the `bonk` site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorLocation {
+    pub file: Rc<str>,
+    pub line: u32,
+}
+
 /// A catchable runtime error: a category plus a precise, plain-English message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DogeError {
     pub kind: ErrorKind,
     pub message: String,
+    /// The raise site, carried only across `bonk err` so a re-raised error keeps
+    /// its original location. `None` on a freshly built error — the catch site
+    /// supplies the location when it becomes an [`error_value`].
+    pub location: Option<ErrorLocation>,
 }
 
 impl DogeError {
@@ -59,6 +74,7 @@ impl DogeError {
         DogeError {
             kind,
             message: message.into(),
+            location: None,
         }
     }
 
@@ -99,16 +115,57 @@ impl fmt::Display for DogeError {
 
 impl std::error::Error for DogeError {}
 
-/// Build the error a `bonk <expr>` raises: the message is the value's display
-/// form, so `bonk 5` reads `5` and `bonk "much fail"` reads `much fail` — the
-/// same text `bark` would print.
-pub fn bonk_error(value: &Value) -> DogeError {
-    DogeError::new(ErrorKind::Bonk, value.to_string())
+/// The innards of a caught `Error` value: the category, message, and the raise
+/// site, read through `err.type` / `err.message` / `err.file` / `err.line`.
+#[derive(Debug)]
+pub struct ErrorData {
+    pub kind: ErrorKind,
+    pub message: Rc<str>,
+    pub file: Rc<str>,
+    pub line: u32,
 }
 
-/// The value bound by `oh no err!`: a `Str` carrying the caught error's message.
-pub fn error_value(err: &DogeError) -> Value {
-    Value::str(&err.message)
+/// Build the error a `bonk <expr>` raises. Re-raising a caught `Error` value
+/// (`bonk err`) preserves its type, message, and original location; any other
+/// value raises a `Bonk` whose message is the value's display form, so `bonk 5`
+/// reads `5` and `bonk "much fail"` reads `much fail` — the text `bark` prints.
+pub fn bonk_error(value: &Value) -> DogeError {
+    match value {
+        Value::Error(e) => DogeError {
+            kind: e.kind,
+            message: e.message.to_string(),
+            location: Some(ErrorLocation {
+                file: e.file.clone(),
+                line: e.line,
+            }),
+        },
+        _ => DogeError::new(ErrorKind::Bonk, value.to_string()),
+    }
+}
+
+/// The value bound by `oh no err!`: a structured `Error` carrying the caught
+/// error's type, message, and location. A re-raised error keeps its embedded
+/// location; a fresh one takes the catch site's `file`/`line`.
+pub fn error_value(err: &DogeError, file: &str, line: u32) -> Value {
+    let (file, line) = match &err.location {
+        Some(loc) => (loc.file.clone(), loc.line),
+        None => (Rc::from(file), line),
+    };
+    Value::error(err.kind, &err.message, file, line)
+}
+
+/// Read a field off a caught `Error` value. A field other than `type`,
+/// `message`, `file`, or `line` is a catchable [`ErrorKind::AttrError`].
+pub fn error_field(err: &ErrorData, name: &str) -> DogeResult {
+    match name {
+        "type" => Ok(Value::str(err.kind.as_str())),
+        "message" => Ok(Value::Str(err.message.clone())),
+        "file" => Ok(Value::Str(err.file.clone())),
+        "line" => Ok(Value::Int(err.line as i64)),
+        _ => Err(DogeError::attr_error(format!(
+            "an Error has no field {name}"
+        ))),
+    }
 }
 
 /// Enter one call: fail (catchably) if the chain is already [`RECURSION_LIMIT`]
@@ -146,12 +203,59 @@ mod tests {
     }
 
     #[test]
-    fn error_value_carries_the_message() {
+    fn re_bonking_an_error_preserves_type_and_location() {
+        let caught = error_value(&DogeError::key_error("no such key"), "main.doge", 7);
+        let re_raised = bonk_error(&caught);
+        assert_eq!(re_raised.kind, ErrorKind::KeyError);
+        assert_eq!(re_raised.message, "no such key");
+        let loc = re_raised
+            .location
+            .expect("re-raised error keeps its location");
+        assert_eq!(&*loc.file, "main.doge");
+        assert_eq!(loc.line, 7);
+    }
+
+    #[test]
+    fn error_value_carries_type_message_and_catch_site() {
         let err = DogeError::type_error("nope");
-        match error_value(&err) {
-            Value::Str(s) => assert_eq!(&*s, "nope"),
-            other => panic!("expected a Str, got {other:?}"),
+        match error_value(&err, "script.doge", 3) {
+            Value::Error(e) => {
+                assert_eq!(e.kind, ErrorKind::TypeError);
+                assert_eq!(&*e.message, "nope");
+                assert_eq!(&*e.file, "script.doge");
+                assert_eq!(e.line, 3);
+            }
+            other => panic!("expected an Error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn error_value_prefers_an_embedded_location_over_the_catch_site() {
+        let raised = error_value(&DogeError::overflow("too big"), "raise.doge", 2);
+        let re_raised = error_value(&bonk_error(&raised), "catch.doge", 99);
+        match re_raised {
+            Value::Error(e) => {
+                assert_eq!(&*e.file, "raise.doge");
+                assert_eq!(e.line, 2);
+            }
+            other => panic!("expected an Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn error_field_reads_the_four_fields_and_rejects_others() {
+        let value = error_value(&DogeError::value_error("bad"), "f.doge", 4);
+        let Value::Error(e) = value else {
+            panic!("expected an Error");
+        };
+        assert!(matches!(error_field(&e, "type").unwrap(), Value::Str(s) if &*s == "ValueError"));
+        assert!(matches!(error_field(&e, "message").unwrap(), Value::Str(s) if &*s == "bad"));
+        assert!(matches!(error_field(&e, "file").unwrap(), Value::Str(s) if &*s == "f.doge"));
+        assert!(matches!(error_field(&e, "line").unwrap(), Value::Int(4)));
+        assert_eq!(
+            error_field(&e, "nope").unwrap_err().kind,
+            ErrorKind::AttrError
+        );
     }
 
     #[test]

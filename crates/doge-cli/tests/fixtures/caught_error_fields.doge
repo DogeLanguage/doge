@@ -1,0 +1,8 @@
+pls
+    such xs = [1]
+    bark xs[5]
+oh no err!
+    bark err.type
+    bark err.file
+    bark err.line
+wow

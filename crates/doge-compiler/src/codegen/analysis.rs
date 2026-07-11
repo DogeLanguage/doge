@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{for_each_child_block, hoisted_names, Expr, InterpPart, Stmt};
+use crate::ast::{for_each_child_block, hoisted_names, Expr, InterpPart, Params, Stmt};
 use crate::builtins::BUILTINS;
 use crate::modules::{Program, ProgramFile};
 use crate::stdlib::Module;
@@ -11,8 +11,8 @@ use crate::token::Span;
 /// A file's top-level names, gathered once so any file's code can resolve calls,
 /// constants, and members into another file. Indexed program-wide by `file_id`.
 pub(super) struct FileTable {
-    /// Top-level function name → its parameter names.
-    pub(super) funcs: HashMap<String, Vec<String>>,
+    /// Top-level function name → its declared parameters (with defaults/variadic).
+    pub(super) funcs: HashMap<String, Params>,
     /// Top-level constant names.
     pub(super) consts: HashSet<String>,
     /// Public member names (functions then constants) in source order, for hints.
@@ -44,7 +44,8 @@ pub(super) struct FnInfo {
     /// (top-level functions and closures). `None` for methods.
     pub(super) fn_id: Option<u32>,
     pub(super) name: String,
-    /// Declared parameters (for a method, `self` is prepended).
+    /// The names the body binds: `self` (methods only), then each parameter, then
+    /// the variadic — the value parameters the compiled wrapper takes.
     pub(super) params: Vec<String>,
     pub(super) body: Vec<Stmt>,
     /// Names captured from the enclosing scope, in a fixed (sorted) order — the
@@ -69,17 +70,18 @@ pub(super) struct FnInfoView {
 /// One arm of the generated `call_function` dispatcher, indexed by `fn_id`.
 pub(super) enum ArmSpec {
     /// A top-level function: call its recursion-guarded wrapper (mangled by the
-    /// defining file's id).
+    /// defining file's id). `params` drives the arm's range arity check and its
+    /// default/variadic filling.
     TopFunc {
         file_id: u32,
         name: String,
-        arity: usize,
+        params: Params,
     },
     /// A closure: call its `c_` wrapper, threading the captured cells first.
     Closure {
         name: String,
         id: u32,
-        arity: usize,
+        params: Params,
         captures: usize,
     },
     /// A builtin used as a value: call the runtime builtin directly.
@@ -135,6 +137,28 @@ pub(super) fn expr_idents(expr: &Expr, out: &mut HashSet<String>) {
             expr_idents(obj, out);
             expr_idents(index, out);
         }
+        Expr::Slice {
+            obj,
+            start,
+            end,
+            step,
+            ..
+        } => {
+            expr_idents(obj, out);
+            for part in [start, end, step].into_iter().flatten() {
+                expr_idents(part, out);
+            }
+        }
+        Expr::Ternary {
+            cond,
+            then,
+            otherwise,
+            ..
+        } => {
+            expr_idents(cond, out);
+            expr_idents(then, out);
+            expr_idents(otherwise, out);
+        }
         Expr::Attr { obj, .. } => expr_idents(obj, out),
         Expr::StrInterp { parts, .. } => {
             for part in parts {
@@ -164,8 +188,18 @@ pub(super) fn collect_used(stmts: &[Stmt], used: &mut HashSet<String>) {
             | Stmt::Bark { expr, .. }
             | Stmt::Bonk { expr, .. }
             | Stmt::ExprStmt { expr } => expr_idents(expr, used),
-            Stmt::Assign { target, expr, .. } => {
-                expr_idents(target, used);
+            Stmt::Assign {
+                targets,
+                rest,
+                expr,
+                ..
+            } => {
+                for target in targets {
+                    expr_idents(target, used);
+                }
+                if let Some(rest) = rest {
+                    expr_idents(rest, used);
+                }
                 expr_idents(expr, used);
             }
             Stmt::If {
@@ -199,7 +233,7 @@ pub(super) fn collect_used(stmts: &[Stmt], used: &mut HashSet<String>) {
                 }
             }
             Stmt::FuncDef { params, body, .. } => {
-                for name in free_names(params, body) {
+                for name in free_names(&params.binding_names(), body) {
                     used.insert(name);
                 }
             }
@@ -229,7 +263,7 @@ pub(super) fn free_names(params: &[String], body: &[Stmt]) -> HashSet<String> {
 /// The nested functions defined directly in this scope — crossing `if`/`for`/
 /// `while`/`pls` blocks (names leak, Python-style) but never another function's
 /// body. Returns each `(name, params, body, span)`.
-pub(super) fn child_funcdefs(stmts: &[Stmt]) -> Vec<(&str, &[String], &[Stmt], Span)> {
+pub(super) fn child_funcdefs(stmts: &[Stmt]) -> Vec<(&str, &Params, &[Stmt], Span)> {
     let mut out = Vec::new();
     collect_child_funcdefs(stmts, &mut out);
     out
@@ -237,7 +271,7 @@ pub(super) fn child_funcdefs(stmts: &[Stmt]) -> Vec<(&str, &[String], &[Stmt], S
 
 pub(super) fn collect_child_funcdefs<'a>(
     stmts: &'a [Stmt],
-    out: &mut Vec<(&'a str, &'a [String], &'a [Stmt], Span)>,
+    out: &mut Vec<(&'a str, &'a Params, &'a [Stmt], Span)>,
 ) {
     for stmt in stmts {
         if let Stmt::FuncDef {
@@ -262,7 +296,7 @@ pub(super) fn celled_locals(params: &[String], body: &[Stmt]) -> HashSet<String>
     }
     let mut child_free: HashSet<String> = HashSet::new();
     for (_, child_params, child_body, _) in child_funcdefs(body) {
-        for name in free_names(child_params, child_body) {
+        for name in free_names(&child_params.binding_names(), child_body) {
             child_free.insert(name);
         }
     }
@@ -323,13 +357,21 @@ impl Analyzer {
         &mut self,
         file_id: u32,
         name: &str,
-        params: &[String],
+        params: &Params,
         body: &[Stmt],
         span: Span,
         kind: FnKind,
         enclosing_cells: &HashSet<String>,
     ) {
-        let free = free_names(params, body);
+        // A method binds `self` ahead of its declared parameters; every kind then
+        // binds each parameter plus the variadic (which arrives as a packed List).
+        let mut binding = Vec::new();
+        if kind == FnKind::Method {
+            binding.push("self".to_string());
+        }
+        binding.extend(params.binding_names());
+
+        let free = free_names(&binding, body);
         let mut captures: Vec<String> = free
             .iter()
             .filter(|n| enclosing_cells.contains(*n))
@@ -337,7 +379,7 @@ impl Analyzer {
             .collect();
         captures.sort();
 
-        let mut cell_names = celled_locals(params, body);
+        let mut cell_names = celled_locals(&binding, body);
         cell_names.extend(captures.iter().cloned());
 
         let fn_id = match kind {
@@ -348,7 +390,7 @@ impl Analyzer {
                 self.registry.push(ArmSpec::TopFunc {
                     file_id,
                     name: name.to_string(),
-                    arity: params.len(),
+                    params: params.clone(),
                 });
                 self.top_func_ids.insert((file_id, name.to_string()), id);
                 Some(id)
@@ -359,7 +401,7 @@ impl Analyzer {
                 self.registry.push(ArmSpec::Closure {
                     name: name.to_string(),
                     id,
-                    arity: params.len(),
+                    params: params.clone(),
                     captures: captures.len(),
                 });
                 Some(id)
@@ -372,7 +414,7 @@ impl Analyzer {
                 file_id,
                 fn_id,
                 name: name.to_string(),
-                params: params.to_vec(),
+                params: binding,
                 body: body.to_vec(),
                 captures,
                 cell_names: cell_names.clone(),
@@ -422,18 +464,7 @@ impl Analyzer {
                         span,
                     } = method
                     {
-                        let mut with_self = Vec::with_capacity(params.len() + 1);
-                        with_self.push("self".to_string());
-                        with_self.extend(params.iter().cloned());
-                        self.analyze(
-                            file_id,
-                            name,
-                            &with_self,
-                            body,
-                            *span,
-                            FnKind::Method,
-                            &empty,
-                        );
+                        self.analyze(file_id, name, params, body, *span, FnKind::Method, &empty);
                     }
                 }
             }

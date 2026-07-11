@@ -10,13 +10,16 @@ mod stdlib;
 mod value;
 
 pub use builtins::{bark, interp, len, range, to_float, to_int, to_str};
-pub use error::{bonk_error, enter_call, error_value, exit_call, DogeError, DogeResult, ErrorKind};
+pub use error::{
+    bonk_error, enter_call, error_field, error_value, exit_call, DogeError, DogeResult, ErrorKind,
+};
 pub use functions::{callee_function, cell_get, cell_set, function_arity_error};
 pub use methods::builtin_method;
 pub use objects::{attr_get, attr_set, method_arity_error, no_such_method, object_class_id};
 pub use ops::{
-    add, div, eq, floordiv, ge, gt, index_get, index_set, iter_value, le, lt, mul, ne, neg, not_,
-    rem, sub, values_equal,
+    add, bitand, bitnot, bitor, bitxor, div, eq, floordiv, ge, gt, in_, index_get, index_set,
+    iter_value, le, lt, mul, ne, neg, not_, not_in, pow, rem, shl, shr, slice_get, sub,
+    unpack_value, values_equal,
 };
 pub use ordered_map::OrderedMap;
 pub use stdlib::nerd::{

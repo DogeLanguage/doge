@@ -26,15 +26,25 @@ pub fn callee_function(value: &Value) -> DogeResult<Rc<FunctionData>> {
     }
 }
 
+/// The "takes … arguments, got N" phrase shared by the function- and
+/// method-arity errors. `max` is `None` for a variadic header (no upper bound);
+/// when it equals `min` the header is fixed-arity and reads as a single count.
+pub(crate) fn arity_phrase(subject: &str, min: usize, max: Option<usize>, got: usize) -> String {
+    let noun = |count: usize| if count == 1 { "argument" } else { "arguments" };
+    match max {
+        Some(max) if max == min => {
+            format!("{subject} takes {min} {}, got {got}", noun(min))
+        }
+        Some(max) => format!("{subject} takes {min} to {max} arguments, got {got}"),
+        None => format!("{subject} takes at least {min} {}, got {got}", noun(min)),
+    }
+}
+
 /// The error an indirect call raises when the argument count is wrong, worded
-/// like the compiler's user-function arity message.
-pub fn function_arity_error(name: &str, expected: usize, got: usize) -> DogeError {
-    let noun = if expected == 1 {
-        "argument"
-    } else {
-        "arguments"
-    };
-    DogeError::type_error(format!("{name} takes {expected} {noun}, got {got}"))
+/// like the compiler's user-function arity message. `max` is `None` when the
+/// function is variadic.
+pub fn function_arity_error(name: &str, min: usize, max: Option<usize>, got: usize) -> DogeError {
+    DogeError::type_error(arity_phrase(name, min, max, got))
 }
 
 #[cfg(test)]
@@ -69,12 +79,24 @@ mod tests {
     #[test]
     fn function_arity_error_matches_the_user_wording() {
         assert_eq!(
-            function_arity_error("greet", 2, 1).message,
+            function_arity_error("greet", 2, Some(2), 1).message,
             "greet takes 2 arguments, got 1"
         );
         assert_eq!(
-            function_arity_error("f", 1, 0).message,
+            function_arity_error("f", 1, Some(1), 0).message,
             "f takes 1 argument, got 0"
+        );
+    }
+
+    #[test]
+    fn function_arity_error_reports_ranges_and_variadics() {
+        assert_eq!(
+            function_arity_error("greet", 1, Some(3), 4).message,
+            "greet takes 1 to 3 arguments, got 4"
+        );
+        assert_eq!(
+            function_arity_error("party", 1, None, 0).message,
+            "party takes at least 1 argument, got 0"
         );
     }
 }

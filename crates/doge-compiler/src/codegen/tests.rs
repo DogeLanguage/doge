@@ -130,6 +130,29 @@ fn for_variable_is_hoisted() {
 }
 
 #[test]
+fn destructuring_declaration_unpacks_into_each_binding() {
+    let out = gen("such a, b = [1, 2]\nbark a\nwow\n").unwrap();
+    assert!(out.contains("let vals0 = unpack_value(&src0, 2, false)?;"));
+    assert!(out.contains("env.v_a = vals0[0].clone();"));
+    assert!(out.contains("env.v_b = vals0[1].clone();"));
+}
+
+#[test]
+fn destructuring_with_a_collector_passes_the_rest_flag() {
+    let out = gen("such first, many rest = [1, 2, 3]\nbark first\nwow\n").unwrap();
+    assert!(out.contains("let vals0 = unpack_value(&src0, 1, true)?;"));
+    assert!(out.contains("env.v_first = vals0[0].clone();"));
+    assert!(out.contains("env.v_rest = vals0[1].clone();"));
+}
+
+#[test]
+fn for_loop_destructuring_unpacks_each_item() {
+    let out = gen("such d = {\"a\": 1}\nfor k, v in d:\n    bark k\nwow\n").unwrap();
+    assert!(out.contains("'l0: for item in iter_value(&env.v_d.clone())? {"));
+    assert!(out.contains("let vals1 = unpack_value(&src1, 2, false)?;"));
+}
+
+#[test]
 fn and_or_short_circuit_shape() {
     let and = gen("such a = true\nsuch b = false\nbark a and b\nwow\n").unwrap();
     assert!(and.contains(
@@ -170,7 +193,7 @@ fn try_block_shape() {
     assert!(out.contains("let attempt0: DogeResult<()> = 'p0: {"));
     assert!(out.contains("Err(e) => break 'p0 Err(e)"));
     assert!(out.contains("if let Err(e) = attempt0 {"));
-    assert!(out.contains("env.v_err = error_value(&e);"));
+    assert!(out.contains("env.v_err = error_value(&e, \"examples/hello.doge\", env.cur_line);"));
 }
 
 #[test]
@@ -231,6 +254,75 @@ fn function_arity_error_is_precise() {
     assert_eq!(err.headline, "very args. much wrong.");
     assert_eq!(err.message, "add2 takes 2 arguments, got 1");
     assert_eq!(err.hint.as_deref(), Some("add2(a, b)"));
+}
+
+#[test]
+fn default_is_filled_at_a_direct_call() {
+    let out = gen("such greet much name, mood = \"happy\":\n    return name\nwow\nbark greet(\"kabosu\")\nwow\n")
+        .unwrap();
+    // The omitted `mood` argument is supplied from its literal default.
+    assert!(out.contains("f_greet(Value::str(\"kabosu\"), Value::str(\"happy\"), &mut *env)"));
+}
+
+#[test]
+fn variadic_packs_the_surplus_into_a_list() {
+    let out = gen(
+        "such party much host, many rest:\n    return host\nwow\nparty(\"a\", \"b\", \"c\")\nwow\n",
+    )
+    .unwrap();
+    assert!(out.contains(
+        "f_party(Value::str(\"a\"), Value::list(vec![Value::str(\"b\"), Value::str(\"c\")]), &mut *env)"
+    ));
+}
+
+#[test]
+fn keyword_args_bind_by_name_with_ordered_temporaries() {
+    let out = gen("such f much a, b, c:\n    return a\nwow\nf(1, c = 3, b = 2)\nwow\n").unwrap();
+    // Provided arguments evaluate left-to-right into temporaries, then fill their
+    // slots in binding order (a, b, c) → temp for `c` lands in the third slot.
+    assert!(out.contains("let __a0 = Value::Int(1i64); "));
+    assert!(out.contains("let __a1 = Value::Int(3i64); "));
+    assert!(out.contains("let __a2 = Value::Int(2i64); "));
+    assert!(out.contains("f_f(__a0, __a2, __a1, &mut *env)"));
+}
+
+#[test]
+fn range_arity_error_reports_the_accepted_span() {
+    let err =
+        gen("such greet much name, mood = \"happy\":\n    return name\nwow\nbark greet()\nwow\n")
+            .unwrap_err();
+    assert_eq!(err.headline, "very args. much wrong.");
+    assert_eq!(err.message, "greet takes 1 to 2 arguments, got 0");
+}
+
+#[test]
+fn variadic_arity_error_says_at_least() {
+    let err =
+        gen("such party much host, many rest:\n    return host\nwow\nparty()\nwow\n").unwrap_err();
+    assert_eq!(err.message, "party takes at least 1 argument, got 0");
+}
+
+#[test]
+fn unknown_keyword_argument_is_an_error() {
+    let err =
+        gen("such greet much name:\n    return name\nwow\ngreet(mood = 1)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very keyword. much unknown.");
+}
+
+#[test]
+fn keyword_argument_on_a_method_is_rejected() {
+    let src = "many Shibe:\n    such speak much mood:\n        return mood\n    wow\nwow\nsuch k = Shibe()\nk.speak(mood = 1)\nwow\n";
+    let err = gen(src).unwrap_err();
+    assert_eq!(err.headline, "very keyword. much dynamic.");
+}
+
+#[test]
+fn dispatcher_arm_fills_defaults_and_packs_variadic() {
+    // Called through a value, so the arm — not the call site — fills the default.
+    let out = gen("such greet much name, mood = \"happy\":\n    return name\nwow\nsuch g = greet\nbark g(\"kabosu\")\nwow\n")
+        .unwrap();
+    assert!(out.contains("if args.len() < 1 { return Err(function_arity_error(\"greet\", 1usize, Some(2usize), args.len())); }"));
+    assert!(out.contains("if args.len() < 2 { args.push(Value::str(\"happy\")); }"));
 }
 
 #[test]
@@ -527,13 +619,13 @@ fn mb_0_speak(mut v_self: Value, env: &mut Env) -> DogeResult<Value> {
 
 fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
     if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }
-    match (object_class_id(&recv, name)?, name) {
+    match (object_class_id(&recv)?, name) {
         (0u32, "init") => {
-            if args.len() != 2 { return Err(method_arity_error("Shibe", "init", 2, args.len())); }
+            if args.len() != 2 { return Err(method_arity_error("Shibe", "init", 2usize, Some(2usize), args.len())); }
             mf_0_init(recv, args.remove(0), args.remove(0), env)
         }
         (0u32, "speak") => {
-            if args.len() != 0 { return Err(method_arity_error("Shibe", "speak", 0, args.len())); }
+            if args.len() != 0 { return Err(method_arity_error("Shibe", "speak", 0usize, Some(0usize), args.len())); }
             mf_0_speak(recv, env)
         }
         _ => Err(no_such_method(&recv, name)),
@@ -564,7 +656,7 @@ fn method_call_is_dynamic() {
         gen("many S:\n    such go:\n        bark 1\n    wow\nwow\nsuch a = S()\na.go()\nwow\n")
             .unwrap();
     assert!(out.contains("call_method(env.v_a.clone(), \"go\", vec![], &mut *env)?"));
-    assert!(out.contains("object_class_id(&recv, name)?"));
+    assert!(out.contains("object_class_id(&recv)?"));
     assert!(out.contains(
         "if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }"
     ));
@@ -685,4 +777,47 @@ fn module_names_are_mangled_by_file_id() {
         "multi-file uses a FILES table"
     );
     assert!(out.contains("env.cur_file ="), "multi-file tracks cur_file");
+}
+
+/// A caught error binds a structured value whose location is the raise site. A
+/// single-file program embeds its one path; a multi-file program reads the path
+/// from the `FILES` table by the runtime `cur_file`.
+#[test]
+fn try_in_multifile_reads_the_file_from_the_files_table() {
+    use crate::modules::{Program, ProgramFile};
+    let e_src = "so m\npls\n    such x = 1 // 0\noh no err!\n    bark err\nwow\n";
+    let m_src = "so K = 7\nwow\n";
+    let e = parse("app.doge", e_src).unwrap();
+    let m = parse("m.doge", m_src).unwrap();
+    let program = Program {
+        files: vec![
+            ProgramFile {
+                file_id: 0,
+                is_entry: true,
+                name: "app".into(),
+                path: "app.doge".into(),
+                source: e_src.into(),
+                script: e,
+                stdlib_imports: vec![],
+                user_imports: vec![("m".into(), 1)],
+            },
+            ProgramFile {
+                file_id: 1,
+                is_entry: false,
+                name: "m".into(),
+                path: "m.doge".into(),
+                source: m_src.into(),
+                script: m,
+                stdlib_imports: vec![],
+                user_imports: vec![],
+            },
+        ],
+        init_order: vec![1],
+    };
+
+    let out = generate_program(&program).unwrap();
+    assert!(
+        out.contains("error_value(&e, FILES[env.cur_file as usize].0, env.cur_line)"),
+        "multi-file catch reads the file from the FILES table:\n{out}"
+    );
 }

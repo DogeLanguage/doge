@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use super::{check_arity, expect_int};
 use crate::error::{DogeError, DogeResult};
-use crate::ops::{order, values_equal};
+use crate::ops::{order, slice_contains, values_equal};
 use crate::value::Value;
 
 pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> DogeResult {
@@ -68,11 +68,7 @@ pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> Dog
         "contains" => {
             check_arity("List", name, 1, argc)?;
             let target = args.remove(0);
-            let found = items
-                .borrow()
-                .iter()
-                .any(|element| values_equal(element, &target));
-            Ok(Value::Bool(found))
+            Ok(Value::Bool(slice_contains(&items.borrow(), &target)))
         }
         "sort" => {
             check_arity("List", name, 0, argc)?;

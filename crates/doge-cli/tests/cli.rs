@@ -161,6 +161,35 @@ fn runtime_error_reports_path_line_and_source() {
 }
 
 #[test]
+fn caught_error_exposes_type_file_and_line() {
+    let fixture = cli_fixtures_dir().join("caught_error_fields.doge");
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "a caught error runs cleanly, exit={:?}",
+        output.status.code()
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("IndexOutOfBounds"),
+        "err.type names the category, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("caught_error_fields.doge"),
+        "err.file carries the script path, got:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| line == "3"),
+        "err.line is the raise line (3), got:\n{stdout}"
+    );
+}
+
+#[test]
 fn bark_prints_a_function_value() {
     // func_value.doge uses a bare function name as a value — now a first-class
     // function that `bark` prints as `<function name>`.

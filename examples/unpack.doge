@@ -1,0 +1,71 @@
+# such unpack. much destructure. very wow.
+
+# A List unpacks across several names.
+such a, b = [1, 2]
+bark a
+bark b
+
+# The whole right side is read before any store, so this swaps.
+such x = 10
+such y = 20
+x, y = y, x
+bark x
+bark y
+
+# A comma right side builds the list for you (only with matching names).
+such p = 1
+such q = 2
+p, q = q, p
+bark p
+bark q
+
+# A trailing `many` collector gathers the surplus into a List.
+such head, many rest = [1, 2, 3, 4]
+bark head
+bark rest
+
+# A Str unpacks into its characters.
+such first, second = "hi"
+bark first
+bark second
+
+# Destructure each entry of a dict as the loop visits it.
+such ages = {"kabosu": 18, "cheems": 4}
+for name, age in ages.items():
+    bark "{name} is {age}"
+
+# A collector works in a for header too.
+such rows = [[1, 2, 3], [4, 5, 6]]
+for lead, many tail in rows:
+    bark lead
+    bark tail
+
+# Unpacking a function's returned list.
+such pair:
+    return ["walter", "shibe"]
+wow
+such who, kind = pair()
+bark who
+bark kind
+
+# Any assignable target works, not just names.
+such box = [0]
+such dog = {"age": 1}
+box[0], dog["age"] = [7, 8]
+bark box[0]
+bark dog["age"]
+
+# A length mismatch is catchable, not a crash.
+pls
+    such m, n = [1, 2, 3]
+oh no err!
+    bark err.type
+    bark err.message
+
+# Unpacking a non-iterable is catchable too.
+pls
+    such g, h = 5
+oh no err!
+    bark err.type
+    bark err.message
+wow

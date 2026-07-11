@@ -23,11 +23,16 @@ pub(super) fn nested_func_names(body: &[Stmt]) -> HashSet<String> {
 pub(super) fn collect_var_bindings(body: &[Stmt], out: &mut HashSet<String>) {
     for stmt in body {
         match stmt {
-            Stmt::Decl { name, .. } | Stmt::ConstDecl { name, .. } => {
+            Stmt::ConstDecl { name, .. } => {
                 out.insert(name.clone());
             }
-            Stmt::For { var, .. } => {
-                out.insert(var.clone());
+            Stmt::Decl { names, rest, .. } => {
+                out.extend(names.iter().cloned());
+                out.extend(rest.iter().cloned());
+            }
+            Stmt::For { vars, rest, .. } => {
+                out.extend(vars.iter().cloned());
+                out.extend(rest.iter().cloned());
             }
             Stmt::Try { err_name, .. } => {
                 out.insert(err_name.clone());

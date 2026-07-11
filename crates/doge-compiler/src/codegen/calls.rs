@@ -5,37 +5,51 @@ impl Codegen {
         &self,
         callee: &Expr,
         args: &[Expr],
+        kwargs: &[(String, Expr)],
         span: Span,
         emit: &Emit,
     ) -> Result<String, Diagnostic> {
         match callee {
             Expr::Ident { name, .. } => {
                 // A local shadows every other meaning — call through its value. A
-                // known nested function still gets a compile-time arity check.
+                // known nested function still gets a compile-time arity check, but
+                // it is reached through the dispatcher, so keyword arguments (which
+                // need a compile-time-known target) are not available.
                 if emit.locals.contains_key(name) {
                     if let Some(params) = emit.local_funcs.get(name) {
-                        self.check_user_arity(name, params, args, span)?;
+                        self.reject_kwargs(
+                            kwargs,
+                            span,
+                            &format!("call {name} without keyword arguments"),
+                        )?;
+                        self.check_positional_arity(name, params, args.len(), span)?;
+                    } else {
+                        self.reject_kwargs(
+                            kwargs,
+                            span,
+                            "call this by a known function name to use keyword arguments",
+                        )?;
                     }
                     let callee_val = self.resolve_read(emit, name);
                     return self.indirect_call(&callee_val, args, emit);
                 }
                 if crate::builtins::is_builtin(name) {
+                    self.reject_kwargs(
+                        kwargs,
+                        span,
+                        &format!("{name} takes positional arguments only"),
+                    )?;
                     return self.builtin_call(name, args, span, emit);
                 }
                 if let Some(params) = emit.table().funcs.get(name) {
-                    self.check_user_arity(name, params, args, span)?;
-                    let mut parts = Vec::with_capacity(args.len() + 1);
-                    for arg in args {
-                        parts.push(self.expr(arg, emit)?);
-                    }
-                    parts.push("&mut *env".to_string());
-                    let call =
-                        format!("{}({})", func_wrapper(emit.file_id, name), parts.join(", "));
-                    return Ok(self.fail(emit, call));
+                    let (prelude, parts) =
+                        self.resolve_args(name, params, args, kwargs, span, emit)?;
+                    let target = func_wrapper(emit.file_id, name);
+                    return Ok(self.finish_call(emit, &prelude, parts, &target));
                 }
                 // `Shibe(...)` — a constructor, resolved statically.
                 if emit.class(name).is_some() {
-                    return self.constructor_call(name, args, span, emit);
+                    return self.constructor_call(name, args, kwargs, span, emit);
                 }
                 // A module name is not itself callable — you call one of its members.
                 if let Some(member) = self.module_first_member(emit, name) {
@@ -45,6 +59,11 @@ impl Codegen {
                         .with_hint(format!("call a member — {name}.{member}(…)")));
                 }
                 // A top-level variable holding a function value: call it indirectly.
+                self.reject_kwargs(
+                    kwargs,
+                    span,
+                    "call this by a known function name to use keyword arguments",
+                )?;
                 let callee_val = format!("env.{}.clone()", field_name(emit.file_id, name));
                 self.indirect_call(&callee_val, args, emit)
             }
@@ -57,16 +76,23 @@ impl Codegen {
                     unreachable!("compiler bug: guarded to an Ident base")
                 };
                 if let Some(module) = emit.module(base) {
+                    self.reject_kwargs(
+                        kwargs,
+                        span,
+                        &format!("{base}.{name} takes positional arguments only"),
+                    )?;
                     self.module_call(base, module, name, args, span, emit)
                 } else {
                     let fid = emit
                         .user_module(base)
                         .expect("compiler bug: module vanished");
-                    self.user_module_call(base, fid, name, args, span, emit)
+                    self.user_module_call(base, fid, name, args, kwargs, span, emit)
                 }
             }
-            // `kabosu.speak(...)` — a method call, dispatched at runtime.
+            // `kabosu.speak(...)` — a method call, dispatched at runtime, so it takes
+            // positional arguments only.
             Expr::Attr { obj, name, .. } => {
+                self.reject_kwargs(kwargs, span, "pass these arguments positionally")?;
                 emit.uses_method_call.set(true);
                 let recv = self.expr(obj, emit)?;
                 let mut arg_parts = Vec::with_capacity(args.len());
@@ -83,10 +109,36 @@ impl Codegen {
             // Any other callee expression — `f()()`, `xs[0]()` — is called through
             // the value it evaluates to.
             _ => {
+                self.reject_kwargs(
+                    kwargs,
+                    span,
+                    "call this by a known function name to use keyword arguments",
+                )?;
                 let callee_val = self.expr(callee, emit)?;
                 self.indirect_call(&callee_val, args, emit)
             }
         }
+    }
+
+    /// Keyword arguments are only accepted where the callee is known at compile
+    /// time (a top-level user function, a constructor, or a user-module function).
+    /// Everywhere else they are a compile error with a `hint` on what to do.
+    pub(super) fn reject_kwargs(
+        &self,
+        kwargs: &[(String, Expr)],
+        span: Span,
+        hint: &str,
+    ) -> Result<(), Diagnostic> {
+        if kwargs.is_empty() {
+            return Ok(());
+        }
+        Err(self
+            .diag(
+                span,
+                "keyword arguments only work when doge knows the function at compile time",
+            )
+            .with_headline("very keyword. much dynamic.")
+            .with_hint(hint.to_string()))
     }
 
     /// Call a function *value*: type-check the callee, then dispatch through
@@ -112,12 +164,14 @@ impl Codegen {
         Ok(self.fail(emit, call))
     }
 
-    /// A constructor call `Shibe(args)`: static arity against `init`, then a
-    /// `n_<id>(args…, &mut *env)` through the fail suffix.
+    /// A constructor call `Shibe(args)`: resolve against `init`'s parameters (with
+    /// defaults, variadic, and keyword arguments), then a `n_<id>(args…, &mut
+    /// *env)` through the fail suffix.
     pub(super) fn constructor_call(
         &self,
         name: &str,
         args: &[Expr],
+        kwargs: &[(String, Expr)],
         span: Span,
         emit: &Emit,
     ) -> Result<String, Diagnostic> {
@@ -125,29 +179,9 @@ impl Codegen {
             .class(name)
             .expect("compiler bug: constructor for an unknown class");
         let init_params = class.init_params();
-        if args.len() != init_params.len() {
-            let count = init_params.len();
-            let noun = if count == 1 { "argument" } else { "arguments" };
-            let hint = if init_params.is_empty() {
-                format!("{name}()")
-            } else {
-                format!("{name}({})", init_params.join(", "))
-            };
-            return Err(self
-                .diag(
-                    span,
-                    format!("{name} takes {count} {noun}, got {}", args.len()),
-                )
-                .with_headline(ARITY_HEADLINE)
-                .with_hint(hint));
-        }
-        let mut parts = Vec::with_capacity(args.len() + 1);
-        for arg in args {
-            parts.push(self.expr(arg, emit)?);
-        }
-        parts.push("&mut *env".to_string());
-        let call = format!("{CTOR_PREFIX}{}({})", class.id, parts.join(", "));
-        Ok(self.fail(emit, call))
+        let (prelude, parts) = self.resolve_args(name, init_params, args, kwargs, span, emit)?;
+        let target = format!("{CTOR_PREFIX}{}", class.id);
+        Ok(self.finish_call(emit, &prelude, parts, &target))
     }
 
     /// A stdlib member call `module.member(args)`: static arity against the table,
@@ -203,15 +237,18 @@ impl Codegen {
         Ok(self.fail(emit, call))
     }
 
-    /// A user module member call `utils.square(args)`: static arity against the
-    /// module's function table, then a direct call to its mangled wrapper.
-    /// Calling a constant, or an unknown member, is a real error.
+    /// A user module member call `utils.square(args)`: resolve against the
+    /// module's function table (with defaults, variadic, and keyword arguments),
+    /// then a direct call to its mangled wrapper. Calling a constant, or an unknown
+    /// member, is a real error.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn user_module_call(
         &self,
         module_name: &str,
         fid: u32,
         member: &str,
         args: &[Expr],
+        kwargs: &[(String, Expr)],
         span: Span,
         emit: &Emit,
     ) -> Result<String, Diagnostic> {
@@ -231,36 +268,10 @@ impl Codegen {
                 return Err(self.unknown_user_member(emit, module_name, fid, member, span));
             }
         };
-        if args.len() != params.len() {
-            let noun = if params.len() == 1 {
-                "argument"
-            } else {
-                "arguments"
-            };
-            let call_shape = if params.is_empty() {
-                format!("{module_name}.{member}()")
-            } else {
-                format!("{module_name}.{member}({})", params.join(", "))
-            };
-            return Err(self
-                .diag(
-                    span,
-                    format!(
-                        "{module_name}.{member} takes {} {noun}, got {}",
-                        params.len(),
-                        args.len()
-                    ),
-                )
-                .with_headline(ARITY_HEADLINE)
-                .with_hint(call_shape));
-        }
-        let mut parts = Vec::with_capacity(args.len() + 1);
-        for arg in args {
-            parts.push(self.expr(arg, emit)?);
-        }
-        parts.push("&mut *env".to_string());
-        let call = format!("{}({})", func_wrapper(fid, member), parts.join(", "));
-        Ok(self.fail(emit, call))
+        let label = format!("{module_name}.{member}");
+        let (prelude, parts) = self.resolve_args(&label, params, args, kwargs, span, emit)?;
+        let target = func_wrapper(fid, member);
+        Ok(self.finish_call(emit, &prelude, parts, &target))
     }
 
     pub(super) fn builtin_call(
@@ -321,31 +332,192 @@ impl Codegen {
             .with_hint(builtin.hint))
     }
 
-    /// A user function takes exactly its declared parameters; the hint echoes the
-    /// call shape doge expected.
-    pub(super) fn check_user_arity(
+    /// A positional-only arity check (for a nested function reached through the
+    /// dispatcher): the argument count must be within the header's accepted range.
+    pub(super) fn check_positional_arity(
         &self,
         name: &str,
-        params: &[String],
-        args: &[Expr],
+        params: &Params,
+        got: usize,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        if args.len() == params.len() {
-            return Ok(());
+        let too_few = got < params.required();
+        let too_many = params.max_positional().is_some_and(|max| got > max);
+        if too_few || too_many {
+            return Err(self.arity_error(name, params, got, span));
         }
-        let count = params.len();
-        let noun = if count == 1 { "argument" } else { "arguments" };
-        let hint = if params.is_empty() {
-            format!("{name}()")
+        Ok(())
+    }
+
+    /// Map a call's positional and keyword arguments onto a header's binding slots:
+    /// fill each parameter from a positional argument, a keyword argument, or its
+    /// default; collect any surplus positionals into the variadic. Returns a
+    /// `let`-binding prelude (non-empty only when keyword arguments force an
+    /// evaluation-order rewrite) and the argument expressions in binding order.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn resolve_args(
+        &self,
+        callee: &str,
+        params: &Params,
+        args: &[Expr],
+        kwargs: &[(String, Expr)],
+        span: Span,
+        emit: &Emit,
+    ) -> Result<(String, Vec<String>), Diagnostic> {
+        let n = params.params.len();
+        let has_vararg = params.has_vararg();
+
+        if !has_vararg && args.len() > n {
+            return Err(self.arity_error(callee, params, args.len() + kwargs.len(), span));
+        }
+
+        if kwargs.is_empty() {
+            if args.len() < params.required() {
+                return Err(self.arity_error(callee, params, args.len(), span));
+            }
+            let mut out = Vec::with_capacity(n + has_vararg as usize);
+            for i in 0..n {
+                if i < args.len() {
+                    out.push(self.expr(&args[i], emit)?);
+                } else {
+                    let default = params.params[i]
+                        .default
+                        .as_ref()
+                        .expect("compiler bug: unfilled required slot without an arity error");
+                    out.push(self.expr(default, emit)?);
+                }
+            }
+            if has_vararg {
+                let mut extras = Vec::new();
+                for arg in &args[n..] {
+                    extras.push(self.expr(arg, emit)?);
+                }
+                out.push(format!("Value::list(vec![{}])", extras.join(", ")));
+            }
+            return Ok((String::new(), out));
+        }
+
+        // Keyword arguments present: evaluate every provided argument (positional
+        // then keyword) into a temporary in written order, then arrange the
+        // temporaries into binding order so evaluation stays left-to-right.
+        let mut temps: Vec<String> = Vec::new();
+        let mut slot: Vec<Option<usize>> = vec![None; n];
+        let mut vararg_temps: Vec<usize> = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            let ti = temps.len();
+            temps.push(self.expr(arg, emit)?);
+            if i < n {
+                slot[i] = Some(ti);
+            } else {
+                vararg_temps.push(ti);
+            }
+        }
+        for (kname, kexpr) in kwargs {
+            let idx = match params.params.iter().position(|p| &p.name == kname) {
+                Some(idx) => idx,
+                None => {
+                    let names_vararg = params.vararg.as_deref() == Some(kname.as_str());
+                    let detail = if names_vararg {
+                        format!("{kname} is the many parameter and cannot be given by keyword")
+                    } else {
+                        format!("{callee} has no parameter {kname}")
+                    };
+                    return Err(self
+                        .diag(span, detail)
+                        .with_headline("very keyword. much unknown.")
+                        .with_hint(params.render(callee)));
+                }
+            };
+            if slot[idx].is_some() {
+                return Err(self
+                    .diag(span, format!("{callee} got parameter {kname} twice"))
+                    .with_headline("very keyword. much repeat.")
+                    .with_hint(params.render(callee)));
+            }
+            let ti = temps.len();
+            temps.push(self.expr(kexpr, emit)?);
+            slot[idx] = Some(ti);
+        }
+
+        let mut out = Vec::with_capacity(n + has_vararg as usize);
+        for (i, filled) in slot.iter().enumerate() {
+            match filled {
+                Some(ti) => out.push(format!("__a{ti}")),
+                None => match params.params[i].default.as_ref() {
+                    Some(default) => out.push(self.expr(default, emit)?),
+                    None => {
+                        return Err(self.arity_error(
+                            callee,
+                            params,
+                            args.len() + kwargs.len(),
+                            span,
+                        ))
+                    }
+                },
+            }
+        }
+        if has_vararg {
+            let items: Vec<String> = vararg_temps.iter().map(|ti| format!("__a{ti}")).collect();
+            out.push(format!("Value::list(vec![{}])", items.join(", ")));
+        }
+
+        let mut prelude = String::new();
+        for (ti, expr) in temps.iter().enumerate() {
+            prelude.push_str(&format!("let __a{ti} = {expr}; "));
+        }
+        Ok((prelude, out))
+    }
+
+    /// Assemble a direct call from resolved argument expressions: append `env`,
+    /// apply the fail suffix, and wrap in a block when a `let` prelude is present.
+    pub(super) fn finish_call(
+        &self,
+        emit: &Emit,
+        prelude: &str,
+        mut parts: Vec<String>,
+        target: &str,
+    ) -> String {
+        parts.push("&mut *env".to_string());
+        let call = self.fail(emit, format!("{target}({})", parts.join(", ")));
+        if prelude.is_empty() {
+            call
         } else {
-            format!("{name}({})", params.join(", "))
+            format!("{{ {prelude}{call} }}")
+        }
+    }
+
+    /// The arity diagnostic for a call whose count falls outside the header's
+    /// accepted range: a fixed count, a `R to X` range, or an `at least R` when a
+    /// variadic makes the upper bound unbounded. The hint echoes the call shape.
+    pub(super) fn arity_error(
+        &self,
+        callee: &str,
+        params: &Params,
+        got: usize,
+        span: Span,
+    ) -> Diagnostic {
+        let required = params.required();
+        let phrase = match params.max_positional() {
+            Some(max) if max == required => {
+                let noun = if required == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                };
+                format!("{callee} takes {required} {noun}, got {got}")
+            }
+            Some(max) => format!("{callee} takes {required} to {max} arguments, got {got}"),
+            None => {
+                let noun = if required == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                };
+                format!("{callee} takes at least {required} {noun}, got {got}")
+            }
         };
-        Err(self
-            .diag(
-                span,
-                format!("{name} takes {count} {noun}, got {}", args.len()),
-            )
+        self.diag(span, phrase)
             .with_headline(ARITY_HEADLINE)
-            .with_hint(hint))
+            .with_hint(params.render(callee))
     }
 }

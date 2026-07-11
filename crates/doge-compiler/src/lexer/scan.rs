@@ -84,8 +84,8 @@ impl Lexer {
         }
     }
 
-    /// Lex a single operator or punctuation token. Two-character operators are
-    /// checked before their one-character prefixes.
+    /// Lex a single operator or punctuation token. Longer operators are checked
+    /// before their shorter prefixes (`**=` before `**` before `*`).
     pub(super) fn lex_operator(
         &mut self,
         chars: &[char],
@@ -93,32 +93,48 @@ impl Lexer {
         i: usize,
         col: u32,
     ) -> Result<usize, Diagnostic> {
+        use crate::ast::BinOp;
+
         let c = chars[i];
         let next = chars.get(i + 1).copied();
+        let third = chars.get(i + 2).copied();
 
-        // Two-character operators first.
-        match (c, next) {
-            ('/', Some('/')) => {
-                self.push(TokenKind::SlashSlash, ln, col);
-                return Ok(i + 2);
-            }
-            ('=', Some('=')) => {
-                self.push(TokenKind::EqEq, ln, col);
-                return Ok(i + 2);
-            }
-            ('!', Some('=')) => {
-                self.push(TokenKind::NotEq, ln, col);
-                return Ok(i + 2);
-            }
-            ('<', Some('=')) => {
-                self.push(TokenKind::LtEq, ln, col);
-                return Ok(i + 2);
-            }
-            ('>', Some('=')) => {
-                self.push(TokenKind::GtEq, ln, col);
-                return Ok(i + 2);
-            }
-            _ => {}
+        // Three-character augmented assignments first.
+        let three = match (c, next, third) {
+            ('*', Some('*'), Some('=')) => Some(BinOp::Pow),
+            ('/', Some('/'), Some('=')) => Some(BinOp::FloorDiv),
+            ('<', Some('<'), Some('=')) => Some(BinOp::Shl),
+            ('>', Some('>'), Some('=')) => Some(BinOp::Shr),
+            _ => None,
+        };
+        if let Some(op) = three {
+            self.push(TokenKind::AugAssign(op), ln, col);
+            return Ok(i + 3);
+        }
+
+        // Two-character operators.
+        let two = match (c, next) {
+            ('*', Some('*')) => Some(TokenKind::StarStar),
+            ('/', Some('/')) => Some(TokenKind::SlashSlash),
+            ('<', Some('<')) => Some(TokenKind::Shl),
+            ('>', Some('>')) => Some(TokenKind::Shr),
+            ('=', Some('=')) => Some(TokenKind::EqEq),
+            ('!', Some('=')) => Some(TokenKind::NotEq),
+            ('<', Some('=')) => Some(TokenKind::LtEq),
+            ('>', Some('=')) => Some(TokenKind::GtEq),
+            ('+', Some('=')) => Some(TokenKind::AugAssign(BinOp::Add)),
+            ('-', Some('=')) => Some(TokenKind::AugAssign(BinOp::Sub)),
+            ('*', Some('=')) => Some(TokenKind::AugAssign(BinOp::Mul)),
+            ('/', Some('=')) => Some(TokenKind::AugAssign(BinOp::Div)),
+            ('%', Some('=')) => Some(TokenKind::AugAssign(BinOp::Rem)),
+            ('&', Some('=')) => Some(TokenKind::AugAssign(BinOp::BitAnd)),
+            ('|', Some('=')) => Some(TokenKind::AugAssign(BinOp::BitOr)),
+            ('^', Some('=')) => Some(TokenKind::AugAssign(BinOp::BitXor)),
+            _ => None,
+        };
+        if let Some(kind) = two {
+            self.push(kind, ln, col);
+            return Ok(i + 2);
         }
 
         let kind = match c {
@@ -127,6 +143,10 @@ impl Lexer {
             '*' => TokenKind::Star,
             '/' => TokenKind::Slash,
             '%' => TokenKind::Percent,
+            '&' => TokenKind::Amp,
+            '|' => TokenKind::Pipe,
+            '^' => TokenKind::Caret,
+            '~' => TokenKind::Tilde,
             '=' => TokenKind::Eq,
             '!' => TokenKind::Bang,
             '<' => TokenKind::Lt,

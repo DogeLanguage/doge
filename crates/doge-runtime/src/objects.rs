@@ -27,6 +27,7 @@ pub fn attr_get(obj: &Value, name: &str) -> DogeResult {
                 DogeError::attr_error(format!("{} has no field {name}", a_class(&data.class_name)))
             })
         }
+        Value::Error(e) => crate::error::error_field(e, name),
         _ => Err(DogeError::type_error(format!(
             "cannot read the field {name} of {}",
             obj.describe()
@@ -50,14 +51,12 @@ pub fn attr_set(obj: &Value, name: &str, value: Value) -> DogeResult<()> {
 }
 
 /// The class id of a method-call receiver, so the dispatcher can pick the right
-/// arm. Calling a method on a non-object is a catchable `TypeError`.
-pub fn object_class_id(recv: &Value, method: &str) -> DogeResult<u32> {
+/// arm. Calling a method on a value that has no methods is a catchable
+/// `AttrError`.
+pub fn object_class_id(recv: &Value) -> DogeResult<u32> {
     match recv {
         Value::Object(o) => Ok(o.borrow().class_id),
-        _ => Err(DogeError::type_error(format!(
-            "cannot call {method} on {}",
-            recv.describe()
-        ))),
+        _ => Err(no_methods_error(recv)),
     }
 }
 
@@ -73,20 +72,32 @@ pub fn no_such_method(recv: &Value, method: &str) -> DogeError {
                 a_class(&data.class_name)
             ))
         }
-        _ => DogeError::type_error(format!("cannot call {method} on {}", recv.describe())),
+        _ => no_methods_error(recv),
     }
 }
 
+/// The error raised when a method is called on a value whose type has no methods
+/// at all (an Int, Str, Bool, …). Single source of the wording so it reads the
+/// same whether the receiver reached here through the dispatcher or a builtin.
+pub fn no_methods_error(recv: &Value) -> DogeError {
+    DogeError::attr_error(format!("{} has no methods", recv.describe()))
+}
+
 /// The error a method call raises when the argument count is wrong, worded like
-/// the compiler's user-function arity message.
-pub fn method_arity_error(class: &str, method: &str, expected: usize, got: usize) -> DogeError {
-    let noun = if expected == 1 {
-        "argument"
-    } else {
-        "arguments"
-    };
-    DogeError::type_error(format!(
-        "{class}.{method} takes {expected} {noun}, got {got}"
+/// the compiler's user-function arity message. `max` is `None` when the method is
+/// variadic.
+pub fn method_arity_error(
+    class: &str,
+    method: &str,
+    min: usize,
+    max: Option<usize>,
+    got: usize,
+) -> DogeError {
+    DogeError::type_error(crate::functions::arity_phrase(
+        &format!("{class}.{method}"),
+        min,
+        max,
+        got,
     ))
 }
 
@@ -120,12 +131,9 @@ mod tests {
 
     #[test]
     fn class_id_reads_the_object_and_rejects_others() {
-        assert_eq!(
-            object_class_id(&Value::object(3, "Shibe"), "speak").unwrap(),
-            3
-        );
-        let err = object_class_id(&Value::Int(1), "speak").unwrap_err();
-        assert_eq!(err.kind, ErrorKind::TypeError);
+        assert_eq!(object_class_id(&Value::object(3, "Shibe")).unwrap(), 3);
+        let err = object_class_id(&Value::Int(1)).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::AttrError);
     }
 
     #[test]
@@ -136,14 +144,29 @@ mod tests {
     }
 
     #[test]
+    fn no_methods_error_names_the_type_with_its_article() {
+        let err = no_methods_error(&Value::Int(1));
+        assert_eq!(err.kind, ErrorKind::AttrError);
+        assert_eq!(err.message, "an Int has no methods");
+        assert_eq!(
+            no_methods_error(&Value::str("x")).message,
+            "a Str has no methods"
+        );
+    }
+
+    #[test]
     fn method_arity_error_matches_the_user_wording() {
         assert_eq!(
-            method_arity_error("Shibe", "init", 2, 1).message,
+            method_arity_error("Shibe", "init", 2, Some(2), 1).message,
             "Shibe.init takes 2 arguments, got 1"
         );
         assert_eq!(
-            method_arity_error("Shibe", "speak", 1, 0).message,
+            method_arity_error("Shibe", "speak", 1, Some(1), 0).message,
             "Shibe.speak takes 1 argument, got 0"
+        );
+        assert_eq!(
+            method_arity_error("Shibe", "greet", 1, None, 3).message,
+            "Shibe.greet takes at least 1 argument, got 3"
         );
     }
 }

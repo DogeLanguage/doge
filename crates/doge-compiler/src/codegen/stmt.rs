@@ -1,5 +1,12 @@
 use super::*;
 
+/// The item or field an augmented assignment writes back to, carrying the
+/// already-emitted receiver (and index) expressions.
+enum AugTarget<'a> {
+    Index { recv: &'a str, idx: &'a str },
+    Attr { recv: &'a str, field: &'a str },
+}
+
 impl Codegen {
     pub(super) fn stmt(
         &self,
@@ -14,48 +21,64 @@ impl Codegen {
             out.push_str(&format!("{pad}env.cur_file = {};\n", emit.file_id));
         }
         match stmt {
-            Stmt::Decl { name, expr, .. } | Stmt::ConstDecl { name, expr, .. } => {
+            Stmt::ConstDecl { name, expr, .. } => {
                 let value = self.expr(expr, emit)?;
                 out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
             }
-            Stmt::Assign {
-                target, expr, span, ..
-            } => match target {
-                Expr::Ident { name, .. } => {
+            Stmt::Decl {
+                names, rest, expr, ..
+            } => {
+                if names.len() == 1 && rest.is_none() {
                     let value = self.expr(expr, emit)?;
-                    self.check_writable(emit, name, *span)?;
-                    out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
-                }
-                Expr::Index { obj, index, .. } => {
-                    let call = format!(
-                        "index_set(&{}, &{}, {})",
-                        self.expr(obj, emit)?,
-                        self.expr(index, emit)?,
-                        self.expr(expr, emit)?
-                    );
-                    out.push_str(&format!("{pad}{};\n", self.fail(emit, call)));
-                }
-                Expr::Attr {
-                    obj, name, span, ..
-                } => {
-                    if let Expr::Ident { name: base, .. } = obj.as_ref() {
-                        if emit.module(base).is_some() || emit.user_module(base).is_some() {
-                            return Err(self
-                                .diag(*span, "cannot assign into a module")
-                                .with_headline("very module. much fixed.")
-                                .with_hint("a module's members are read-only"));
-                        }
+                    out.push_str(&format!(
+                        "{pad}{}\n",
+                        self.emit_bind(emit, &names[0], &value)
+                    ));
+                } else {
+                    let src = self.expr(expr, emit)?;
+                    let n = self.emit_unpack(emit, level, &src, names.len(), rest.is_some(), out);
+                    for (i, name) in names.iter().enumerate() {
+                        let value = format!("vals{n}[{i}].clone()");
+                        out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
                     }
-                    let call = format!(
-                        "attr_set(&{}, \"{}\", {})",
-                        self.expr(obj, emit)?,
-                        escape_str(name),
-                        self.expr(expr, emit)?
-                    );
-                    out.push_str(&format!("{pad}{};\n", self.fail(emit, call)));
+                    if let Some(rest) = rest {
+                        let value = format!("vals{n}[{}].clone()", names.len());
+                        out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, rest, &value)));
+                    }
                 }
-                _ => unreachable!("compiler bug: parser guarantees a valid assign target"),
-            },
+            }
+            Stmt::Assign {
+                targets,
+                rest,
+                expr,
+                op,
+                span,
+                ..
+            } => {
+                // A destructuring assignment unpacks one right-hand value across
+                // several targets; a plain or augmented assignment is single-target
+                // (the parser guarantees an augmented op carries one target and no
+                // collector).
+                if op.is_none() && (targets.len() > 1 || rest.is_some()) {
+                    let src = self.expr(expr, emit)?;
+                    let n = self.emit_unpack(emit, level, &src, targets.len(), rest.is_some(), out);
+                    for (i, target) in targets.iter().enumerate() {
+                        let value = format!("vals{n}[{i}].clone()");
+                        self.emit_store(emit, level, target, &value, *span, out)?;
+                    }
+                    if let Some(rest) = rest {
+                        let value = format!("vals{n}[{}].clone()", targets.len());
+                        self.emit_store(emit, level, rest, &value, *span, out)?;
+                    }
+                } else {
+                    let target = &targets[0];
+                    let rhs = self.expr(expr, emit)?;
+                    match op {
+                        None => self.emit_store(emit, level, target, &rhs, *span, out)?,
+                        Some(op) => self.emit_aug_assign(emit, level, target, *op, &rhs, out)?,
+                    }
+                }
+            }
             Stmt::Bark { expr, .. } => {
                 out.push_str(&format!(
                     "{pad}let _ = bark(&{});\n",
@@ -86,7 +109,11 @@ impl Codegen {
                 out.push_str(&format!("{pad}}}\n"));
             }
             Stmt::For {
-                var, iter, body, ..
+                vars,
+                rest,
+                iter,
+                body,
+                ..
             } => {
                 let iter_expr = self.expr(iter, emit)?;
                 let iter_call = self.fail(emit, format!("iter_value(&{iter_expr})"));
@@ -95,7 +122,23 @@ impl Codegen {
                 out.push_str(&format!("{pad}'l{label}: for item in {iter_call} {{\n"));
                 emit.loop_stack.push(label);
                 let inner = "    ".repeat(level + 1);
-                out.push_str(&format!("{inner}{}\n", self.emit_bind(emit, var, "item")));
+                if vars.len() == 1 && rest.is_none() {
+                    out.push_str(&format!(
+                        "{inner}{}\n",
+                        self.emit_bind(emit, &vars[0], "item")
+                    ));
+                } else {
+                    let n =
+                        self.emit_unpack(emit, level + 1, "item", vars.len(), rest.is_some(), out);
+                    for (i, var) in vars.iter().enumerate() {
+                        let value = format!("vals{n}[{i}].clone()");
+                        out.push_str(&format!("{inner}{}\n", self.emit_bind(emit, var, &value)));
+                    }
+                    if let Some(rest) = rest {
+                        let value = format!("vals{n}[{}].clone()", vars.len());
+                        out.push_str(&format!("{inner}{}\n", self.emit_bind(emit, rest, &value)));
+                    }
+                }
                 for s in body {
                     self.stmt(s, level + 1, emit, out)?;
                 }
@@ -142,9 +185,15 @@ impl Codegen {
                 out.push_str(&format!("{inner}Ok(())\n"));
                 out.push_str(&format!("{pad}}};\n"));
                 out.push_str(&format!("{pad}if let Err(e) = attempt{label} {{\n"));
+                let file_expr = if self.multifile {
+                    "FILES[env.cur_file as usize].0".to_string()
+                } else {
+                    format!("\"{}\"", escape_str(&self.files[0].path))
+                };
+                let error_value = format!("error_value(&e, {file_expr}, env.cur_line)");
                 out.push_str(&format!(
                     "{inner}{}\n",
-                    self.emit_bind(emit, err_name, "error_value(&e)")
+                    self.emit_bind(emit, err_name, &error_value)
                 ));
                 for s in handler {
                     self.stmt(s, level + 1, emit, out)?;
@@ -219,6 +268,177 @@ impl Codegen {
             }
         }
         Ok(())
+    }
+
+    /// Store an already-computed value into a plain (non-augmented) assignment
+    /// target — a name, an item `xs[0]`, or a field `x.name`. Shared by
+    /// single-target assignment and each target of a destructuring assignment.
+    fn emit_store(
+        &self,
+        emit: &mut Emit,
+        level: usize,
+        target: &Expr,
+        value: &str,
+        span: Span,
+        out: &mut String,
+    ) -> Result<(), Diagnostic> {
+        let pad = "    ".repeat(level);
+        match target {
+            Expr::Ident { name, .. } => {
+                self.check_writable(emit, name, span)?;
+                out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, value)));
+            }
+            Expr::Index { obj, index, .. } => {
+                let recv = self.expr(obj, emit)?;
+                let idx = self.expr(index, emit)?;
+                let call = format!("index_set(&{recv}, &{idx}, {value})");
+                out.push_str(&format!("{pad}{};\n", self.fail(emit, call)));
+            }
+            Expr::Attr {
+                obj,
+                name,
+                span: attr_span,
+                ..
+            } => {
+                self.reject_module_target(emit, obj, *attr_span)?;
+                let recv = self.expr(obj, emit)?;
+                let field = escape_str(name);
+                let call = format!("attr_set(&{recv}, \"{field}\", {value})");
+                out.push_str(&format!("{pad}{};\n", self.fail(emit, call)));
+            }
+            _ => unreachable!("compiler bug: parser guarantees a valid assign target"),
+        }
+        Ok(())
+    }
+
+    /// `target op= rhs` for a single target: an augmented assignment reads the
+    /// current value, combines it with `rhs`, and stores the result back.
+    fn emit_aug_assign(
+        &self,
+        emit: &mut Emit,
+        level: usize,
+        target: &Expr,
+        op: BinOp,
+        rhs: &str,
+        out: &mut String,
+    ) -> Result<(), Diagnostic> {
+        let pad = "    ".repeat(level);
+        match target {
+            Expr::Ident { name, .. } => {
+                self.check_writable(emit, name, target.span())?;
+                let cur = self.resolve_read(emit, name);
+                let value = self.fail(emit, format!("{}({cur}, {rhs})", binop_call(op)));
+                out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
+            }
+            Expr::Index { obj, index, .. } => {
+                let recv = self.expr(obj, emit)?;
+                let idx = self.expr(index, emit)?;
+                let aug = AugTarget::Index {
+                    recv: &recv,
+                    idx: &idx,
+                };
+                self.emit_aug(emit, level, aug, op, rhs, out);
+            }
+            Expr::Attr {
+                obj,
+                name,
+                span: attr_span,
+                ..
+            } => {
+                self.reject_module_target(emit, obj, *attr_span)?;
+                let recv = self.expr(obj, emit)?;
+                let field = escape_str(name);
+                let aug = AugTarget::Attr {
+                    recv: &recv,
+                    field: &field,
+                };
+                self.emit_aug(emit, level, aug, op, rhs, out);
+            }
+            _ => unreachable!("compiler bug: parser guarantees a valid assign target"),
+        }
+        Ok(())
+    }
+
+    /// A module's members are read-only, so `nerd.pi = …` (or `nerd.pi += …`) is
+    /// rejected before emitting a store.
+    fn reject_module_target(&self, emit: &Emit, obj: &Expr, span: Span) -> Result<(), Diagnostic> {
+        if let Expr::Ident { name: base, .. } = obj {
+            if emit.module(base).is_some() || emit.user_module(base).is_some() {
+                return Err(self
+                    .diag(span, "cannot assign into a module")
+                    .with_headline("very module. much fixed.")
+                    .with_hint("a module's members are read-only"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Emit the prologue of a destructuring bind: snapshot the right-hand value
+    /// into `src{n}`, then split it into `vals{n}` — a `Vec<Value>` of `fixed`
+    /// elements, plus a trailing collector List when `rest` is set. `unpack_value`
+    /// is fallible (a non-iterable value or a length mismatch), so the failure is
+    /// routed through `fail` for `pls`/`oh no` to catch. Returns the counter `n`
+    /// the caller reads each `vals{n}[i]` from.
+    fn emit_unpack(
+        &self,
+        emit: &mut Emit,
+        level: usize,
+        src: &str,
+        fixed: usize,
+        rest: bool,
+        out: &mut String,
+    ) -> u32 {
+        let pad = "    ".repeat(level);
+        let n = emit.counter;
+        emit.counter += 1;
+        out.push_str(&format!("{pad}let src{n} = {src};\n"));
+        let call = format!("unpack_value(&src{n}, {fixed}, {rest})");
+        let vals = self.fail(emit, call);
+        out.push_str(&format!("{pad}let vals{n} = {vals};\n"));
+        n
+    }
+
+    /// `target op= rhs` for an item or field target: bind the receiver (and index)
+    /// to temporaries so each is evaluated once, then read the current value,
+    /// combine it with `rhs`, and store the result back.
+    fn emit_aug(
+        &self,
+        emit: &mut Emit,
+        level: usize,
+        target: AugTarget,
+        op: BinOp,
+        rhs: &str,
+        out: &mut String,
+    ) {
+        let pad = "    ".repeat(level);
+        let inner = "    ".repeat(level + 1);
+        let n = emit.counter;
+        emit.counter += 1;
+        out.push_str(&format!("{pad}{{\n"));
+        let (get, set) = match target {
+            AugTarget::Index { recv, idx } => {
+                out.push_str(&format!("{inner}let recv{n} = {recv};\n"));
+                out.push_str(&format!("{inner}let idx{n} = {idx};\n"));
+                (
+                    format!("index_get(&recv{n}, &idx{n})"),
+                    format!("index_set(&recv{n}, &idx{n}, new{n})"),
+                )
+            }
+            AugTarget::Attr { recv, field } => {
+                out.push_str(&format!("{inner}let recv{n} = {recv};\n"));
+                (
+                    format!("attr_get(&recv{n}, \"{field}\")"),
+                    format!("attr_set(&recv{n}, \"{field}\", new{n})"),
+                )
+            }
+        };
+        let get = self.fail(emit, get);
+        let combine = self.fail(emit, format!("{}(cur{n}, {rhs})", binop_call(op)));
+        let set = self.fail(emit, set);
+        out.push_str(&format!("{inner}let cur{n} = {get};\n"));
+        out.push_str(&format!("{inner}let new{n} = {combine};\n"));
+        out.push_str(&format!("{inner}{set};\n"));
+        out.push_str(&format!("{pad}}}\n"));
     }
 
     /// A binding statement `name = value` (or the equivalent cell/env write). A

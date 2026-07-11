@@ -59,6 +59,7 @@ impl Codegen {
                 Ok(match op {
                     UnOp::Neg => self.fail(emit, format!("neg({inner})")),
                     UnOp::Not => self.fail(emit, format!("not_({inner})")),
+                    UnOp::BitNot => self.fail(emit, format!("bitnot({inner})")),
                 })
             }
             Expr::Index { obj, index, .. } => {
@@ -69,7 +70,45 @@ impl Codegen {
                 );
                 Ok(self.fail(emit, call))
             }
-            Expr::Call { callee, args, span } => self.call(callee, args, *span, emit),
+            Expr::Slice {
+                obj,
+                start,
+                end,
+                step,
+                ..
+            } => {
+                let part = |part: &Option<Box<Expr>>, emit: &Emit| match part {
+                    Some(expr) => self.expr(expr, emit),
+                    None => Ok("Value::None".to_string()),
+                };
+                let call = format!(
+                    "slice_get(&{}, &{}, &{}, &{})",
+                    self.expr(obj, emit)?,
+                    part(start, emit)?,
+                    part(end, emit)?,
+                    part(step, emit)?
+                );
+                Ok(self.fail(emit, call))
+            }
+            Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                // Only the taken branch is evaluated, so both arms live inside the
+                // `if`, mirroring the short-circuit `and`/`or` shape in `binary`.
+                let c = self.expr(cond, emit)?;
+                let t = self.expr(then, emit)?;
+                let e = self.expr(otherwise, emit)?;
+                Ok(format!("{{ if ({c}).truthy() {{ {t} }} else {{ {e} }} }}"))
+            }
+            Expr::Call {
+                callee,
+                args,
+                kwargs,
+                span,
+            } => self.call(callee, args, kwargs, *span, emit),
             Expr::Attr { obj, name, span } => {
                 // `module.member` as a value: a const inlines, a function becomes
                 // a first-class function value, an unknown member is a real error.
@@ -192,21 +231,6 @@ impl Codegen {
         }
         let l = self.expr(lhs, emit)?;
         let r = self.expr(rhs, emit)?;
-        let func = match op {
-            BinOp::Add => "add",
-            BinOp::Sub => "sub",
-            BinOp::Mul => "mul",
-            BinOp::Div => "div",
-            BinOp::FloorDiv => "floordiv",
-            BinOp::Rem => "rem",
-            BinOp::Eq => "eq",
-            BinOp::NotEq => "ne",
-            BinOp::Lt => "lt",
-            BinOp::LtEq => "le",
-            BinOp::Gt => "gt",
-            BinOp::GtEq => "ge",
-            BinOp::And | BinOp::Or => unreachable!("handled above"),
-        };
-        Ok(self.fail(emit, format!("{func}({l}, {r})")))
+        Ok(self.fail(emit, format!("{}({l}, {r})", binop_call(op))))
     }
 }

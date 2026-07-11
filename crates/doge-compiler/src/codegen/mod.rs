@@ -5,7 +5,9 @@
 pub(super) use std::cell::{Cell, RefCell};
 pub(super) use std::collections::{HashMap, HashSet};
 
-pub(super) use crate::ast::{hoisted_names, toplevel_hoisted, BinOp, Expr, InterpPart, Stmt, UnOp};
+pub(super) use crate::ast::{
+    hoisted_names, toplevel_hoisted, BinOp, Expr, InterpPart, Params, Stmt, UnOp,
+};
 pub(super) use crate::builtins::{BuiltinFn, BuiltinShape};
 pub(super) use crate::diagnostics::Diagnostic;
 pub(super) use crate::modules::Program;
@@ -53,6 +55,37 @@ struct FileText {
     lines: Vec<String>,
 }
 
+/// The `doge-runtime` function that implements a binary operator, shared by the
+/// `Binary` expression and augmented-assignment codegen so the mapping lives in
+/// one place. The short-circuit `and`/`or` are emitted inline, never as a call.
+pub(super) fn binop_call(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Add => "add",
+        BinOp::Sub => "sub",
+        BinOp::Mul => "mul",
+        BinOp::Div => "div",
+        BinOp::FloorDiv => "floordiv",
+        BinOp::Rem => "rem",
+        BinOp::Pow => "pow",
+        BinOp::BitAnd => "bitand",
+        BinOp::BitOr => "bitor",
+        BinOp::BitXor => "bitxor",
+        BinOp::Shl => "shl",
+        BinOp::Shr => "shr",
+        BinOp::Eq => "eq",
+        BinOp::NotEq => "ne",
+        BinOp::Lt => "lt",
+        BinOp::LtEq => "le",
+        BinOp::Gt => "gt",
+        BinOp::GtEq => "ge",
+        BinOp::In => "in_",
+        BinOp::NotIn => "not_in",
+        BinOp::And | BinOp::Or => {
+            unreachable!("compiler bug: and/or are emitted inline, not as a call")
+        }
+    }
+}
+
 struct Codegen {
     /// One entry per file, indexed by `file_id`. `files[0]` is the entry.
     files: Vec<FileText>,
@@ -64,24 +97,31 @@ struct Codegen {
     cur: Cell<u32>,
 }
 
+/// An empty parameter header, for a class whose `init` is absent (it constructs
+/// from zero arguments).
+static EMPTY_PARAMS: Params = Params {
+    params: Vec::new(),
+    vararg: None,
+};
+
 /// A top-level `many Name:` object definition. `id` is its source-order index —
 /// the class tag stored on every instance and matched by the dispatcher.
 struct Class {
     name: String,
     id: u32,
     /// Each method as `(name, params)`; `params` excludes the implicit `self`.
-    methods: Vec<(String, Vec<String>)>,
+    methods: Vec<(String, Params)>,
 }
 
 impl Class {
-    /// The parameters of this class's `init`, or an empty slice when it has none
+    /// The parameters of this class's `init`, or an empty header when it has none
     /// (a class without `init` constructs from zero arguments).
-    fn init_params(&self) -> &[String] {
+    fn init_params(&self) -> &Params {
         self.methods
             .iter()
             .find(|(name, _)| name == "init")
-            .map(|(_, params)| params.as_slice())
-            .unwrap_or(&[])
+            .map(|(_, params)| params)
+            .unwrap_or(&EMPTY_PARAMS)
     }
 }
 
@@ -108,9 +148,9 @@ struct Emit<'a> {
     /// Names local to the code being emitted → how they are stored. Empty while
     /// emitting `run`, where every bound name is an `Env` field.
     locals: HashMap<String, Local>,
-    /// Nested-function names in scope → their parameter names, for compile-time
-    /// arity checks on direct calls. Reset per callable.
-    local_funcs: HashMap<String, Vec<String>>,
+    /// Nested-function names in scope → their declared parameters, for
+    /// compile-time arity checks on direct calls. Reset per callable.
+    local_funcs: HashMap<String, Params>,
     /// Monotonic per-file counter naming `'pN` try labels, `attemptN` binders,
     /// and `'lN` loop labels.
     counter: u32,

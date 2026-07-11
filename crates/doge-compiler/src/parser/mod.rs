@@ -1,4 +1,4 @@
-pub(super) use crate::ast::{BinOp, Expr, InterpPart, Script, Stmt, UnOp};
+pub(super) use crate::ast::{BinOp, Expr, InterpPart, Param, Params, Script, Stmt, UnOp};
 pub(super) use crate::diagnostics::Diagnostic;
 use crate::lexer;
 pub(super) use crate::token::{Span, StrSegment, Token, TokenKind};
@@ -48,6 +48,13 @@ impl Parser {
     fn peek(&self) -> &TokenKind {
         // The lexer always terminates the stream with Eof, so this is in range.
         &self.tokens[self.pos].kind
+    }
+
+    /// The token one past the cursor, used for the two-token `not in` operator.
+    /// Past the end (Eof is the last token) this reports Eof.
+    fn peek_next(&self) -> &TokenKind {
+        let next = (self.pos + 1).min(self.tokens.len() - 1);
+        &self.tokens[next].kind
     }
 
     fn current_span(&self) -> Span {

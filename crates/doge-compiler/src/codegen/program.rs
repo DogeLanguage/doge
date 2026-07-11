@@ -33,8 +33,14 @@ impl Codegen {
         self.emit_objects(program, &classes, &mut emit, &mut funcs_src)?;
         self.emit_closures(&analysis, &mut emit, &mut funcs_src)?;
 
-        let dispatcher = self.dispatcher(&classes, emit.uses_method_call.get());
-        let fn_dispatcher = self.function_dispatcher(&emit);
+        // Dispatcher arms emit parameter defaults, which are self-contained
+        // literals: clear any leftover try/loop context so a fallible default
+        // (a dict literal) propagates with `?` rather than a stray break label.
+        self.enter_file(&mut emit, 0);
+        emit.try_stack.clear();
+        emit.loop_stack.clear();
+        let dispatcher = self.dispatcher(&classes, emit.uses_method_call.get(), &emit)?;
+        let fn_dispatcher = self.function_dispatcher(&emit)?;
 
         let mut out = String::new();
         out.push_str("#![allow(warnings)]\n");

@@ -11,9 +11,20 @@ impl Checker {
 
     pub(super) fn check_stmt(&mut self, stmt: &Stmt, ctx: &mut Ctx) -> Result<(), Diagnostic> {
         match stmt {
-            Stmt::Decl { name, expr, .. } => {
+            Stmt::Decl {
+                names,
+                rest,
+                expr,
+                span,
+            } => {
                 self.check_expr(expr, ctx)?;
-                ctx.locals.insert(name.clone());
+                self.check_distinct_targets(names, rest.as_deref(), *span)?;
+                for name in names {
+                    ctx.locals.insert(name.clone());
+                }
+                if let Some(rest) = rest {
+                    ctx.locals.insert(rest.clone());
+                }
             }
             Stmt::ConstDecl { name, expr, .. } => {
                 self.check_expr(expr, ctx)?;
@@ -24,10 +35,19 @@ impl Checker {
                 ctx.locals.insert(module.clone());
             }
             Stmt::Assign {
-                target, expr, span, ..
+                targets,
+                rest,
+                expr,
+                span,
+                ..
             } => {
                 self.check_expr(expr, ctx)?;
-                self.check_assign_target(target, ctx, *span)?;
+                for target in targets {
+                    self.check_assign_target(target, ctx, *span)?;
+                }
+                if let Some(rest) = rest {
+                    self.check_assign_target(rest, ctx, *span)?;
+                }
             }
             Stmt::Bark { expr, .. } => self.check_expr(expr, ctx)?,
             Stmt::If {
@@ -44,10 +64,20 @@ impl Checker {
                 }
             }
             Stmt::For {
-                var, iter, body, ..
+                vars,
+                rest,
+                iter,
+                body,
+                span,
             } => {
                 self.check_expr(iter, ctx)?;
-                ctx.locals.insert(var.clone());
+                self.check_distinct_targets(vars, rest.as_deref(), *span)?;
+                for var in vars {
+                    ctx.locals.insert(var.clone());
+                }
+                if let Some(rest) = rest {
+                    ctx.locals.insert(rest.clone());
+                }
                 ctx.loop_depth += 1;
                 let result = self.check_stmts(body, ctx);
                 ctx.loop_depth -= 1;
@@ -182,18 +212,20 @@ impl Checker {
     /// it defines — the last so siblings can call each other regardless of order.
     pub(super) fn check_function(
         &mut self,
-        params: &[String],
+        params: &Params,
         body: &[Stmt],
         is_method: bool,
         enclosing: &HashSet<String>,
     ) -> Result<(), Diagnostic> {
-        self.check_scope_collisions(params, body)?;
+        self.check_duplicate_params(params)?;
+        let binding = params.binding_names();
+        self.check_scope_collisions(&binding, body)?;
 
         let mut locals = enclosing.clone();
         if is_method {
             locals.insert("self".to_string());
         }
-        for param in params {
+        for param in &binding {
             locals.insert(param.clone());
         }
         for name in nested_func_names(body) {
@@ -205,6 +237,32 @@ impl Checker {
             loop_depth: 0,
         };
         self.check_stmts(body, &mut ctx)
+    }
+
+    /// Every parameter name in a header is distinct — including the trailing
+    /// `many rest`. A repeat would silently shadow the earlier binding.
+    pub(super) fn check_duplicate_params(&self, params: &Params) -> Result<(), Diagnostic> {
+        let mut seen: HashSet<&str> = HashSet::new();
+        for param in &params.params {
+            if !seen.insert(param.name.as_str()) {
+                return Err(self.name_clash(
+                    param.span,
+                    format!("parameter {} is named twice", param.name),
+                ));
+            }
+        }
+        if let Some(rest) = &params.vararg {
+            // A duplicate variadic name implies at least one earlier parameter, so
+            // there is always a span to anchor the diagnostic to.
+            if let Some(last) = params.params.last() {
+                if seen.contains(rest.as_str()) {
+                    return Err(
+                        self.name_clash(last.span, format!("parameter {rest} is named twice"))
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     /// A nested-function name is a fixed binding: it may not repeat, clash with a
@@ -260,6 +318,24 @@ impl Checker {
         }
     }
 
+    /// Every binding name in one destructuring `such`/`for` header is distinct —
+    /// including the trailing `many` collector. A repeat like `such a, a = …`
+    /// would silently overwrite the first binding.
+    pub(super) fn check_distinct_targets(
+        &self,
+        names: &[String],
+        rest: Option<&str>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let mut seen: HashSet<&str> = HashSet::new();
+        for name in names.iter().map(String::as_str).chain(rest) {
+            if !seen.insert(name) {
+                return Err(self.name_clash(span, format!("{name} is named twice")));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn check_expr(&self, expr: &Expr, ctx: &Ctx) -> Result<(), Diagnostic> {
         match expr {
             Expr::Int { .. }
@@ -295,16 +371,47 @@ impl Checker {
                 self.check_expr(rhs, ctx)
             }
             Expr::Unary { operand, .. } => self.check_expr(operand, ctx),
-            Expr::Call { callee, args, .. } => {
+            Expr::Call {
+                callee,
+                args,
+                kwargs,
+                ..
+            } => {
                 self.check_expr(callee, ctx)?;
                 for arg in args {
                     self.check_expr(arg, ctx)?;
+                }
+                for (_, value) in kwargs {
+                    self.check_expr(value, ctx)?;
                 }
                 Ok(())
             }
             Expr::Index { obj, index, .. } => {
                 self.check_expr(obj, ctx)?;
                 self.check_expr(index, ctx)
+            }
+            Expr::Slice {
+                obj,
+                start,
+                end,
+                step,
+                ..
+            } => {
+                self.check_expr(obj, ctx)?;
+                for part in [start, end, step].into_iter().flatten() {
+                    self.check_expr(part, ctx)?;
+                }
+                Ok(())
+            }
+            Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                self.check_expr(cond, ctx)?;
+                self.check_expr(then, ctx)?;
+                self.check_expr(otherwise, ctx)
             }
             // Attribute names are dynamic — only the object is a name to resolve.
             Expr::Attr { obj, .. } => self.check_expr(obj, ctx),
