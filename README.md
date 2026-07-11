@@ -2,8 +2,6 @@
   <img src="brand/assets/doge-banner.svg" alt="doge, such language, much wow" width="720">
 </p>
 
-## Why doge?
-
 Doge is a scripting language with the ease of Python and the engine of Rust underneath. Rust's skill floor — ownership, lifetimes, the borrow checker — is too high for casual scripting, while Python proved that a clear, low-ceremony language is what most people reach for. Doge aims to be that language:
 
 - **Rust underneath** — reference counting, no GC, no `unsafe`.

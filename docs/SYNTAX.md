@@ -274,9 +274,44 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available modules (`nerd`, `strings`, `lists`) are documented in
+The available built-in modules (`nerd`, `strings`, `lists`) are documented in
 [STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
-Importing other `.doge` files is a later milestone.
+
+### Importing other `.doge` files
+
+`so <name>` first checks the built-in modules; if none matches, it loads the
+user module `<name>.doge` from the same directory as the importing file. The
+same member syntax applies — `utils.square(6)`, `utils.ANSWER` — and a module
+function can be taken as a first-class value (`such f = utils.square`).
+
+```doge
+# utils.doge — a module defines things only
+so ANSWER = 42
+
+such square much x:
+    return x * x
+wow
+wow
+
+# main.doge
+so utils
+
+bark utils.square(6)   # 36
+bark utils.ANSWER      # 42
+wow
+```
+
+A module file may contain **only** definitions — functions, constants (`so X =`),
+and its own imports. A loose top-level statement (a `bark`, a loop, a bare
+expression) is a compile error: importing a module never runs its code, it only
+makes its definitions available. A module's constants are evaluated once, at
+program start, in dependency order (a module before anything that imports it).
+
+A module may import other user modules (and the built-in modules). A circular
+import — two files that import each other — is a compile error naming the cycle.
+A user file whose name collides with a built-in module (`nerd.doge`) is a compile
+error, since the built-in always wins. Objects (`many`) in a module are not yet
+importable and land in a later milestone.
 
 ## 10. Complete example
 

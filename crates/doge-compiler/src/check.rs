@@ -2,10 +2,86 @@ use std::collections::HashSet;
 
 use crate::ast::{Expr, Script, Stmt};
 use crate::diagnostics::Diagnostic;
+use crate::modules::Program;
 use crate::token::Span;
 
 /// Builtins always available without an import (mirrors `doge-runtime`).
 pub(crate) const BUILTINS: &[&str] = &["len", "str", "int", "float", "range"];
+
+/// Check every file in a program. Each file is checked in its own scope (a
+/// module's functions see only that module's names), and a non-entry module gets
+/// the extra "defines things only" rule on top.
+pub fn check_program(program: &Program) -> Result<(), Diagnostic> {
+    for file in &program.files {
+        check(&file.path, &file.source, &file.script)?;
+        if !file.is_entry {
+            check_module_defs_only(&file.path, &file.source, &file.script)?;
+        }
+    }
+    Ok(())
+}
+
+/// A module file may only *define* things — functions, constants, and imports.
+/// A loose statement would have to run at import time, which doge modules never
+/// do; an object definition in a module lands in a later milestone.
+fn check_module_defs_only(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
+    let lines: Vec<String> = source
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
+        .collect();
+    let make = |span: Span, message: String| {
+        let source_line = lines
+            .get((span.line as usize).saturating_sub(1))
+            .cloned()
+            .unwrap_or_default();
+        Diagnostic::new(path, span.line, span.col, source_line, message)
+    };
+
+    for stmt in &script.stmts {
+        match stmt {
+            Stmt::FuncDef { .. } | Stmt::ConstDecl { .. } | Stmt::Import { .. } => {}
+            Stmt::ObjDef { name, span, .. } => {
+                return Err(make(
+                    *span,
+                    format!("objects in a module land in a later milestone: {name}"),
+                )
+                .with_headline("very object. much soon.")
+                .with_hint(format!("define {name} in your main script for now")));
+            }
+            other => {
+                return Err(make(
+                    stmt_span(other),
+                    "a module only defines things — this statement would have to run".to_string(),
+                )
+                .with_headline("very loose. much module.")
+                .with_hint("wrap it in a such …: function, or move it to your main script"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The span a statement points at, for module-level diagnostics.
+fn stmt_span(stmt: &Stmt) -> Span {
+    match stmt {
+        Stmt::Decl { span, .. }
+        | Stmt::ConstDecl { span, .. }
+        | Stmt::Import { span, .. }
+        | Stmt::Assign { span, .. }
+        | Stmt::Bark { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::For { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::FuncDef { span, .. }
+        | Stmt::ObjDef { span, .. }
+        | Stmt::Try { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::Bonk { span, .. }
+        | Stmt::Bork { span }
+        | Stmt::Continue { span } => *span,
+        Stmt::ExprStmt { expr } => expr.span(),
+    }
+}
 
 /// Run every semantic check over `script`. `path`/`source` are only used to
 /// render diagnostics against the original text.

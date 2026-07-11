@@ -5,10 +5,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{BinOp, Expr, Script, Stmt, UnOp};
+use crate::ast::{BinOp, Expr, Stmt, UnOp};
 use crate::check::BUILTINS;
 use crate::diagnostics::Diagnostic;
-use crate::stdlib::{self, Module};
+use crate::modules::{Program, ProgramFile};
+use crate::stdlib::Module;
 use crate::token::Span;
 
 const UNSUPPORTED_HEADLINE: &str = "very soon. much roadmap.";
@@ -36,24 +37,78 @@ const METHOD_PREFIX: &str = "mf_";
 /// Prefix on a method's body (`mb_0_speak`).
 const METHOD_BODY_PREFIX: &str = "mb_";
 
-/// Turn a checked [`Script`] into a complete Rust source file, or a diagnostic
-/// pointing at the first feature M4 cannot run yet. `path`/`source` are used to
-/// render those diagnostics and to embed the script path in the uncaught-error
-/// message.
-pub fn generate(path: &str, source: &str, script: &Script) -> Result<String, Diagnostic> {
+/// Turn a checked [`Program`] into a complete Rust source file, or a diagnostic
+/// pointing at the first feature the current milestone cannot run yet. A
+/// single-file program keeps the exact output shape it always had; a program
+/// with modules threads a per-file source table for cross-file error locations.
+pub fn generate_program(program: &Program) -> Result<String, Diagnostic> {
+    let files = program
+        .files
+        .iter()
+        .map(|f| FileText {
+            path: f.path.clone(),
+            lines: f
+                .source
+                .split('\n')
+                .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
+                .collect(),
+        })
+        .collect();
     let codegen = Codegen {
-        path: path.to_string(),
-        lines: source
-            .split('\n')
-            .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-            .collect(),
+        files,
+        multifile: program.files.len() > 1,
+        cur: Cell::new(0),
     };
-    codegen.file(script)
+    codegen.program(program)
+}
+
+/// The path and source lines of one program file, indexed by `file_id`.
+struct FileText {
+    path: String,
+    lines: Vec<String>,
 }
 
 struct Codegen {
-    path: String,
-    lines: Vec<String>,
+    /// One entry per file, indexed by `file_id`. `files[0]` is the entry.
+    files: Vec<FileText>,
+    /// True when the program has more than one file, so error reporting must
+    /// carry the file id at runtime (a single-file program keeps its old shape).
+    multifile: bool,
+    /// The file whose text `diag`/`self.path()`/`self.line()` currently render
+    /// against — set alongside `Emit::file_id` whenever emission switches files.
+    cur: Cell<u32>,
+}
+
+/// The name-mangling that keeps every file's top-level names in one flat Rust
+/// namespace. The entry (file 0) keeps the original unsuffixed scheme, so
+/// single-file output is byte-identical; a module (file N) carries its id right
+/// after the prefix. A digit can't start a doge identifier, so `f1_x` can never
+/// collide with the entry's `f_` pair for a user name.
+fn func_wrapper(file_id: u32, name: &str) -> String {
+    if file_id == 0 {
+        format!("{FUNC_PREFIX}{name}")
+    } else {
+        format!("{FUNC_PREFIX}{file_id}_{name}")
+    }
+}
+
+fn func_body(file_id: u32, name: &str) -> String {
+    if file_id == 0 {
+        format!("{FUNC_BODY_PREFIX}{name}")
+    } else {
+        format!("{FUNC_BODY_PREFIX}{file_id}_{name}")
+    }
+}
+
+/// The `Env` field name backing a file's top-level binding: the entry's are
+/// `v_<name>` (same as a local, since the entry has no name-mangling), a
+/// module's constants are `g<id>_<name>`.
+fn field_name(file_id: u32, name: &str) -> String {
+    if file_id == 0 {
+        format!("{NAME_PREFIX}{name}")
+    } else {
+        format!("g{file_id}_{name}")
+    }
 }
 
 /// A top-level `many Name:` object definition. `id` is its source-order index —
@@ -77,15 +132,30 @@ impl Class {
     }
 }
 
+/// A file's top-level names, gathered once so any file's code can resolve calls,
+/// constants, and members into another file. Indexed program-wide by `file_id`.
+struct FileTable {
+    /// Top-level function name → its parameter names.
+    funcs: HashMap<String, Vec<String>>,
+    /// Top-level constant names.
+    consts: HashSet<String>,
+    /// Public member names (functions then constants) in source order, for hints.
+    members: Vec<String>,
+    /// This file's imports: local name → stdlib table entry.
+    stdlib_imports: HashMap<String, &'static Module>,
+    /// This file's imports: local name → target file id.
+    user_imports: HashMap<String, u32>,
+}
+
 /// The mutable state threaded through one function's (or `run`'s) emission.
 struct Emit<'a> {
-    /// Every top-level function name → its parameter names (for call resolution
-    /// and arity checks).
-    funcs: &'a HashMap<String, Vec<String>>,
-    /// Every top-level object definition, in source order.
+    /// Every file's top-level names, indexed by `file_id`.
+    tables: &'a [FileTable],
+    /// The file whose code is currently being emitted — selects name-mangling
+    /// and which table resolves bare names, calls, and imports.
+    file_id: u32,
+    /// Every top-level object definition, in source order (entry only).
     classes: &'a [Class],
-    /// Every imported module name → its table entry.
-    modules: &'a HashMap<String, &'static Module>,
     /// The whole-script function analysis: capture info and value ids.
     analysis: &'a Analysis,
     /// Set once any method-call site is compiled, so the dispatcher is emitted
@@ -114,28 +184,43 @@ struct Emit<'a> {
 }
 
 impl Emit<'_> {
+    /// The current file's table.
+    fn table(&self) -> &FileTable {
+        &self.tables[self.file_id as usize]
+    }
+
     /// The class named `name`, if one is defined.
     fn class(&self, name: &str) -> Option<&Class> {
         self.classes.iter().find(|c| c.name == name)
     }
 
-    /// The imported module named `name`, if one is in scope — but a local of the
-    /// same name shadows it (locals always win at a use site).
+    /// The stdlib module imported as `name` in the current file, if any — but a
+    /// local of the same name shadows it (locals always win at a use site).
     fn module(&self, name: &str) -> Option<&'static Module> {
         if self.locals.contains_key(name) {
             None
         } else {
-            self.modules.get(name).copied()
+            self.table().stdlib_imports.get(name).copied()
+        }
+    }
+
+    /// The user module imported as `name` in the current file (its `file_id`), if
+    /// any — again shadowed by a local of the same name.
+    fn user_module(&self, name: &str) -> Option<u32> {
+        if self.locals.contains_key(name) {
+            None
+        } else {
+            self.table().user_imports.get(name).copied()
         }
     }
 
     /// The dispatcher id for a bare function name used as a value: a top-level
-    /// function, or a builtin. Nested functions are ordinary cell locals, so they
-    /// are not handled here.
+    /// function of the current file, or a builtin. Nested functions are ordinary
+    /// cell locals, so they are not handled here.
     fn func_value_id(&self, name: &str) -> Option<u32> {
         self.analysis
             .top_func_ids
-            .get(name)
+            .get(&(self.file_id, name.to_string()))
             .copied()
             .or_else(|| self.analysis.builtin_ids.get(name).copied())
     }
@@ -178,8 +263,11 @@ enum FnKind {
     Method,
 }
 
-/// The capture/cell analysis for one function definition, keyed by its span.
+/// The capture/cell analysis for one function definition, keyed by `(file_id,
+/// span)` (a span alone is not unique across files).
 struct FnInfo {
+    /// The file this function is defined in — selects name-mangling and scope.
+    file_id: u32,
     /// The dispatcher id, for functions that can become first-class values
     /// (top-level functions and closures). `None` for methods.
     fn_id: Option<u32>,
@@ -208,8 +296,13 @@ struct FnInfoView {
 
 /// One arm of the generated `call_function` dispatcher, indexed by `fn_id`.
 enum ArmSpec {
-    /// A top-level function: call its recursion-guarded `f_` wrapper.
-    TopFunc { name: String, arity: usize },
+    /// A top-level function: call its recursion-guarded wrapper (mangled by the
+    /// defining file's id).
+    TopFunc {
+        file_id: u32,
+        name: String,
+        arity: usize,
+    },
     /// A closure: call its `c_` wrapper, threading the captured cells first.
     Closure {
         name: String,
@@ -230,47 +323,31 @@ enum ArmSpec {
 /// The whole-script function analysis: per-definition capture info, the
 /// dispatcher registry, and the name→id lookups for value construction.
 struct Analysis {
-    fn_info: HashMap<Span, FnInfo>,
+    fn_info: HashMap<(u32, Span), FnInfo>,
     registry: Vec<ArmSpec>,
-    top_func_ids: HashMap<String, u32>,
+    top_func_ids: HashMap<(u32, String), u32>,
     builtin_ids: HashMap<&'static str, u32>,
     module_fn_ids: HashMap<(String, String), u32>,
 }
 
 impl Codegen {
-    fn file(&self, script: &Script) -> Result<String, Diagnostic> {
-        // Pre-pass: every top-level function's signature, so a call can resolve
-        // (and check its arity) before or after the definition line.
-        let mut funcs: HashMap<String, Vec<String>> = HashMap::new();
-        for stmt in &script.stmts {
-            if let Stmt::FuncDef { name, params, .. } = stmt {
-                funcs.insert(name.clone(), params.clone());
-            }
-        }
+    /// Move emission to `file_id`: switch the file `diag`/error-reporting renders
+    /// against, and the file whose scope/name-mangling `emit` uses.
+    fn enter_file(&self, emit: &mut Emit, file_id: u32) {
+        self.cur.set(file_id);
+        emit.file_id = file_id;
+    }
 
-        // Pre-pass: every imported module, resolved against the table. An unknown
-        // module is a real compile error (with a nudge from `math` to `nerd`).
-        // `import_order` keeps source order so module function ids stay stable.
-        let mut modules: HashMap<String, &'static Module> = HashMap::new();
-        let mut import_order: Vec<(String, &'static Module)> = Vec::new();
-        for stmt in &script.stmts {
-            if let Stmt::Import { module, span } = stmt {
-                match stdlib::module(module) {
-                    Some(m) => {
-                        modules.insert(module.clone(), m);
-                        import_order.push((module.clone(), m));
-                    }
-                    None => return Err(self.unknown_module(module, *span)),
-                }
-            }
-        }
+    fn program(&self, program: &Program) -> Result<String, Diagnostic> {
+        let tables: Vec<FileTable> = program.files.iter().map(file_table).collect();
 
-        let analysis = analyze_script(script, &import_order);
+        let analysis = analyze_program(program);
 
-        // Pre-pass: every object definition, in source order — the index is the
-        // class id stamped on each instance.
+        // Objects are entry-only (a module with an object is a check error), so
+        // the class list comes from the entry alone; its index is the class id.
+        let entry = &program.files[0];
         let mut classes: Vec<Class> = Vec::new();
-        for stmt in &script.stmts {
+        for stmt in &entry.script.stmts {
             if let Stmt::ObjDef { name, methods, .. } = stmt {
                 let methods = methods
                     .iter()
@@ -287,15 +364,26 @@ impl Codegen {
             }
         }
 
-        // The `Env` holds the line tracker, the recursion depth, and every
-        // top-level bound name — so a function can read and reassign them. A
-        // direct top-level definition is a static function, not a field.
-        let env_fields = toplevel_hoisted(&script.stmts);
+        // The `Env` holds the line tracker, the recursion depth, and every file's
+        // top-level bound names: the entry's `v_` fields, then each module's `g_`
+        // constant fields. A direct top-level function/object is a static
+        // definition, not a field.
+        let mut env_fields: Vec<String> = toplevel_hoisted(&entry.script.stmts)
+            .iter()
+            .map(|name| field_name(0, name))
+            .collect();
+        for file in &program.files[1..] {
+            for name in &tables[file.file_id as usize].members {
+                if tables[file.file_id as usize].consts.contains(name) {
+                    env_fields.push(field_name(file.file_id, name));
+                }
+            }
+        }
 
         let mut emit = Emit {
-            funcs: &funcs,
+            tables: &tables,
+            file_id: 0,
             classes: &classes,
-            modules: &modules,
             analysis: &analysis,
             uses_method_call: Cell::new(false),
             uses_call_function: Cell::new(false),
@@ -307,11 +395,20 @@ impl Codegen {
             loop_stack: Vec::new(),
         };
 
-        // `run` holds the top-level statements; a top-level function, object, or
-        // import emits nothing here — objects become method/constructor helpers
-        // below, and imports only wire member calls.
+        // `run` first initializes every module's constants in dependency order
+        // (so a module referencing another's constant sees it ready), then runs
+        // the entry's own top-level statements.
         let mut run_body = String::new();
-        for stmt in &script.stmts {
+        for &fid in &program.init_order {
+            self.enter_file(&mut emit, fid);
+            for stmt in &program.files[fid as usize].script.stmts {
+                if matches!(stmt, Stmt::ConstDecl { .. }) {
+                    self.stmt(stmt, 1, &mut emit, &mut run_body)?;
+                }
+            }
+        }
+        self.enter_file(&mut emit, 0);
+        for stmt in &entry.script.stmts {
             if matches!(
                 stmt,
                 Stmt::FuncDef { .. } | Stmt::ObjDef { .. } | Stmt::Import { .. }
@@ -321,17 +418,23 @@ impl Codegen {
             self.stmt(stmt, 1, &mut emit, &mut run_body)?;
         }
 
+        // Every file's top-level functions, mangled by file id.
         let mut funcs_src = String::new();
-        for stmt in &script.stmts {
-            if let Stmt::FuncDef { span, .. } = stmt {
-                self.function(*span, &mut emit, &mut funcs_src)?;
+        for file in &program.files {
+            self.enter_file(&mut emit, file.file_id);
+            for stmt in &file.script.stmts {
+                if let Stmt::FuncDef { span, .. } = stmt {
+                    self.function(*span, &mut emit, &mut funcs_src)?;
+                }
             }
         }
 
-        // Each object contributes a constructor plus a wrapper/body pair per
-        // method; the source is looked up from the ObjDef, keyed by class id.
+        // Each entry object contributes a constructor plus a wrapper/body pair
+        // per method; the source is looked up from the ObjDef, keyed by class id.
+        self.enter_file(&mut emit, 0);
         for (class, stmt) in classes.iter().zip(
-            script
+            entry
+                .script
                 .stmts
                 .iter()
                 .filter(|s| matches!(s, Stmt::ObjDef { .. })),
@@ -347,8 +450,8 @@ impl Codegen {
             }
         }
 
-        // Every closure — nested functions, at any depth — is emitted as a
-        // `c_`/`cb_` pair. Ordered by id for stable output.
+        // Every closure — nested functions, at any depth, in any file — is
+        // emitted as a `c_`/`cb_` pair. Ordered by id for stable output.
         let mut closures: Vec<&FnInfo> = analysis
             .fn_info
             .values()
@@ -356,6 +459,7 @@ impl Codegen {
             .collect();
         closures.sort_by_key(|info| info.fn_id);
         for info in closures {
+            self.enter_file(&mut emit, info.file_id);
             self.closure(info, &mut emit, &mut funcs_src)?;
         }
 
@@ -365,47 +469,8 @@ impl Codegen {
         let mut out = String::new();
         out.push_str("#![allow(warnings)]\n");
         out.push_str("use doge_runtime::*;\n\n");
-
-        // The script's source lines, embedded so an uncaught error can show the
-        // offending line without any Rust backtrace. Blanks are kept, so the
-        // 1-based line number indexes straight in.
-        out.push_str("static LINES: &[&str] = &[\n");
-        for line in &self.lines {
-            out.push_str(&format!("    \"{}\",\n", escape_str(line)));
-        }
-        out.push_str("];\n\n");
-
-        out.push_str("struct Env {\n");
-        out.push_str("    cur_line: u32,\n");
-        out.push_str("    depth: usize,\n");
-        for name in &env_fields {
-            out.push_str(&format!("    {NAME_PREFIX}{name}: Value,\n"));
-        }
-        out.push_str("}\n\n");
-
-        out.push_str("fn main() -> std::process::ExitCode {\n");
-        out.push_str("    let mut env = Env {\n");
-        out.push_str("        cur_line: 0,\n");
-        out.push_str("        depth: 0,\n");
-        for name in &env_fields {
-            out.push_str(&format!("        {NAME_PREFIX}{name}: Value::None,\n"));
-        }
-        out.push_str("    };\n");
-        out.push_str("    match run(&mut env) {\n");
-        out.push_str("        Ok(()) => std::process::ExitCode::SUCCESS,\n");
-        out.push_str("        Err(e) => {\n");
-        out.push_str(
-            "            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");\n",
-        );
-        out.push_str(&format!(
-            "            eprintln!(\"{}\\n\\n  {}:{{}}\\n    {{line}}\\n  {{e}}\", env.cur_line);\n",
-            RUNTIME_ERROR_HEADLINE,
-            escape_str(&self.path)
-        ));
-        out.push_str("            std::process::ExitCode::FAILURE\n");
-        out.push_str("        }\n");
-        out.push_str("    }\n");
-        out.push_str("}\n\n");
+        self.emit_source_tables(&mut out);
+        self.emit_env_and_main(&env_fields, &mut out);
 
         out.push_str("fn run(env: &mut Env) -> DogeResult<()> {\n");
         out.push_str(&run_body);
@@ -418,24 +483,92 @@ impl Codegen {
         Ok(out)
     }
 
-    /// The "doge has no module named X" diagnostic, nudging `math` toward `nerd`.
-    fn unknown_module(&self, name: &str, span: Span) -> Diagnostic {
-        let hint = if name == "math" {
-            "much math? such nerd — write so nerd".to_string()
-        } else {
-            format!("modules: {}", stdlib::module_names())
-        };
-        self.diag(span, format!("doge has no module named {name}"))
-            .with_headline("very import. much unknown.")
-            .with_hint(hint)
+    /// The embedded source lines an uncaught error shows without any Rust
+    /// backtrace. A single-file program keeps its `LINES` table verbatim; a
+    /// multi-file program emits one table per file plus a `FILES` index.
+    fn emit_source_tables(&self, out: &mut String) {
+        if !self.multifile {
+            out.push_str("static LINES: &[&str] = &[\n");
+            for line in &self.files[0].lines {
+                out.push_str(&format!("    \"{}\",\n", escape_str(line)));
+            }
+            out.push_str("];\n\n");
+            return;
+        }
+        for (id, file) in self.files.iter().enumerate() {
+            out.push_str(&format!("static L{id}: &[&str] = &[\n"));
+            for line in &file.lines {
+                out.push_str(&format!("    \"{}\",\n", escape_str(line)));
+            }
+            out.push_str("];\n");
+        }
+        out.push_str("static FILES: &[(&str, &[&str])] = &[\n");
+        for (id, file) in self.files.iter().enumerate() {
+            out.push_str(&format!("    (\"{}\", L{id}),\n", escape_str(&file.path)));
+        }
+        out.push_str("];\n\n");
     }
 
-    /// Emit a top-level function as an `f_`/`b_` wrapper + body pair.
+    /// The `Env` struct, `main`, and the uncaught-error reporter. The single-file
+    /// form embeds the one path; the multi-file form carries `cur_file` and looks
+    /// the offending file up in `FILES`.
+    fn emit_env_and_main(&self, env_fields: &[String], out: &mut String) {
+        out.push_str("struct Env {\n");
+        out.push_str("    cur_line: u32,\n");
+        if self.multifile {
+            out.push_str("    cur_file: u32,\n");
+        }
+        out.push_str("    depth: usize,\n");
+        for field in env_fields {
+            out.push_str(&format!("    {field}: Value,\n"));
+        }
+        out.push_str("}\n\n");
+
+        out.push_str("fn main() -> std::process::ExitCode {\n");
+        out.push_str("    let mut env = Env {\n");
+        out.push_str("        cur_line: 0,\n");
+        if self.multifile {
+            out.push_str("        cur_file: 0,\n");
+        }
+        out.push_str("        depth: 0,\n");
+        for field in env_fields {
+            out.push_str(&format!("        {field}: Value::None,\n"));
+        }
+        out.push_str("    };\n");
+        out.push_str("    match run(&mut env) {\n");
+        out.push_str("        Ok(()) => std::process::ExitCode::SUCCESS,\n");
+        out.push_str("        Err(e) => {\n");
+        if self.multifile {
+            out.push_str("            let (f_path, f_lines) = FILES[env.cur_file as usize];\n");
+            out.push_str(
+                "            let line = f_lines.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");\n",
+            );
+            out.push_str(&format!(
+                "            eprintln!(\"{}\\n\\n  {{}}:{{}}\\n    {{}}\\n  {{}}\", f_path, env.cur_line, line, e);\n",
+                RUNTIME_ERROR_HEADLINE,
+            ));
+        } else {
+            out.push_str(
+                "            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");\n",
+            );
+            out.push_str(&format!(
+                "            eprintln!(\"{}\\n\\n  {}:{{}}\\n    {{line}}\\n  {{e}}\", env.cur_line);\n",
+                RUNTIME_ERROR_HEADLINE,
+                escape_str(&self.files[0].path)
+            ));
+        }
+        out.push_str("            std::process::ExitCode::FAILURE\n");
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+        out.push_str("}\n\n");
+    }
+
+    /// Emit a top-level function as a wrapper + body pair, mangled by its file id.
     fn function(&self, span: Span, emit: &mut Emit, out: &mut String) -> Result<(), Diagnostic> {
         let info = self.fn_info(emit, span);
         self.emit_callable(
-            &format!("{FUNC_PREFIX}{}", info.name),
-            &format!("{FUNC_BODY_PREFIX}{}", info.name),
+            &func_wrapper(emit.file_id, &info.name),
+            &func_body(emit.file_id, &info.name),
             &[],
             &info.params,
             &info.body,
@@ -484,13 +617,14 @@ impl Codegen {
         )
     }
 
-    /// Look up a definition's capture analysis by its span. Cloned because the
-    /// borrow would otherwise conflict with mutating `emit` while emitting.
+    /// Look up a definition's capture analysis by its `(file_id, span)` key.
+    /// Cloned because the borrow would otherwise conflict with mutating `emit`
+    /// while emitting.
     fn fn_info(&self, emit: &Emit, span: Span) -> FnInfoView {
         let info = emit
             .analysis
             .fn_info
-            .get(&span)
+            .get(&(emit.file_id, span))
             .expect("compiler bug: definition was not analyzed");
         FnInfoView {
             name: info.name.clone(),
@@ -700,13 +834,18 @@ impl Codegen {
         let mut out = String::new();
         out.push_str(&format!("        {id}u32 => {{\n"));
         match arm {
-            ArmSpec::TopFunc { name, arity } => {
+            ArmSpec::TopFunc {
+                file_id,
+                name,
+                arity,
+            } => {
                 out.push_str(&Self::arity_guard(name, *arity));
                 let mut call_args: Vec<String> =
                     (0..*arity).map(|_| "args.remove(0)".into()).collect();
                 call_args.push("&mut *env".into());
                 out.push_str(&format!(
-                    "            {FUNC_PREFIX}{name}({})\n",
+                    "            {}({})\n",
+                    func_wrapper(*file_id, name),
                     call_args.join(", ")
                 ));
             }
@@ -792,6 +931,9 @@ impl Codegen {
     ) -> Result<(), Diagnostic> {
         let pad = "    ".repeat(level);
         out.push_str(&format!("{pad}env.cur_line = {};\n", stmt_line(stmt)));
+        if self.multifile {
+            out.push_str(&format!("{pad}env.cur_file = {};\n", emit.file_id));
+        }
         match stmt {
             Stmt::Decl { name, expr, .. } | Stmt::ConstDecl { name, expr, .. } => {
                 let value = self.expr(expr, emit)?;
@@ -818,7 +960,7 @@ impl Codegen {
                     obj, name, span, ..
                 } => {
                     if let Expr::Ident { name: base, .. } = obj.as_ref() {
-                        if emit.module(base).is_some() {
+                        if emit.module(base).is_some() || emit.user_module(base).is_some() {
                             return Err(self
                                 .diag(*span, "cannot assign into a module")
                                 .with_headline("very module. much fixed.")
@@ -888,6 +1030,9 @@ impl Codegen {
                 emit.loop_stack.push(label);
                 let inner = "    ".repeat(level + 1);
                 out.push_str(&format!("{inner}env.cur_line = {};\n", span.line));
+                if self.multifile {
+                    out.push_str(&format!("{inner}env.cur_file = {};\n", emit.file_id));
+                }
                 out.push_str(&format!(
                     "{inner}if !({}).truthy() {{ break 'l{label} }}\n",
                     self.expr(cond, emit)?
@@ -965,7 +1110,7 @@ impl Codegen {
                 let id = emit
                     .analysis
                     .fn_info
-                    .get(span)
+                    .get(&(emit.file_id, *span))
                     .and_then(|i| i.fn_id)
                     .expect("compiler bug: nested function without an id");
                 emit.materialized.borrow_mut().insert(id);
@@ -1004,7 +1149,7 @@ impl Codegen {
         match emit.locals.get(name) {
             Some(Local::Cell) => format!("cell_set(&{NAME_PREFIX}{name}, {value});"),
             Some(Local::Plain) => format!("{NAME_PREFIX}{name} = {value};"),
-            None => format!("env.{NAME_PREFIX}{name} = {value};"),
+            None => format!("env.{} = {value};", field_name(emit.file_id, name)),
         }
     }
 
@@ -1023,7 +1168,7 @@ impl Codegen {
         if emit.locals.contains_key(name) {
             return Ok(());
         }
-        if emit.funcs.contains_key(name) {
+        if emit.table().funcs.contains_key(name) {
             return Err(self
                 .diag(
                     span,
@@ -1041,7 +1186,7 @@ impl Codegen {
                 .with_headline("very object. much fixed.")
                 .with_hint("pick a different variable name"));
         }
-        if emit.module(name).is_some() {
+        if emit.module(name).is_some() || emit.user_module(name).is_some() {
             return Err(self
                 .diag(
                     span,
@@ -1060,7 +1205,7 @@ impl Codegen {
         match emit.locals.get(name) {
             Some(Local::Cell) => format!("cell_get(&{NAME_PREFIX}{name})"),
             Some(Local::Plain) => format!("{NAME_PREFIX}{name}.clone()"),
-            None => format!("env.{NAME_PREFIX}{name}.clone()"),
+            None => format!("env.{}.clone()", field_name(emit.file_id, name)),
         }
     }
 
@@ -1098,16 +1243,13 @@ impl Codegen {
                     ))
                 } else if emit.class(name).is_some() {
                     Err(self.unsupported(*span, Unsupported::ClassAsValue(name.clone())))
-                } else if let Some(module) = emit.module(name) {
+                } else if let Some(member) = self.module_first_member(emit, name) {
                     Err(self
                         .diag(*span, format!("{name} is a module, not a value"))
                         .with_headline("very module. much confuse.")
-                        .with_hint(format!(
-                            "use a member — {name}.{}(…)",
-                            module.first_member()
-                        )))
+                        .with_hint(format!("use a member — {name}.{member}(…)")))
                 } else {
-                    Ok(format!("env.{NAME_PREFIX}{name}.clone()"))
+                    Ok(format!("env.{}.clone()", field_name(emit.file_id, name)))
                 }
             }
             Expr::List { items, .. } => {
@@ -1165,6 +1307,20 @@ impl Codegen {
                         }
                         return Err(self.unknown_member(base, name, module, *span));
                     }
+                    if let Some(fid) = emit.user_module(base) {
+                        let table = &emit.tables[fid as usize];
+                        if table.consts.contains(name) {
+                            return Ok(format!("env.{}.clone()", field_name(fid, name)));
+                        }
+                        if table.funcs.contains_key(name) {
+                            let id = emit.analysis.top_func_ids[&(fid, name.clone())];
+                            emit.materialized.borrow_mut().insert(id);
+                            return Ok(format!(
+                                "Value::function({id}u32, \"{base}.{name}\", vec![])"
+                            ));
+                        }
+                        return Err(self.unknown_user_member(emit, base, fid, name, *span));
+                    }
                 }
                 let call = format!(
                     "attr_get(&{}, \"{}\")",
@@ -1174,6 +1330,23 @@ impl Codegen {
                 Ok(self.fail(emit, call))
             }
         }
+    }
+
+    /// The first member (function then constant) of the module imported as
+    /// `name` in the current file — stdlib or user — or `None` if `name` is not
+    /// a module there. Drives the "module, not a value/function" hints.
+    fn module_first_member(&self, emit: &Emit, name: &str) -> Option<String> {
+        if let Some(module) = emit.module(name) {
+            return Some(module.first_member().to_string());
+        }
+        let fid = emit.user_module(name)?;
+        Some(
+            emit.tables[fid as usize]
+                .members
+                .first()
+                .cloned()
+                .unwrap_or_default(),
+        )
     }
 
     /// The "module has no member" diagnostic, listing the members it does have.
@@ -1187,6 +1360,21 @@ impl Codegen {
         self.diag(span, format!("{module_name} has no member {member}"))
             .with_headline("very module. much unknown.")
             .with_hint(format!("{module_name} has: {}", module.members()))
+    }
+
+    /// The "module has no member" diagnostic for a user module.
+    fn unknown_user_member(
+        &self,
+        emit: &Emit,
+        module_name: &str,
+        fid: u32,
+        member: &str,
+        span: Span,
+    ) -> Diagnostic {
+        let members = emit.tables[fid as usize].members.join(", ");
+        self.diag(span, format!("{module_name} has no member {member}"))
+            .with_headline("very module. much unknown.")
+            .with_hint(format!("{module_name} has: {members}"))
     }
 
     fn binary(&self, op: BinOp, lhs: &Expr, rhs: &Expr, emit: &Emit) -> Result<String, Diagnostic> {
@@ -1247,15 +1435,15 @@ impl Codegen {
                 if BUILTINS.contains(&name.as_str()) {
                     return self.builtin_call(name, args, span, emit);
                 }
-                if emit.funcs.contains_key(name) {
-                    let params = &emit.funcs[name];
+                if let Some(params) = emit.table().funcs.get(name) {
                     self.check_user_arity(name, params, args, span)?;
                     let mut parts = Vec::with_capacity(args.len() + 1);
                     for arg in args {
                         parts.push(self.expr(arg, emit)?);
                     }
                     parts.push("&mut *env".to_string());
-                    let call = format!("{FUNC_PREFIX}{name}({})", parts.join(", "));
+                    let call =
+                        format!("{}({})", func_wrapper(emit.file_id, name), parts.join(", "));
                     return Ok(self.fail(emit, call));
                 }
                 // `Shibe(...)` — a constructor, resolved statically.
@@ -1263,27 +1451,32 @@ impl Codegen {
                     return self.constructor_call(name, args, span, emit);
                 }
                 // A module name is not itself callable — you call one of its members.
-                if let Some(module) = emit.module(name) {
+                if let Some(member) = self.module_first_member(emit, name) {
                     return Err(self
                         .diag(span, format!("{name} is a module, not a function"))
                         .with_headline("very module. much confuse.")
-                        .with_hint(format!(
-                            "call a member — {name}.{}(…)",
-                            module.first_member()
-                        )));
+                        .with_hint(format!("call a member — {name}.{member}(…)")));
                 }
                 // A top-level variable holding a function value: call it indirectly.
-                let callee_val = format!("env.{NAME_PREFIX}{name}.clone()");
+                let callee_val = format!("env.{}.clone()", field_name(emit.file_id, name));
                 self.indirect_call(&callee_val, args, emit)
             }
-            // `nerd.sqrt(16)` — a stdlib member call, when the base is a module.
-            Expr::Attr { obj, name, .. } if matches!(obj.as_ref(), Expr::Ident { name: base, .. } if emit.module(base).is_some()) =>
+            // `nerd.sqrt(16)` / `utils.square(6)` — a member call on a module.
+            Expr::Attr { obj, name, .. }
+                if matches!(obj.as_ref(), Expr::Ident { name: base, .. }
+                    if emit.module(base).is_some() || emit.user_module(base).is_some()) =>
             {
                 let Expr::Ident { name: base, .. } = obj.as_ref() else {
                     unreachable!("compiler bug: guarded to an Ident base")
                 };
-                let module = emit.module(base).expect("compiler bug: module vanished");
-                self.module_call(base, module, name, args, span, emit)
+                if let Some(module) = emit.module(base) {
+                    self.module_call(base, module, name, args, span, emit)
+                } else {
+                    let fid = emit
+                        .user_module(base)
+                        .expect("compiler bug: module vanished");
+                    self.user_module_call(base, fid, name, args, span, emit)
+                }
             }
             // `kabosu.speak(...)` — a method call, dispatched at runtime.
             Expr::Attr { obj, name, .. } => {
@@ -1423,6 +1616,66 @@ impl Codegen {
         Ok(self.fail(emit, call))
     }
 
+    /// A user module member call `utils.square(args)`: static arity against the
+    /// module's function table, then a direct call to its mangled wrapper.
+    /// Calling a constant, or an unknown member, is a real error.
+    fn user_module_call(
+        &self,
+        module_name: &str,
+        fid: u32,
+        member: &str,
+        args: &[Expr],
+        span: Span,
+        emit: &Emit,
+    ) -> Result<String, Diagnostic> {
+        let table = &emit.tables[fid as usize];
+        let params = match table.funcs.get(member) {
+            Some(params) => params,
+            None => {
+                if table.consts.contains(member) {
+                    return Err(self
+                        .diag(
+                            span,
+                            format!("{module_name}.{member} is a constant, not a function"),
+                        )
+                        .with_headline("very module. much confuse.")
+                        .with_hint(format!("use it as a value — bark {module_name}.{member}")));
+                }
+                return Err(self.unknown_user_member(emit, module_name, fid, member, span));
+            }
+        };
+        if args.len() != params.len() {
+            let noun = if params.len() == 1 {
+                "argument"
+            } else {
+                "arguments"
+            };
+            let call_shape = if params.is_empty() {
+                format!("{module_name}.{member}()")
+            } else {
+                format!("{module_name}.{member}({})", params.join(", "))
+            };
+            return Err(self
+                .diag(
+                    span,
+                    format!(
+                        "{module_name}.{member} takes {} {noun}, got {}",
+                        params.len(),
+                        args.len()
+                    ),
+                )
+                .with_headline(ARITY_HEADLINE)
+                .with_hint(call_shape));
+        }
+        let mut parts = Vec::with_capacity(args.len() + 1);
+        for arg in args {
+            parts.push(self.expr(arg, emit)?);
+        }
+        parts.push("&mut *env".to_string());
+        let call = format!("{}({})", func_wrapper(fid, member), parts.join(", "));
+        Ok(self.fail(emit, call))
+    }
+
     fn builtin_call(
         &self,
         name: &str,
@@ -1510,12 +1763,13 @@ impl Codegen {
     }
 
     fn diag(&self, span: Span, message: impl Into<String>) -> Diagnostic {
-        let source_line = self
+        let file = &self.files[self.cur.get() as usize];
+        let source_line = file
             .lines
             .get((span.line as usize).saturating_sub(1))
             .cloned()
             .unwrap_or_default();
-        Diagnostic::new(&self.path, span.line, span.col, source_line, message)
+        Diagnostic::new(&file.path, span.line, span.col, source_line, message)
     }
 }
 
@@ -1778,21 +2032,52 @@ fn celled_locals(params: &[String], body: &[Stmt]) -> HashSet<String> {
         .collect()
 }
 
+/// Gather one file's top-level names and resolved imports into a [`FileTable`].
+fn file_table(file: &ProgramFile) -> FileTable {
+    let mut funcs = HashMap::new();
+    let mut consts = HashSet::new();
+    let mut func_members = Vec::new();
+    let mut const_members = Vec::new();
+    for stmt in &file.script.stmts {
+        match stmt {
+            Stmt::FuncDef { name, params, .. } => {
+                funcs.insert(name.clone(), params.clone());
+                func_members.push(name.clone());
+            }
+            Stmt::ConstDecl { name, .. } => {
+                consts.insert(name.clone());
+                const_members.push(name.clone());
+            }
+            _ => {}
+        }
+    }
+    // Functions first, then constants — the order module member hints show.
+    func_members.extend(const_members);
+    FileTable {
+        funcs,
+        consts,
+        members: func_members,
+        stdlib_imports: file.stdlib_imports.iter().cloned().collect(),
+        user_imports: file.user_imports.iter().cloned().collect(),
+    }
+}
+
 /// State threaded through the recursive capture analysis.
 struct Analyzer {
-    fn_info: HashMap<Span, FnInfo>,
+    fn_info: HashMap<(u32, Span), FnInfo>,
     registry: Vec<ArmSpec>,
-    top_func_ids: HashMap<String, u32>,
+    top_func_ids: HashMap<(u32, String), u32>,
     next_id: u32,
 }
 
 impl Analyzer {
-    /// Analyze one function definition: record its capture info, assign its
-    /// dispatcher id, and recurse into its nested functions. `enclosing_cells`
-    /// are the cell names available in the enclosing frame. Returns this
-    /// function's own cell names, so the caller can pass them down.
+    /// Analyze one function definition in file `file_id`: record its capture
+    /// info, assign its dispatcher id, and recurse into its nested functions.
+    /// `enclosing_cells` are the cell names available in the enclosing frame.
+    #[allow(clippy::too_many_arguments)]
     fn analyze(
         &mut self,
+        file_id: u32,
         name: &str,
         params: &[String],
         body: &[Stmt],
@@ -1817,10 +2102,11 @@ impl Analyzer {
                 let id = self.next_id;
                 self.next_id += 1;
                 self.registry.push(ArmSpec::TopFunc {
+                    file_id,
                     name: name.to_string(),
                     arity: params.len(),
                 });
-                self.top_func_ids.insert(name.to_string(), id);
+                self.top_func_ids.insert((file_id, name.to_string()), id);
                 Some(id)
             }
             FnKind::Closure => {
@@ -1837,8 +2123,9 @@ impl Analyzer {
         };
 
         self.fn_info.insert(
-            span,
+            (file_id, span),
             FnInfo {
+                file_id,
                 fn_id,
                 name: name.to_string(),
                 params: params.to_vec(),
@@ -1851,6 +2138,7 @@ impl Analyzer {
 
         for (child_name, child_params, child_body, child_span) in child_funcdefs(body) {
             self.analyze(
+                file_id,
                 child_name,
                 child_params,
                 child_body,
@@ -1860,66 +2148,84 @@ impl Analyzer {
             );
         }
     }
+
+    /// Analyze every function in one file: its top-level functions, its object
+    /// methods, and the closures nested directly in its top-level blocks.
+    fn analyze_file(&mut self, file: &ProgramFile) {
+        let file_id = file.file_id;
+        let empty = HashSet::new();
+
+        // Direct top-level functions: static, never capture.
+        for stmt in &file.script.stmts {
+            if let Stmt::FuncDef {
+                name,
+                params,
+                body,
+                span,
+            } = stmt
+            {
+                self.analyze(file_id, name, params, body, *span, FnKind::TopLevel, &empty);
+            }
+        }
+        // Object methods: `self` is a bound local; a nested closure may capture it.
+        for stmt in &file.script.stmts {
+            if let Stmt::ObjDef { methods, .. } = stmt {
+                for method in methods {
+                    if let Stmt::FuncDef {
+                        name,
+                        params,
+                        body,
+                        span,
+                    } = method
+                    {
+                        let mut with_self = Vec::with_capacity(params.len() + 1);
+                        with_self.push("self".to_string());
+                        with_self.extend(params.iter().cloned());
+                        self.analyze(
+                            file_id,
+                            name,
+                            &with_self,
+                            body,
+                            *span,
+                            FnKind::Method,
+                            &empty,
+                        );
+                    }
+                }
+            }
+        }
+        // Functions nested inside a top-level block: closures whose enclosing
+        // scope is `run`, which holds no cells — so they capture nothing.
+        for stmt in &file.script.stmts {
+            if matches!(
+                stmt,
+                Stmt::If { .. } | Stmt::For { .. } | Stmt::While { .. } | Stmt::Try { .. }
+            ) {
+                for (name, params, body, span) in child_funcdefs(std::slice::from_ref(stmt)) {
+                    self.analyze(file_id, name, params, body, span, FnKind::Closure, &empty);
+                }
+            }
+        }
+    }
 }
 
-/// Walk the whole script and build the function analysis: capture info per
-/// definition, the dispatcher registry, and the name→id lookups. `import_order`
-/// lists the imported modules in source order so their function ids are stable.
-fn analyze_script(script: &Script, import_order: &[(String, &'static Module)]) -> Analysis {
+/// Walk every file in the program and build the function analysis: capture info
+/// per definition, the dispatcher registry, and the name→id lookups. The entry
+/// (file 0) is analyzed first so its ids are unchanged from the single-file case.
+fn analyze_program(program: &Program) -> Analysis {
     let mut analyzer = Analyzer {
         fn_info: HashMap::new(),
         registry: Vec::new(),
         top_func_ids: HashMap::new(),
         next_id: 0,
     };
-    let empty = HashSet::new();
 
-    // Direct top-level functions: static, never capture.
-    for stmt in &script.stmts {
-        if let Stmt::FuncDef {
-            name,
-            params,
-            body,
-            span,
-        } = stmt
-        {
-            analyzer.analyze(name, params, body, *span, FnKind::TopLevel, &empty);
-        }
-    }
-    // Object methods: `self` is a bound local; a nested closure may capture it.
-    for stmt in &script.stmts {
-        if let Stmt::ObjDef { methods, .. } = stmt {
-            for method in methods {
-                if let Stmt::FuncDef {
-                    name,
-                    params,
-                    body,
-                    span,
-                } = method
-                {
-                    let mut with_self = Vec::with_capacity(params.len() + 1);
-                    with_self.push("self".to_string());
-                    with_self.extend(params.iter().cloned());
-                    analyzer.analyze(name, &with_self, body, *span, FnKind::Method, &empty);
-                }
-            }
-        }
-    }
-    // Functions nested inside a top-level block: closures whose enclosing scope is
-    // `run`, which holds no cells — so they capture nothing.
-    for stmt in &script.stmts {
-        if matches!(
-            stmt,
-            Stmt::If { .. } | Stmt::For { .. } | Stmt::While { .. } | Stmt::Try { .. }
-        ) {
-            for (name, params, body, span) in child_funcdefs(std::slice::from_ref(stmt)) {
-                analyzer.analyze(name, params, body, span, FnKind::Closure, &empty);
-            }
-        }
+    for file in &program.files {
+        analyzer.analyze_file(file);
     }
 
-    // Builtins as first-class values, then imported module functions. Their ids
-    // follow every user function so user ids stay stable across imports.
+    // Builtins as first-class values, then stdlib module functions. Their ids
+    // follow every user function so user function ids stay stable.
     let mut builtin_ids = HashMap::new();
     for builtin in BUILTINS {
         let id = analyzer.next_id;
@@ -1927,17 +2233,27 @@ fn analyze_script(script: &Script, import_order: &[(String, &'static Module)]) -
         analyzer.registry.push(ArmSpec::Builtin { name: builtin });
         builtin_ids.insert(*builtin, id);
     }
+    // A stdlib module can be imported by several files; its runtime functions
+    // need one arm each, keyed by the canonical module name.
     let mut module_fn_ids = HashMap::new();
-    for (module_name, module) in import_order {
-        for func in module.funcs {
-            let id = analyzer.next_id;
-            analyzer.next_id += 1;
-            analyzer.registry.push(ArmSpec::Module {
-                name: format!("{module_name}.{}", func.name),
-                runtime_fn: func.runtime_fn,
-                arity: func.arity,
-            });
-            module_fn_ids.insert((module_name.clone(), func.name.to_string()), id);
+    for file in &program.files {
+        for (module_name, module) in &file.stdlib_imports {
+            if module_fn_ids
+                .keys()
+                .any(|(m, _): &(String, String)| m == module_name)
+            {
+                continue;
+            }
+            for func in module.funcs {
+                let id = analyzer.next_id;
+                analyzer.next_id += 1;
+                analyzer.registry.push(ArmSpec::Module {
+                    name: format!("{module_name}.{}", func.name),
+                    runtime_fn: func.runtime_fn,
+                    arity: func.arity,
+                });
+                module_fn_ids.insert((module_name.clone(), func.name.to_string()), id);
+            }
         }
     }
 
@@ -1996,7 +2312,8 @@ mod tests {
 
     fn gen(source: &str) -> Result<String, Diagnostic> {
         let script = parse("examples/hello.doge", source).expect("parse should succeed");
-        generate("examples/hello.doge", source, &script)
+        let program = crate::modules::single_file_program("examples/hello.doge", source, script)?;
+        generate_program(&program)
     }
 
     #[test]
@@ -2611,5 +2928,57 @@ fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> 
     fn no_dispatcher_without_objects() {
         let out = gen("bark 1\nwow\n").unwrap();
         assert!(!out.contains("fn call_method"));
+    }
+
+    /// Build a two-file program by hand (no filesystem) to lock the module
+    /// name-mangling: a module's function is `f1_…`, its constant is a `g1_…`
+    /// `Env` field, and a multi-file program carries a `FILES` table.
+    #[test]
+    fn module_names_are_mangled_by_file_id() {
+        use crate::modules::{Program, ProgramFile};
+        let m_src = "so K = 7\nsuch sq much x:\n    return x * x\nwow\nwow\n";
+        let e_src = "so m\nbark m.sq(3)\nbark m.K\nwow\n";
+        let m = parse("m.doge", m_src).unwrap();
+        let e = parse("app.doge", e_src).unwrap();
+        let program = Program {
+            files: vec![
+                ProgramFile {
+                    file_id: 0,
+                    is_entry: true,
+                    name: "app".into(),
+                    path: "app.doge".into(),
+                    source: e_src.into(),
+                    script: e,
+                    stdlib_imports: vec![],
+                    user_imports: vec![("m".into(), 1)],
+                },
+                ProgramFile {
+                    file_id: 1,
+                    is_entry: false,
+                    name: "m".into(),
+                    path: "m.doge".into(),
+                    source: m_src.into(),
+                    script: m,
+                    stdlib_imports: vec![],
+                    user_imports: vec![],
+                },
+            ],
+            init_order: vec![1],
+        };
+
+        let out = generate_program(&program).unwrap();
+        assert!(
+            out.contains("f_1_sq("),
+            "module call is file-id mangled:\n{out}"
+        );
+        assert!(
+            out.contains("env.g1_K"),
+            "module const is a g1_ field:\n{out}"
+        );
+        assert!(
+            out.contains("static FILES"),
+            "multi-file uses a FILES table"
+        );
+        assert!(out.contains("env.cur_file ="), "multi-file tracks cur_file");
     }
 }

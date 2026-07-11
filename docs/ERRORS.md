@@ -42,3 +42,24 @@ Rules:
   generated code panics at runtime, that is a Doge compiler bug and is reported as
   one (`"very bug. much sorry. pls report: <url>"` plus the internal log), never
   as raw Rust errors.
+
+## Import diagnostics
+
+Importing another `.doge` file ([SYNTAX.md](SYNTAX.md) §9) has its own errors,
+each pointing at the offending `so` line in the file that wrote it:
+
+- **Unknown module** — `very import. much unknown.` — `so nope` names neither a
+  built-in module nor a `nope.doge` next to the importing file. The hint names the
+  file to create, or the built-in modules.
+- **Loose statement in a module** — `very loose. much module.` — a module file
+  only defines things; a statement that would run at import time is rejected with
+  a "wrap it in a function, or move it to your main script" hint.
+- **Object in a module** — `very object. much soon.` — `many` in a module is not
+  yet importable; the hint points to defining it in the main script for now.
+- **Import cycle** — `very loop. much import.` — files that import each other in a
+  loop; the message spells out the chain (`a → b → a`).
+- **Stdlib shadow** — `very shadow. much confuse.` — a user file named like a
+  built-in module (`nerd.doge`) can never be reached; the hint is to rename it.
+
+An uncaught runtime error inside an imported module reports *that module's* file
+and line, not the entry script's.

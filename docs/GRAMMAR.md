@@ -28,6 +28,8 @@ block       = NEWLINE , INDENT , { statement } , DEDENT ;
 - `such IDENT :` or `such IDENT much …` is a function definition
 - `many IDENT :` is an object definition
 - `so IDENT =` is a constant; `so IDENT` followed by a newline is an import
+- an import `so IDENT` names a built-in module if one matches, otherwise the user
+  module `IDENT.doge` next to the importing file (see [SYNTAX.md](SYNTAX.md) §9)
 - `much` never starts a statement; it only appears inside a function header
 
 ## Lexer notes

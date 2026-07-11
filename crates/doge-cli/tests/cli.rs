@@ -43,6 +43,10 @@ fn cli_fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
+fn module_fixtures_dir() -> PathBuf {
+    cli_fixtures_dir().join("modules")
+}
+
 #[test]
 fn check_on_a_good_program_dumps_the_ast() {
     let hello = examples_dir().join("hello.doge");
@@ -299,4 +303,126 @@ fn build_produces_standalone_binary() {
         .expect("the built binary should run");
     assert!(run.status.success(), "the standalone binary should exit 0");
     assert_eq!(String::from_utf8_lossy(&run.stdout), expected);
+}
+
+#[test]
+fn bark_runs_a_program_with_imported_modules() {
+    let entry = examples_dir().join("modules.doge");
+    let expected =
+        std::fs::read_to_string(examples_dir().join("modules.out")).expect("modules.out");
+
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&entry)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "a multi-file program should run, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+}
+
+#[test]
+fn runtime_error_in_a_module_reports_that_module_and_line() {
+    let entry = module_fixtures_dir().join("rterr_entry.doge");
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&entry)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a runtime error exits 1");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    // The error surfaces the *module's* file and line, not the entry's.
+    assert!(
+        stderr.contains("rterr_lib.doge:2"),
+        "should point into the module, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("by zero"),
+        "should explain the division error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn importing_a_missing_module_is_a_doge_diagnostic() {
+    let entry = module_fixtures_dir().join("missing_entry.doge");
+    let output = doge()
+        .arg("check")
+        .arg(&entry)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "an unknown module exits 1");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very import. much unknown."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("no module named nope"),
+        "should name the missing module, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_circular_import_is_a_doge_diagnostic() {
+    let entry = module_fixtures_dir().join("cycle_entry.doge");
+    let output = doge()
+        .arg("check")
+        .arg(&entry)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a cycle exits 1");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very loop. much import."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("import cycle:"),
+        "should spell out the cycle, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_loose_statement_in_a_module_is_a_doge_diagnostic() {
+    let entry = module_fixtures_dir().join("loose_entry.doge");
+    let output = doge()
+        .arg("check")
+        .arg(&entry)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a loose statement exits 1");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very loose. much module."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn an_object_in_a_module_is_a_doge_diagnostic() {
+    let entry = module_fixtures_dir().join("obj_entry.doge");
+    let output = doge()
+        .arg("check")
+        .arg(&entry)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an object in a module exits 1"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very object. much soon."),
+        "should point at the milestone, got:\n{stderr}"
+    );
 }

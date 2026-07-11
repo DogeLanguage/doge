@@ -1,0 +1,10 @@
+so doge_utils
+
+bark doge_utils.square(6)
+bark doge_utils.quad(5)
+bark doge_utils.distance(3, 4)
+bark doge_utils.ANSWER
+
+such f = doge_utils.square
+bark f(9)
+wow

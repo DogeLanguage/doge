@@ -1,0 +1,16 @@
+so doge_helpers
+
+so ANSWER = 42
+
+such square much x:
+    return x * x
+wow
+
+such quad much x:
+    return doge_helpers.double(doge_helpers.double(x))
+wow
+
+such distance much a, b:
+    return doge_helpers.hypot(a, b)
+wow
+wow

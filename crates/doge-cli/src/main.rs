@@ -86,54 +86,69 @@ fn run_build(path: &str) -> ExitCode {
     }
 }
 
-/// `doge check <path>`: parse and check the script, printing its AST dump on
-/// success or one doge-flavored diagnostic on failure.
+/// `doge check <path>`: load and check the program (the entry and every module
+/// it imports), printing the entry's AST dump on success or one doge-flavored
+/// diagnostic on failure.
 fn run_check(path: &str) -> ExitCode {
     let source = match read_source(path) {
         Ok(source) => source,
         Err(code) => return code,
     };
 
-    let script = match doge_compiler::parse(path, &source) {
-        Ok(script) => script,
+    let program = match doge_compiler::load(path, &source) {
+        Ok(program) => program,
         Err(diag) => {
             eprint!("{}", diag.render());
             return ExitCode::from(EXIT_FAILURE);
         }
     };
 
-    if let Err(diag) = doge_compiler::check(path, &source, &script) {
+    if let Err(diag) = doge_compiler::check_program(&program) {
         eprint!("{}", diag.render());
         return ExitCode::from(EXIT_FAILURE);
     }
 
-    print!("{}", doge_compiler::dump(&script));
+    print!("{}", doge_compiler::dump(&program.files[0].script));
     ExitCode::from(EXIT_OK)
 }
 
-/// Read, parse, check, and generate Rust from a script — the shared front half
-/// of `bark` and `build`. On any failure it prints the diagnostic and returns
-/// the exit code to propagate.
+/// Load, check, and generate Rust from a program — the shared front half of
+/// `bark` and `build`. Returns the cache-key source (a blob covering every
+/// imported file, so a change to any of them rebuilds) and the generated Rust.
+/// On any failure it prints the diagnostic and returns the exit code.
 fn compile_to_rust(path: &str) -> Result<(String, String), ExitCode> {
     let source = read_source(path)?;
-    let script = match doge_compiler::parse(path, &source) {
-        Ok(script) => script,
+    let program = match doge_compiler::load(path, &source) {
+        Ok(program) => program,
         Err(diag) => {
             eprint!("{}", diag.render());
             return Err(ExitCode::from(EXIT_FAILURE));
         }
     };
-    if let Err(diag) = doge_compiler::check(path, &source, &script) {
+    if let Err(diag) = doge_compiler::check_program(&program) {
         eprint!("{}", diag.render());
         return Err(ExitCode::from(EXIT_FAILURE));
     }
-    match doge_compiler::generate(path, &source, &script) {
-        Ok(generated) => Ok((source, generated)),
+    match doge_compiler::generate_program(&program) {
+        Ok(generated) => Ok((cache_source(&program), generated)),
         Err(diag) => {
             eprint!("{}", diag.render());
             Err(ExitCode::from(EXIT_FAILURE))
         }
     }
+}
+
+/// The cache-key input for a whole program: every file's path and source, so
+/// editing any imported module produces a different key (and a fresh build).
+fn cache_source(program: &doge_compiler::Program) -> String {
+    let mut blob = String::new();
+    for file in &program.files {
+        blob.push_str(&file.path);
+        blob.push('\0');
+        blob.push_str(&file.source);
+        blob.push('\0');
+    }
+    blob
 }
 
 /// Read a script file, reporting a missing or unreadable file in plain words —

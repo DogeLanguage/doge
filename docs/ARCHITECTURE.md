@@ -13,12 +13,27 @@ tokens
    │  parser       (hand-written recursive descent; contextual keywords)
    ▼
 AST
-   │  checks       (missing `wow`, assignment to const, undeclared names, bork outside loop)
+   │  loader       (follow `so` imports; load user `.doge` modules; cycle detection)
    ▼
-   │  codegen      (emit Rust source using doge-runtime)
+Program (entry + modules)
+   │  checks       (missing `wow`, assignment to const, undeclared names, bork outside loop;
+   │                plus "a module only defines things" for imported modules)
+   ▼
+   │  codegen      (emit one Rust source wiring every file together, using doge-runtime)
    ▼
 generated .rs  ──rustc/cargo──►  native binary  ──►  cached & executed
 ```
+
+A `so <name>` import resolves to a built-in module (`nerd`/`strings`/`lists`) or,
+failing that, the user file `<name>.doge` next to the importer. The loader parses
+every reachable file into one `Program`; the whole downstream pipeline works on
+that. Codegen keeps every file's top-level names in one flat Rust namespace by
+mangling with a per-file id: the entry (file 0) keeps its plain `f_`/`v_` scheme,
+so single-file output is unchanged, and a module (file N) carries its id right
+after the prefix (`f1_square`, `g1_ANSWER`) — a digit can't start a doge
+identifier, so these never collide with the entry's names. A multi-file program
+also embeds a per-file source table so an uncaught runtime error reports the
+module and line it actually came from.
 
 ## 2. Crate layout
 

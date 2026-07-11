@@ -15,7 +15,9 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 
 The key is a hand-rolled FNV-1a 64-bit hash (no hash-crate dependency) over the
 compiler version and the source, so a compiler upgrade or a source edit misses the
-stale entry. Each script gets its own tiny Cargo project at
+stale entry. When a script imports other `.doge` files, the key covers every
+imported file's path and source too, so editing any module rebuilds. Each script
+gets its own tiny Cargo project at
 `<cache>/scripts/<hash>/` (Cargo.toml, `src/main.rs`, and `source.doge`) with a path
 dependency on `doge-runtime`; all scripts share one `<cache>/target` dir so the
 runtime compiles once. A cache hit requires both the built binary and a stored
