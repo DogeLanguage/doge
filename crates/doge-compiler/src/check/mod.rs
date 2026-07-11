@@ -1,6 +1,6 @@
 pub(super) use std::collections::HashSet;
 
-pub(super) use crate::ast::{Expr, InterpPart, Script, Stmt};
+pub(super) use crate::ast::{for_each_child_block, Expr, InterpPart, Script, Stmt};
 pub(super) use crate::diagnostics::Diagnostic;
 pub(super) use crate::modules::Program;
 pub(super) use crate::token::Span;
@@ -9,8 +9,6 @@ mod scopes;
 mod stmt;
 #[cfg(test)]
 mod tests;
-
-pub(crate) const BUILTINS: &[&str] = &["len", "str", "int", "float", "range"];
 
 /// Check every file in a program. Each file is checked in its own scope (a
 /// module's functions see only that module's names), and a non-entry module gets
@@ -29,15 +27,9 @@ pub fn check_program(program: &Program) -> Result<(), Diagnostic> {
 /// A loose statement would have to run at import time, which doge modules never
 /// do; an object definition in a module lands in a later milestone.
 fn check_module_defs_only(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
-    let lines: Vec<String> = source
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-        .collect();
+    let lines = crate::diagnostics::split_source_lines(source);
     let make = |span: Span, message: String| {
-        let source_line = lines
-            .get((span.line as usize).saturating_sub(1))
-            .cloned()
-            .unwrap_or_default();
+        let source_line = crate::diagnostics::source_line(&lines, span.line);
         Diagnostic::new(path, span.line, span.col, source_line, message)
     };
 
@@ -68,10 +60,7 @@ fn check_module_defs_only(path: &str, source: &str, script: &Script) -> Result<(
 /// Run every semantic check over `script`. `path`/`source` are only used to
 /// render diagnostics against the original text.
 pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
-    let lines = source
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-        .collect();
+    let lines = crate::diagnostics::split_source_lines(source);
     let mut checker = Checker {
         path: path.to_string(),
         lines,
@@ -92,7 +81,19 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
                 checker.globals.insert(name.clone());
                 checker.consts.insert(name.clone());
             }
-            _ => {}
+            // Introduce no top-level name; listed explicitly so a new statement
+            // that should be a global cannot be silently skipped here.
+            Stmt::Assign { .. }
+            | Stmt::Bark { .. }
+            | Stmt::If { .. }
+            | Stmt::For { .. }
+            | Stmt::While { .. }
+            | Stmt::Try { .. }
+            | Stmt::Return { .. }
+            | Stmt::Bonk { .. }
+            | Stmt::Bork { .. }
+            | Stmt::Continue { .. }
+            | Stmt::ExprStmt { .. } => {}
         }
     }
 
@@ -141,7 +142,7 @@ impl Checker {
     /// Is `name` usable at this point? Locals (declared so far) and builtins are
     /// always fine; top-level names are additionally visible inside functions.
     fn in_scope(&self, name: &str, ctx: &Ctx) -> bool {
-        BUILTINS.contains(&name)
+        crate::builtins::is_builtin(name)
             || ctx.locals.contains(name)
             || (ctx.in_function && self.globals.contains(name))
     }

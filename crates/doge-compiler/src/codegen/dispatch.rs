@@ -147,29 +147,24 @@ impl Codegen {
     /// The body of a builtin dispatcher arm, honoring each builtin's own signature
     /// (some are infallible, `range` takes one or two arguments).
     pub(super) fn builtin_arm(&self, name: &str) -> String {
-        match name {
-            "len" => format!(
-                "{}            len(&args.remove(0))\n",
-                Self::arity_guard("len", 1)
+        let builtin = crate::builtins::builtin(name)
+            .expect("compiler bug: dispatcher arm for a name that is not a builtin");
+        match builtin.shape {
+            BuiltinShape::Fallible => format!(
+                "{}            {}(&args.remove(0))\n",
+                Self::arity_guard(name, 1),
+                builtin.runtime_fn
             ),
-            "str" => format!(
-                "{}            Ok(to_str(&args.remove(0)))\n",
-                Self::arity_guard("str", 1)
+            BuiltinShape::Infallible => format!(
+                "{}            Ok({}(&args.remove(0)))\n",
+                Self::arity_guard(name, 1),
+                builtin.runtime_fn
             ),
-            "int" => format!(
-                "{}            to_int(&args.remove(0))\n",
-                Self::arity_guard("int", 1)
-            ),
-            "float" => format!(
-                "{}            to_float(&args.remove(0))\n",
-                Self::arity_guard("float", 1)
-            ),
-            "range" => {
+            BuiltinShape::Range => {
                 // `range` accepts one argument (0..n) or two (a..b).
                 "            if args.len() != 1 && args.len() != 2 { return Err(function_arity_error(\"range\", 2, args.len())); }\n\
                  \x20           if args.len() == 1 { range(&Value::Int(0i64), &args.remove(0)) } else { range(&args.remove(0), &args.remove(0)) }\n".to_string()
             }
-            _ => unreachable!("compiler bug: unknown builtin in dispatcher"),
         }
     }
 }

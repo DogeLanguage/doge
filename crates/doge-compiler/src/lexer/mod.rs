@@ -25,10 +25,7 @@ struct Lexer {
 
 impl Lexer {
     fn new(path: &str, source: &str) -> Lexer {
-        let lines = source
-            .split('\n')
-            .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-            .collect();
+        let lines = crate::diagnostics::split_source_lines(source);
         Lexer {
             path: path.to_string(),
             lines,

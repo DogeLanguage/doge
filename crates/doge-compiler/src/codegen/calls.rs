@@ -19,7 +19,7 @@ impl Codegen {
                     let callee_val = self.resolve_read(emit, name);
                     return self.indirect_call(&callee_val, args, emit);
                 }
-                if BUILTINS.contains(&name.as_str()) {
+                if crate::builtins::is_builtin(name) {
                     return self.builtin_call(name, args, span, emit);
                 }
                 if let Some(params) = emit.table().funcs.get(name) {
@@ -270,17 +270,21 @@ impl Codegen {
         span: Span,
         emit: &Emit,
     ) -> Result<String, Diagnostic> {
-        self.check_builtin_arity(name, args, span)?;
-        match name {
-            "len" => Ok(self.fail(emit, format!("len(&{})", self.expr(&args[0], emit)?))),
-            "str" => Ok(format!("to_str(&{})", self.expr(&args[0], emit)?)),
-            "int" => Ok(self.fail(emit, format!("to_int(&{})", self.expr(&args[0], emit)?))),
-            "float" => Ok(self.fail(emit, format!("to_float(&{})", self.expr(&args[0], emit)?))),
-            "range" if args.len() == 1 => Ok(self.fail(
+        let builtin = self.check_builtin_arity(name, args, span)?;
+        match builtin.shape {
+            BuiltinShape::Fallible => {
+                let arg = self.expr(&args[0], emit)?;
+                Ok(self.fail(emit, format!("{}(&{arg})", builtin.runtime_fn)))
+            }
+            BuiltinShape::Infallible => {
+                let arg = self.expr(&args[0], emit)?;
+                Ok(format!("{}(&{arg})", builtin.runtime_fn))
+            }
+            BuiltinShape::Range if args.len() == 1 => Ok(self.fail(
                 emit,
                 format!("range(&Value::Int(0i64), &{})", self.expr(&args[0], emit)?),
             )),
-            "range" => Ok(self.fail(
+            BuiltinShape::Range => Ok(self.fail(
                 emit,
                 format!(
                     "range(&{}, &{})",
@@ -288,33 +292,33 @@ impl Codegen {
                     self.expr(&args[1], emit)?
                 ),
             )),
-            _ => unreachable!("compiler bug: arity check admitted a non-builtin"),
         }
     }
 
-    /// Builtin arity is statically known: `len`/`str`/`int`/`float` take one
-    /// argument, `range` takes one or two.
+    /// Builtin arity is statically known (the accepted counts live in the builtin
+    /// table). Returns the resolved builtin so the caller can emit by its shape.
     pub(super) fn check_builtin_arity(
         &self,
         name: &str,
         args: &[Expr],
         span: Span,
-    ) -> Result<(), Diagnostic> {
-        let (ok, expects, hint) = match name {
-            "range" => (
-                args.len() == 1 || args.len() == 2,
-                "1 or 2 arguments",
-                "range(n) or range(a, b)".to_string(),
-            ),
-            _ => (args.len() == 1, "1 argument", format!("{name}(thing)")),
-        };
-        if ok {
-            return Ok(());
+    ) -> Result<&'static BuiltinFn, Diagnostic> {
+        let builtin = crate::builtins::builtin(name)
+            .expect("compiler bug: builtin_call on a name that is not a builtin");
+        if builtin.accepts(args.len()) {
+            return Ok(builtin);
         }
         Err(self
-            .diag(span, format!("{name} takes {expects}, got {}", args.len()))
+            .diag(
+                span,
+                format!(
+                    "{name} takes {}, got {}",
+                    builtin.arity_phrase(),
+                    args.len()
+                ),
+            )
             .with_headline(ARITY_HEADLINE)
-            .with_hint(hint))
+            .with_hint(builtin.hint))
     }
 
     /// A user function takes exactly its declared parameters; the hint echoes the

@@ -56,7 +56,7 @@ The `examples/` folder tours the language; start with `examples/tour.doge`.
 |---|---|
 | [SYNTAX.md](docs/SYNTAX.md) | Keywords, literals, variables, control flow, functions, error handling, objects, imports |
 | [GRAMMAR.md](docs/GRAMMAR.md) | Grammar sketch (EBNF) and disambiguation rules |
-| [STDLIB.md](docs/STDLIB.md) | Builtins and the `nerd`, `strings`, `lists` modules |
+| [STDLIB.md](docs/STDLIB.md) | Builtins, list/dict methods, and the `nerd`, `strings` modules |
 | [ERRORS.md](docs/ERRORS.md) | Diagnostic and runtime error message style |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 | [CLI.md](docs/CLI.md) | The `doge` binary and the build cache |
@@ -64,9 +64,10 @@ The `examples/` folder tours the language; start with `examples/tour.doge`.
 ## Status
 
 The core language works end-to-end: variables, control flow, functions,
-`pls`/`oh no` error handling, `many Name:` objects, and the `nerd`/`strings`/`lists`
-stdlib. Remaining features (closures, first-class functions, `.doge` imports, a REPL)
-are tracked as [issues](https://github.com/DogeLanguage/doge/issues).
+closures and first-class functions, `pls`/`oh no` error handling, `many Name:`
+objects, list/dict methods, the `nerd`/`strings` stdlib, and `.doge` module
+imports. Remaining features (objects as first-class values, a REPL) are tracked
+as [issues](https://github.com/DogeLanguage/doge/issues).
 
 ## License
 

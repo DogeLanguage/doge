@@ -39,17 +39,29 @@ module and line it actually came from.
 
 ```
 doge/
-├── Cargo.toml            # workspace
+├── Cargo.toml            # workspace ([workspace.package] shares version/edition)
+├── rust-toolchain.toml   # pinned stable toolchain (rustfmt + clippy)
 ├── crates/
-│   ├── doge-cli/         # `doge` binary: bark/build/check subcommands, build cache
-│   ├── doge-compiler/    # lexer, parser, AST, checks, Rust codegen
-│   └── doge-runtime/     # Value enum, operators, builtins, stdlib (precompiled)
+│   ├── doge-cli/         # `doge` binary: main + build + cache; build.rs salts the
+│   │                     #   cache key with a hash of the doge-runtime source
+│   ├── doge-compiler/    # each pass is a directory module:
+│   │                     #   lexer/ (mod, scan, strings)
+│   │                     #   parser/ (mod, stmt, expr)
+│   │                     #   check/ (mod, stmt, scopes)
+│   │                     #   codegen/ (mod, program, names, analysis, callable,
+│   │                     #             stmt, expr, calls, dispatch)
+│   │                     #   modules/ (mod, diag)  — the import loader
+│   │                     #   ast/ (mod, dump)      — nodes + shared AST walker
+│   │                     #   plus keywords, token, builtins, stdlib, diagnostics
+│   └── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
+│                         #   (list, dict), builtins, objects, stdlib/ (nerd, strings)
 ├── examples/             # .doge example programs (double as integration tests)
 └── docs/                 # this documentation
 ```
 
-All crates stay at v0.1.0; the build cache is salted with the compiler version
-instead of bumping crate versions.
+All crates share one version through `[workspace.package]`; the build cache is
+salted with that version, a codegen-revision constant, and a hash of the
+`doge-runtime` source, so a runtime change never serves a stale cached binary.
 
 ## 3. Runtime model (`doge-runtime`)
 
@@ -65,7 +77,7 @@ instead of bumping crate versions.
   routes each method call to the right runtime call.
 - List and dict methods (`xs.append(1)`, `d.keys()`) are not modules: the
   generated `call_method` dispatcher forwards any non-`Object` receiver to
-  `builtin_method` in the runtime (`methods.rs`), the collection counterpart of
+  `builtin_method` in the runtime (`methods/`), the collection counterpart of
   the object dispatcher.
 
 ## 4. Codegen

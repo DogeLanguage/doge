@@ -27,13 +27,26 @@ pub fn fnv1a_64(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// The 16-hex-digit cache key for a script.
+/// The 16-hex-digit cache key for a script. Salted with the crate version, the
+/// codegen revision, and a hash of the `doge-runtime` source (from `build.rs`),
+/// so any of those changing rebuilds instead of running a stale binary.
 fn cache_key(source: &str) -> String {
-    let mut buf = Vec::with_capacity(source.len() + 16);
-    buf.extend_from_slice(env!("CARGO_PKG_VERSION").as_bytes());
-    buf.push(0);
-    buf.extend_from_slice(CODEGEN_REV.as_bytes());
-    buf.push(0);
+    cache_key_from(
+        env!("CARGO_PKG_VERSION"),
+        CODEGEN_REV,
+        env!("DOGE_RUNTIME_HASH"),
+        source,
+    )
+}
+
+/// The cache key from its explicit inputs, so the salting can be tested without
+/// depending on the compiled-in constants.
+fn cache_key_from(version: &str, codegen_rev: &str, runtime_hash: &str, source: &str) -> String {
+    let mut buf = Vec::with_capacity(source.len() + 48);
+    for salt in [version, codegen_rev, runtime_hash] {
+        buf.extend_from_slice(salt.as_bytes());
+        buf.push(0);
+    }
     buf.extend_from_slice(source.as_bytes());
     format!("{:016x}", fnv1a_64(&buf))
 }
@@ -111,6 +124,15 @@ mod tests {
     #[test]
     fn cache_key_changes_with_source() {
         assert_ne!(cache_key("such x = 1\n"), cache_key("such x = 2\n"));
+    }
+
+    #[test]
+    fn cache_key_changes_with_runtime_hash() {
+        // A doge-runtime change (a different DOGE_RUNTIME_HASH) must invalidate
+        // cached binaries even when the script source is byte-identical.
+        let a = cache_key_from("0.1.1", "m6", "aaaaaaaaaaaaaaaa", "bark 1\nwow\n");
+        let b = cache_key_from("0.1.1", "m6", "bbbbbbbbbbbbbbbb", "bark 1\nwow\n");
+        assert_ne!(a, b);
     }
 
     #[test]

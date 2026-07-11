@@ -42,30 +42,37 @@ fn every_example_parses_and_checks() {
 
 #[test]
 fn every_fixture_fails_with_the_expected_diagnostic() {
-    // (fixture file, a substring the rendered diagnostic must contain)
-    let cases = [
-        ("missing_wow.doge", "missing wow"),
-        ("tab_indent.doge", "very tab. much confuse."),
-        ("const_reassign.doge", "very const. much fixed."),
-        ("undeclared_name.doge", "very unknown. much name."),
-        ("chained_comparison.doge", "chain comparisons"),
-        ("bork_outside_loop.doge", "very bork. much nowhere."),
-        ("python_def.doge", "very python. much habit."),
-        ("interp_unclosed_hole.doge", "very hole. much open."),
-        ("interp_empty_hole.doge", "very empty. much hole."),
-        ("interp_undeclared.doge", "very unknown. much name."),
-    ];
-
+    // Each `<name>.doge` fixture is paired with a `<name>.expected` file holding
+    // a substring its rendered diagnostic must contain. Both are auto-discovered,
+    // so a new fixture needs no edit here — and a `.doge` without an `.expected`
+    // (or vice versa) fails rather than being silently skipped.
     let dir = fixtures_dir();
-    for (file, expected) in cases {
-        let path = dir.join(file);
-        let source =
-            std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("missing fixture {file}"));
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&dir).expect("fixtures directory should exist") {
+        let path = entry.expect("readable dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("doge") {
+            continue;
+        }
+        seen += 1;
+        let file = path.file_name().unwrap().to_string_lossy().into_owned();
+
+        let expected_path = path.with_extension("expected");
+        let expected = std::fs::read_to_string(&expected_path).unwrap_or_else(|_| {
+            panic!("fixture {file} has no sibling {}", expected_path.display())
+        });
+        let expected = expected.trim();
+        assert!(
+            !expected.is_empty(),
+            "{}: expected-diagnostic file is empty",
+            expected_path.display()
+        );
+
+        let source = std::fs::read_to_string(&path).expect("readable fixture");
 
         // A fixture fails at either the parse or the check stage; run both.
-        let rendered = match doge_compiler::parse(file, &source) {
+        let rendered = match doge_compiler::parse(&file, &source) {
             Err(diag) => diag.render(),
-            Ok(script) => match doge_compiler::check(file, &source, &script) {
+            Ok(script) => match doge_compiler::check(&file, &source, &script) {
                 Err(diag) => diag.render(),
                 Ok(()) => panic!("{file} should have failed, but parsed and checked clean"),
             },
@@ -76,4 +83,9 @@ fn every_fixture_fails_with_the_expected_diagnostic() {
             "{file}: expected diagnostic to contain {expected:?}, got:\n{rendered}"
         );
     }
+    assert!(
+        seen >= 10,
+        "expected at least the 10 known fixtures, found {seen} in {}",
+        dir.display()
+    );
 }

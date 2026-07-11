@@ -1,22 +1,12 @@
 use super::*;
 
-/// The source line a span points at, for building a diagnostic against a file's
-/// text (mirrors the `lines` handling in `check`/`codegen`).
-fn source_line(source: &str, line: u32) -> String {
-    source
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l))
-        .nth((line as usize).saturating_sub(1))
-        .unwrap_or_default()
-        .to_string()
-}
-
 pub(super) fn diag(path: &str, source: &str, span: Span, message: impl Into<String>) -> Diagnostic {
+    let lines = crate::diagnostics::split_source_lines(source);
     Diagnostic::new(
         path,
         span.line,
         span.col,
-        source_line(source, span.line),
+        crate::diagnostics::source_line(&lines, span.line),
         message,
     )
 }

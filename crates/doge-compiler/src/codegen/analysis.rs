@@ -2,8 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Expr, InterpPart, Stmt};
-use crate::check::BUILTINS;
+use crate::ast::{for_each_child_block, hoisted_names, Expr, InterpPart, Stmt};
+use crate::builtins::BUILTINS;
 use crate::modules::{Program, ProgramFile};
 use crate::stdlib::Module;
 use crate::token::Span;
@@ -102,76 +102,6 @@ pub(super) struct Analysis {
     pub(super) module_fn_ids: HashMap<(String, String), u32>,
 }
 
-/// Every bound name in one scope — `such`/`so` declarations, `for` loop
-/// variables, `oh no` error names, and nested function definitions — in
-/// first-seen order, each once. These become the scope's `Env` fields or hoisted
-/// locals. A nested function's own body is not descended into: its inner names
-/// belong to its own scope.
-pub(crate) fn hoisted_names(stmts: &[Stmt]) -> Vec<String> {
-    let mut names = Vec::new();
-    collect_hoisted(stmts, &mut names);
-    names
-}
-
-/// The top-level hoisted names for `Env` fields: like [`hoisted_names`] but a
-/// direct top-level `such name:` / `many Name:` is a static definition, not an
-/// `Env` field, so those direct definitions are skipped (a function nested inside
-/// a top-level `if`/`for` block is still a closure and does get a field).
-pub(crate) fn toplevel_hoisted(stmts: &[Stmt]) -> Vec<String> {
-    let mut names = Vec::new();
-    for stmt in stmts {
-        if matches!(stmt, Stmt::FuncDef { .. } | Stmt::ObjDef { .. }) {
-            continue;
-        }
-        collect_hoisted(std::slice::from_ref(stmt), &mut names);
-    }
-    names
-}
-
-pub(super) fn collect_hoisted(stmts: &[Stmt], names: &mut Vec<String>) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::Decl { name, .. } | Stmt::ConstDecl { name, .. } => push_unique(names, name),
-            // A nested function binds its name in this scope; its body is its own.
-            Stmt::FuncDef { name, .. } => push_unique(names, name),
-            Stmt::For { var, body, .. } => {
-                push_unique(names, var);
-                collect_hoisted(body, names);
-            }
-            Stmt::If {
-                branches,
-                else_body,
-                ..
-            } => {
-                for (_, body) in branches {
-                    collect_hoisted(body, names);
-                }
-                if let Some(body) = else_body {
-                    collect_hoisted(body, names);
-                }
-            }
-            Stmt::While { body, .. } => collect_hoisted(body, names),
-            Stmt::Try {
-                body,
-                err_name,
-                handler,
-                ..
-            } => {
-                push_unique(names, err_name);
-                collect_hoisted(body, names);
-                collect_hoisted(handler, names);
-            }
-            _ => {}
-        }
-    }
-}
-
-pub(super) fn push_unique(names: &mut Vec<String>, name: &str) {
-    if !names.iter().any(|n| n == name) {
-        names.push(name.to_string());
-    }
-}
-
 /// Every identifier referenced anywhere in an expression (attribute names are
 /// dynamic, not variables, so they are not collected).
 pub(super) fn expr_idents(expr: &Expr, out: &mut HashSet<String>) {
@@ -213,7 +143,13 @@ pub(super) fn expr_idents(expr: &Expr, out: &mut HashSet<String>) {
                 }
             }
         }
-        _ => {}
+        // Literals reference no names; listed explicitly so a new expression that
+        // can carry an identifier cannot be silently dropped from capture analysis.
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Str { .. }
+        | Expr::Bool { .. }
+        | Expr::None { .. } => {}
     }
 }
 
@@ -257,15 +193,22 @@ pub(super) fn collect_used(stmts: &[Stmt], used: &mut HashSet<String>) {
                 collect_used(body, used);
                 collect_used(handler, used);
             }
-            Stmt::Return {
-                expr: Some(expr), ..
-            } => expr_idents(expr, used),
+            Stmt::Return { expr, .. } => {
+                if let Some(expr) = expr {
+                    expr_idents(expr, used);
+                }
+            }
             Stmt::FuncDef { params, body, .. } => {
                 for name in free_names(params, body) {
                     used.insert(name);
                 }
             }
-            _ => {}
+            // Reference no names from the enclosing scope; listed explicitly so a
+            // new statement that can is not silently missed by capture analysis.
+            Stmt::Import { .. }
+            | Stmt::Bork { .. }
+            | Stmt::Continue { .. }
+            | Stmt::ObjDef { .. } => {}
         }
     }
 }
@@ -297,32 +240,16 @@ pub(super) fn collect_child_funcdefs<'a>(
     out: &mut Vec<(&'a str, &'a [String], &'a [Stmt], Span)>,
 ) {
     for stmt in stmts {
-        match stmt {
-            Stmt::FuncDef {
-                name,
-                params,
-                body,
-                span,
-            } => out.push((name, params, body, *span)),
-            Stmt::If {
-                branches,
-                else_body,
-                ..
-            } => {
-                for (_, body) in branches {
-                    collect_child_funcdefs(body, out);
-                }
-                if let Some(body) = else_body {
-                    collect_child_funcdefs(body, out);
-                }
-            }
-            Stmt::For { body, .. } | Stmt::While { body, .. } => collect_child_funcdefs(body, out),
-            Stmt::Try { body, handler, .. } => {
-                collect_child_funcdefs(body, out);
-                collect_child_funcdefs(handler, out);
-            }
-            _ => {}
+        if let Stmt::FuncDef {
+            name,
+            params,
+            body,
+            span,
+        } = stmt
+        {
+            out.push((name, params, body, *span));
         }
+        for_each_child_block(stmt, &mut |block| collect_child_funcdefs(block, out));
     }
 }
 
@@ -547,8 +474,10 @@ pub(super) fn analyze_program(program: &Program) -> Analysis {
     for builtin in BUILTINS {
         let id = analyzer.next_id;
         analyzer.next_id += 1;
-        analyzer.registry.push(ArmSpec::Builtin { name: builtin });
-        builtin_ids.insert(*builtin, id);
+        analyzer
+            .registry
+            .push(ArmSpec::Builtin { name: builtin.name });
+        builtin_ids.insert(builtin.name, id);
     }
     // A stdlib module can be imported by several files; its runtime functions
     // need one arm each, keyed by the canonical module name.

@@ -5,8 +5,8 @@
 pub(super) use std::cell::{Cell, RefCell};
 pub(super) use std::collections::{HashMap, HashSet};
 
-pub(super) use crate::ast::{BinOp, Expr, InterpPart, Stmt, UnOp};
-pub(super) use crate::check::BUILTINS;
+pub(super) use crate::ast::{hoisted_names, toplevel_hoisted, BinOp, Expr, InterpPart, Stmt, UnOp};
+pub(super) use crate::builtins::{BuiltinFn, BuiltinShape};
 pub(super) use crate::diagnostics::Diagnostic;
 pub(super) use crate::modules::Program;
 pub(super) use crate::stdlib::Module;
@@ -18,12 +18,12 @@ mod calls;
 mod dispatch;
 mod expr;
 mod names;
+mod program;
 mod stmt;
 #[cfg(test)]
 mod tests;
 
 use analysis::*;
-pub(crate) use analysis::{hoisted_names, toplevel_hoisted};
 use names::*;
 
 /// Turn a checked [`Program`] into a complete Rust source file, or a diagnostic
@@ -36,11 +36,7 @@ pub fn generate_program(program: &Program) -> Result<String, Diagnostic> {
         .iter()
         .map(|f| FileText {
             path: f.path.clone(),
-            lines: f
-                .source
-                .split('\n')
-                .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-                .collect(),
+            lines: crate::diagnostics::split_source_lines(&f.source),
         })
         .collect();
     let codegen = Codegen {
@@ -199,151 +195,6 @@ impl Codegen {
     fn enter_file(&self, emit: &mut Emit, file_id: u32) {
         self.cur.set(file_id);
         emit.file_id = file_id;
-    }
-
-    fn program(&self, program: &Program) -> Result<String, Diagnostic> {
-        let tables: Vec<FileTable> = program.files.iter().map(file_table).collect();
-
-        let analysis = analyze_program(program);
-
-        // Objects are entry-only (a module with an object is a check error), so
-        // the class list comes from the entry alone; its index is the class id.
-        let entry = &program.files[0];
-        let mut classes: Vec<Class> = Vec::new();
-        for stmt in &entry.script.stmts {
-            if let Stmt::ObjDef { name, methods, .. } = stmt {
-                let methods = methods
-                    .iter()
-                    .filter_map(|m| match m {
-                        Stmt::FuncDef { name, params, .. } => Some((name.clone(), params.clone())),
-                        _ => None,
-                    })
-                    .collect();
-                classes.push(Class {
-                    name: name.clone(),
-                    id: classes.len() as u32,
-                    methods,
-                });
-            }
-        }
-
-        // The `Env` holds the line tracker, the recursion depth, and every file's
-        // top-level bound names: the entry's `v_` fields, then each module's `g_`
-        // constant fields. A direct top-level function/object is a static
-        // definition, not a field.
-        let mut env_fields: Vec<String> = toplevel_hoisted(&entry.script.stmts)
-            .iter()
-            .map(|name| field_name(0, name))
-            .collect();
-        for file in &program.files[1..] {
-            for name in &tables[file.file_id as usize].members {
-                if tables[file.file_id as usize].consts.contains(name) {
-                    env_fields.push(field_name(file.file_id, name));
-                }
-            }
-        }
-
-        let mut emit = Emit {
-            tables: &tables,
-            file_id: 0,
-            classes: &classes,
-            analysis: &analysis,
-            uses_method_call: Cell::new(false),
-            uses_call_function: Cell::new(false),
-            materialized: RefCell::new(HashSet::new()),
-            locals: HashMap::new(),
-            local_funcs: HashMap::new(),
-            counter: 0,
-            try_stack: Vec::new(),
-            loop_stack: Vec::new(),
-        };
-
-        // `run` first initializes every module's constants in dependency order
-        // (so a module referencing another's constant sees it ready), then runs
-        // the entry's own top-level statements.
-        let mut run_body = String::new();
-        for &fid in &program.init_order {
-            self.enter_file(&mut emit, fid);
-            for stmt in &program.files[fid as usize].script.stmts {
-                if matches!(stmt, Stmt::ConstDecl { .. }) {
-                    self.stmt(stmt, 1, &mut emit, &mut run_body)?;
-                }
-            }
-        }
-        self.enter_file(&mut emit, 0);
-        for stmt in &entry.script.stmts {
-            if matches!(
-                stmt,
-                Stmt::FuncDef { .. } | Stmt::ObjDef { .. } | Stmt::Import { .. }
-            ) {
-                continue;
-            }
-            self.stmt(stmt, 1, &mut emit, &mut run_body)?;
-        }
-
-        // Every file's top-level functions, mangled by file id.
-        let mut funcs_src = String::new();
-        for file in &program.files {
-            self.enter_file(&mut emit, file.file_id);
-            for stmt in &file.script.stmts {
-                if let Stmt::FuncDef { span, .. } = stmt {
-                    self.function(*span, &mut emit, &mut funcs_src)?;
-                }
-            }
-        }
-
-        // Each entry object contributes a constructor plus a wrapper/body pair
-        // per method; the source is looked up from the ObjDef, keyed by class id.
-        self.enter_file(&mut emit, 0);
-        for (class, stmt) in classes.iter().zip(
-            entry
-                .script
-                .stmts
-                .iter()
-                .filter(|s| matches!(s, Stmt::ObjDef { .. })),
-        ) {
-            let Stmt::ObjDef { methods, .. } = stmt else {
-                unreachable!("compiler bug: class list and ObjDef filter disagree")
-            };
-            self.constructor(class, &mut funcs_src);
-            for method in methods {
-                if let Stmt::FuncDef { span, .. } = method {
-                    self.method(class, *span, &mut emit, &mut funcs_src)?;
-                }
-            }
-        }
-
-        // Every closure — nested functions, at any depth, in any file — is
-        // emitted as a `c_`/`cb_` pair. Ordered by id for stable output.
-        let mut closures: Vec<&FnInfo> = analysis
-            .fn_info
-            .values()
-            .filter(|info| info.kind == FnKind::Closure)
-            .collect();
-        closures.sort_by_key(|info| info.fn_id);
-        for info in closures {
-            self.enter_file(&mut emit, info.file_id);
-            self.closure(info, &mut emit, &mut funcs_src)?;
-        }
-
-        let dispatcher = self.dispatcher(&classes, emit.uses_method_call.get());
-        let fn_dispatcher = self.function_dispatcher(&emit);
-
-        let mut out = String::new();
-        out.push_str("#![allow(warnings)]\n");
-        out.push_str("use doge_runtime::*;\n\n");
-        self.emit_source_tables(&mut out);
-        self.emit_env_and_main(&env_fields, &mut out);
-
-        out.push_str("fn run(env: &mut Env) -> DogeResult<()> {\n");
-        out.push_str(&run_body);
-        out.push_str("    Ok(())\n");
-        out.push_str("}\n");
-
-        out.push_str(&funcs_src);
-        out.push_str(&dispatcher);
-        out.push_str(&fn_dispatcher);
-        Ok(out)
     }
 
     /// The embedded source lines an uncaught error shows without any Rust

@@ -1,45 +1,59 @@
 use crate::token::TokenKind;
 
-/// Map a bare word to its keyword [`TokenKind`]
+/// The one keyword table: every bare word that lexes to a keyword token, paired
+/// with the token it produces. The lexer's [`lookup`] and diagnostics'
+/// [`keyword_spelling`] both read this, so a keyword's spelling lives in exactly
+/// one place. The fused `oh no` compound is not here (it is not a bare word).
+///
+/// Reserved words (`def`/`class`/`amaze`) are lexed as keywords so the parser can
+/// greet Python muscle memory with a friendly hint instead of a vague
+/// "unexpected identifier".
+pub const KEYWORDS: &[(&str, TokenKind)] = &[
+    ("pls", TokenKind::Pls),
+    ("bork", TokenKind::Bork),
+    ("bonk", TokenKind::Bonk),
+    ("bark", TokenKind::Bark),
+    ("wow", TokenKind::Wow),
+    ("such", TokenKind::Such),
+    ("much", TokenKind::Much),
+    ("many", TokenKind::Many),
+    ("so", TokenKind::So),
+    ("very", TokenKind::Very),
+    ("if", TokenKind::If),
+    ("elif", TokenKind::Elif),
+    ("else", TokenKind::Else),
+    ("for", TokenKind::For),
+    ("while", TokenKind::While),
+    ("in", TokenKind::In),
+    ("return", TokenKind::Return),
+    ("continue", TokenKind::Continue),
+    ("and", TokenKind::And),
+    ("or", TokenKind::Or),
+    ("not", TokenKind::Not),
+    ("true", TokenKind::True),
+    ("false", TokenKind::False),
+    ("none", TokenKind::None),
+    ("def", TokenKind::Def),
+    ("class", TokenKind::Class),
+    ("amaze", TokenKind::Amaze),
+];
+
+/// Map a bare word to its keyword [`TokenKind`], or `None` if it is an ordinary
+/// identifier.
 pub fn lookup(word: &str) -> Option<TokenKind> {
-    let kind = match word {
-        // Doge keywords
-        "pls" => TokenKind::Pls,
-        "bork" => TokenKind::Bork,
-        "bonk" => TokenKind::Bonk,
-        "bark" => TokenKind::Bark,
-        "wow" => TokenKind::Wow,
-        "such" => TokenKind::Such,
-        "much" => TokenKind::Much,
-        "many" => TokenKind::Many,
-        "so" => TokenKind::So,
-        "very" => TokenKind::Very,
+    KEYWORDS
+        .iter()
+        .find(|(spelling, _)| *spelling == word)
+        .map(|(_, kind)| kind.clone())
+}
 
-        // Universal keywords
-        "if" => TokenKind::If,
-        "elif" => TokenKind::Elif,
-        "else" => TokenKind::Else,
-        "for" => TokenKind::For,
-        "while" => TokenKind::While,
-        "in" => TokenKind::In,
-        "return" => TokenKind::Return,
-        "continue" => TokenKind::Continue,
-        "and" => TokenKind::And,
-        "or" => TokenKind::Or,
-        "not" => TokenKind::Not,
-        "true" => TokenKind::True,
-        "false" => TokenKind::False,
-        "none" => TokenKind::None,
-
-        // Reserved words lexed as keywords so the parser can greet Python muscle
-        // memory with a friendly hint instead of a vague "unexpected identifier".
-        "def" => TokenKind::Def,
-        "class" => TokenKind::Class,
-        "amaze" => TokenKind::Amaze,
-
-        _ => return Option::None,
-    };
-    Some(kind)
+/// The bare-word spelling of a keyword token, for diagnostics. `None` for any
+/// token that is not a keyword (operators, literals, the fused `oh no`).
+pub fn keyword_spelling(kind: &TokenKind) -> Option<&'static str> {
+    KEYWORDS
+        .iter()
+        .find(|(_, k)| k == kind)
+        .map(|(spelling, _)| *spelling)
 }
 
 #[cfg(test)]

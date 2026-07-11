@@ -129,7 +129,7 @@ impl Checker {
     /// hoisted variable/loop/error name. Within an object, method names must be
     /// unique too.
     pub(super) fn check_unique_toplevel(&self, script: &Script) -> Result<(), Diagnostic> {
-        let hoisted = crate::codegen::toplevel_hoisted(&script.stmts);
+        let hoisted = crate::ast::toplevel_hoisted(&script.stmts);
         let hoisted: HashSet<&str> = hoisted.iter().map(String::as_str).collect();
 
         let mut seen: HashSet<&str> = HashSet::new();
@@ -141,7 +141,7 @@ impl Checker {
                 Stmt::Import { module, span, .. } => (module.as_str(), *span),
                 _ => continue,
             };
-            if BUILTINS.contains(&name) {
+            if crate::builtins::is_builtin(name) {
                 return Err(self.name_clash(span, format!("{name} is already a builtin")));
             }
             if seen.contains(name) || hoisted.contains(name) {
@@ -218,7 +218,7 @@ impl Checker {
         collect_var_bindings(body, &mut others);
         let mut seen: HashSet<&str> = HashSet::new();
         for (name, span) in nested_funcs_with_span(body) {
-            if BUILTINS.contains(&name) {
+            if crate::builtins::is_builtin(name) {
                 return Err(self.name_clash(span, format!("{name} is already a builtin")));
             }
             if others.contains(name) || !seen.insert(name) {

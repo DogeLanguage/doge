@@ -17,67 +17,32 @@ pub(super) fn nested_func_names(body: &[Stmt]) -> HashSet<String> {
 
 /// The variable-like bindings of one scope — `such`/`so` declarations, `for`
 /// loop variables, and `oh no` error names — crossing blocks but not another
-/// function's body. Nested-function names are handled separately.
+/// function's body. Nested-function names are handled separately. Descent into
+/// child blocks goes through the shared [`for_each_child_block`] walker, so a new
+/// block-carrying statement is covered without editing this function.
 pub(super) fn collect_var_bindings(body: &[Stmt], out: &mut HashSet<String>) {
     for stmt in body {
         match stmt {
             Stmt::Decl { name, .. } | Stmt::ConstDecl { name, .. } => {
                 out.insert(name.clone());
             }
-            Stmt::For { var, body, .. } => {
+            Stmt::For { var, .. } => {
                 out.insert(var.clone());
-                collect_var_bindings(body, out);
             }
-            Stmt::If {
-                branches,
-                else_body,
-                ..
-            } => {
-                for (_, b) in branches {
-                    collect_var_bindings(b, out);
-                }
-                if let Some(b) = else_body {
-                    collect_var_bindings(b, out);
-                }
-            }
-            Stmt::While { body, .. } => collect_var_bindings(body, out),
-            Stmt::Try {
-                body,
-                err_name,
-                handler,
-                ..
-            } => {
+            Stmt::Try { err_name, .. } => {
                 out.insert(err_name.clone());
-                collect_var_bindings(body, out);
-                collect_var_bindings(handler, out);
             }
             _ => {}
         }
+        for_each_child_block(stmt, &mut |block| collect_var_bindings(block, out));
     }
 }
 
 pub(super) fn collect_nested_funcs<'a>(body: &'a [Stmt], out: &mut Vec<(&'a str, Span)>) {
     for stmt in body {
-        match stmt {
-            Stmt::FuncDef { name, span, .. } => out.push((name, *span)),
-            Stmt::If {
-                branches,
-                else_body,
-                ..
-            } => {
-                for (_, b) in branches {
-                    collect_nested_funcs(b, out);
-                }
-                if let Some(b) = else_body {
-                    collect_nested_funcs(b, out);
-                }
-            }
-            Stmt::For { body, .. } | Stmt::While { body, .. } => collect_nested_funcs(body, out),
-            Stmt::Try { body, handler, .. } => {
-                collect_nested_funcs(body, out);
-                collect_nested_funcs(handler, out);
-            }
-            _ => {}
+        if let Stmt::FuncDef { name, span, .. } = stmt {
+            out.push((name, *span));
         }
+        for_each_child_block(stmt, &mut |block| collect_nested_funcs(block, out));
     }
 }

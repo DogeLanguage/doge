@@ -22,10 +22,7 @@ struct Parser {
 
 impl Parser {
     fn new(path: &str, source: &str, tokens: Vec<Token>) -> Parser {
-        let lines = source
-            .split('\n')
-            .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-            .collect();
+        let lines = crate::diagnostics::split_source_lines(source);
         Parser {
             path: path.to_string(),
             lines,

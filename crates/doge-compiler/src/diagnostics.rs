@@ -22,6 +22,16 @@ pub struct Diagnostic {
 /// The default meme framing, used unless a more specific headline fits.
 pub const DEFAULT_HEADLINE: &str = "very error. much confuse.";
 
+/// Split source into diagnostic lines: one `String` per line, each stripped of a
+/// trailing `\r` so caret columns line up on both `\n` and `\r\n` files. Every
+/// pass that anchors diagnostics splits its source through this.
+pub(crate) fn split_source_lines(source: &str) -> Vec<String> {
+    source
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_string())
+        .collect()
+}
+
 /// The 1-based source line a diagnostic points at, pulled from a file's
 /// already-split lines. A line number past the end falls back to an empty line.
 /// The lexer, parser, and checker all anchor diagnostics through this.
