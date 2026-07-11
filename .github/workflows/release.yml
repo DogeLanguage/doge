@@ -56,6 +56,7 @@ jobs:
           Compress-Archive -Path "target/${{ matrix.target }}/release/doge.exe" -DestinationPath $asset
           "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Upload asset
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" "$ASSET"
