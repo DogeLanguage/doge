@@ -1,0 +1,688 @@
+use super::*;
+use crate::parser::parse;
+
+fn gen(source: &str) -> Result<String, Diagnostic> {
+    let script = parse("examples/hello.doge", source).expect("parse should succeed");
+    let program = crate::modules::single_file_program("examples/hello.doge", source, script)?;
+    generate_program(&program)
+}
+
+#[test]
+fn golden_hello_output() {
+    let out = gen("such age = 7\nbark \"age is \" + str(age)\nwow\n").unwrap();
+    let expected = "\
+#![allow(warnings)]
+use doge_runtime::*;
+
+static LINES: &[&str] = &[
+    \"such age = 7\",
+    \"bark \\\"age is \\\" + str(age)\",
+    \"wow\",
+    \"\",
+];
+
+struct Env {
+    cur_line: u32,
+    depth: usize,
+    v_age: Value,
+}
+
+fn main() -> std::process::ExitCode {
+    let mut env = Env {
+        cur_line: 0,
+        depth: 0,
+        v_age: Value::None,
+    };
+    match run(&mut env) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");
+            eprintln!(\"very error. much broken.\\n\\n  examples/hello.doge:{}\\n    {line}\\n  {e}\", env.cur_line);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(env: &mut Env) -> DogeResult<()> {
+    env.cur_line = 1;
+    env.v_age = Value::Int(7i64);
+    env.cur_line = 2;
+    let _ = bark(&add(Value::str(\"age is \"), to_str(&env.v_age.clone()))?);
+    Ok(())
+}
+";
+    assert_eq!(out, expected);
+}
+
+#[test]
+fn golden_function_shape() {
+    let out =
+        gen("such greet much name:\n    return name\nwow\nbark greet(\"kabosu\")\nwow\n").unwrap();
+    let expected = "\
+#![allow(warnings)]
+use doge_runtime::*;
+
+static LINES: &[&str] = &[
+    \"such greet much name:\",
+    \"    return name\",
+    \"wow\",
+    \"bark greet(\\\"kabosu\\\")\",
+    \"wow\",
+    \"\",
+];
+
+struct Env {
+    cur_line: u32,
+    depth: usize,
+}
+
+fn main() -> std::process::ExitCode {
+    let mut env = Env {
+        cur_line: 0,
+        depth: 0,
+    };
+    match run(&mut env) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or(\"\");
+            eprintln!(\"very error. much broken.\\n\\n  examples/hello.doge:{}\\n    {line}\\n  {e}\", env.cur_line);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(env: &mut Env) -> DogeResult<()> {
+    env.cur_line = 4;
+    let _ = bark(&f_greet(Value::str(\"kabosu\"), &mut *env)?);
+    Ok(())
+}
+
+fn f_greet(v_name: Value, env: &mut Env) -> DogeResult<Value> {
+    enter_call(&mut env.depth)?;
+    let result = b_greet(v_name, env);
+    exit_call(&mut env.depth);
+    result
+}
+
+fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
+    env.cur_line = 2;
+    return Ok(v_name.clone());
+    Ok(Value::None)
+}
+";
+    assert_eq!(out, expected);
+}
+
+#[test]
+fn decl_inside_if_is_hoisted() {
+    let out = gen("such c = 1\nif c:\n    such y = 2\nbark y\nwow\n").unwrap();
+    assert!(out.contains("    v_y: Value,\n"));
+    assert!(out.contains("env.v_y = Value::Int(2i64);"));
+    assert!(out.contains("let _ = bark(&env.v_y.clone());"));
+}
+
+#[test]
+fn for_variable_is_hoisted() {
+    let out = gen("such xs = [1, 2]\nfor x in xs:\n    bark x\nwow\n").unwrap();
+    assert!(out.contains("    v_x: Value,\n"));
+    assert!(out.contains("'l0: for item in iter_value(&env.v_xs.clone())? {"));
+    assert!(out.contains("env.v_x = item;"));
+}
+
+#[test]
+fn and_or_short_circuit_shape() {
+    let and = gen("such a = true\nsuch b = false\nbark a and b\nwow\n").unwrap();
+    assert!(and.contains(
+            "{ let l = env.v_a.clone(); if !l.truthy() { Value::Bool(false) } else { Value::Bool((env.v_b.clone()).truthy()) } }"
+        ));
+    let or = gen("such a = true\nsuch b = false\nbark a or b\nwow\n").unwrap();
+    assert!(or.contains(
+            "{ let l = env.v_a.clone(); if l.truthy() { Value::Bool(true) } else { Value::Bool((env.v_b.clone()).truthy()) } }"
+        ));
+}
+
+#[test]
+fn rust_keyword_idents_are_mangled() {
+    // `match` is a Rust keyword; the `v_` prefix keeps the generated code legal.
+    let out = gen("such match = 1\nbark match\nwow\n").unwrap();
+    assert!(out.contains("    v_match: Value,\n"));
+    assert!(out.contains("env.v_match = Value::Int(1i64);"));
+}
+
+#[test]
+fn string_escapes_survive() {
+    let out = gen("such s = \"a\\\"b\\nc\"\nwow\n").unwrap();
+    // The Doge string a"b<newline>c becomes an escaped Rust string literal.
+    assert!(out.contains("Value::str(\"a\\\"b\\nc\")"));
+}
+
+#[test]
+fn const_compiles_like_decl() {
+    let out = gen("so PI = 3\nbark PI\nwow\n").unwrap();
+    assert!(out.contains("    v_PI: Value,\n"));
+    assert!(out.contains("env.v_PI = Value::Int(3i64);"));
+    assert!(out.contains("let _ = bark(&env.v_PI.clone());"));
+}
+
+#[test]
+fn try_block_shape() {
+    let out = gen("such x = 0\npls\n    very x = 1 // 0\noh no err!\n    bark err\nwow\n").unwrap();
+    assert!(out.contains("let attempt0: DogeResult<()> = 'p0: {"));
+    assert!(out.contains("Err(e) => break 'p0 Err(e)"));
+    assert!(out.contains("if let Err(e) = attempt0 {"));
+    assert!(out.contains("env.v_err = error_value(&e);"));
+}
+
+#[test]
+fn bonk_returns_err() {
+    let out = gen("bonk \"nope\"\nwow\n").unwrap();
+    assert!(out.contains("return Err(bonk_error(&Value::str(\"nope\")));"));
+}
+
+#[test]
+fn bonk_in_try_breaks_to_label() {
+    let out = gen("pls\n    bonk \"nope\"\noh no err!\n    bark err\nwow\n").unwrap();
+    assert!(out.contains("break 'p0 Err(bonk_error(&Value::str(\"nope\")));"));
+}
+
+#[test]
+fn loops_are_labeled_and_bork_uses_labels() {
+    // A bork inside a pls inside a for must break the labeled loop, crossing
+    // the labeled try block.
+    let out =
+            gen("such xs = [1]\nfor x in xs:\n    pls\n        bork\n    oh no err!\n        bark err\nwow\n")
+                .unwrap();
+    assert!(out.contains("'l0: for item in"));
+    assert!(out.contains("'p1: {"));
+    assert!(out.contains("break 'l0;"));
+}
+
+#[test]
+fn interpolation_emits_an_interp_call() {
+    let out = gen("such name = \"kabosu\"\nbark \"hi {name}, {1 + 1}\"\nwow\n").unwrap();
+    assert!(out.contains("interp(&["));
+    // The literal segments survive escaping and the holes compile as exprs.
+    assert!(out.contains("Value::str(\"hi \")"));
+    assert!(out.contains("add("));
+}
+
+#[test]
+fn interpolation_literal_escapes_survive() {
+    // A literal `"` inside the interpolated text must stay escaped in the
+    // generated Rust string literal.
+    let out = gen("bark \"a \\\" {1}\"\nwow\n").unwrap();
+    assert!(out.contains("Value::str(\"a \\\" \")"));
+}
+
+#[test]
+fn builtin_arity_error_is_precise() {
+    let err = gen("bark len(1, 2, 3)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very args. much wrong.");
+    assert_eq!(err.message, "len takes 1 argument, got 3");
+    assert_eq!(err.hint.as_deref(), Some("len(thing)"));
+
+    let range_err = gen("bark range(1, 2, 3)\nwow\n").unwrap_err();
+    assert_eq!(range_err.message, "range takes 1 or 2 arguments, got 3");
+}
+
+#[test]
+fn function_arity_error_is_precise() {
+    let err = gen("such add2 much a, b:\n    return a + b\nwow\nbark add2(1)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very args. much wrong.");
+    assert_eq!(err.message, "add2 takes 2 arguments, got 1");
+    assert_eq!(err.hint.as_deref(), Some("add2(a, b)"));
+}
+
+#[test]
+fn range_one_and_two_args() {
+    let one = gen("for i in range(3):\n    bark i\nwow\n").unwrap();
+    assert!(one.contains("range(&Value::Int(0i64), &Value::Int(3i64))?"));
+    let two = gen("for i in range(2, 5):\n    bark i\nwow\n").unwrap();
+    assert!(two.contains("range(&Value::Int(2i64), &Value::Int(5i64))?"));
+}
+
+#[test]
+fn function_as_value_constructs_a_function_value() {
+    let out = gen("such greet:\n    bark 1\nwow\nsuch g = greet\nwow\n").unwrap();
+    // A top-level function name used as a value builds a `Value::function`.
+    assert!(out.contains("env.v_g = Value::function(0u32, \"greet\", vec![]);"));
+}
+
+#[test]
+fn builtin_as_value_constructs_a_function_value() {
+    // `bark len` — a bare builtin name used as a value.
+    let out = gen("bark len\nwow\n").unwrap();
+    assert!(out.contains("Value::function(0u32, \"len\", vec![])"));
+}
+
+#[test]
+fn indirect_call_goes_through_the_dispatcher() {
+    let out = gen("such x = 1\nx()\nwow\n").unwrap();
+    assert!(out.contains("call_function(&*callee_function(&env.v_x.clone())?, vec![], &mut *env)?"));
+    assert!(out.contains("fn call_function(f: &FunctionData"));
+}
+
+#[test]
+fn nested_funcdef_becomes_a_closure() {
+    let out = gen("such outer:\n    such inner:\n        bark 1\n    wow\nwow\nwow\n").unwrap();
+    // The nested name is a hoisted cell, set to a closure value; the closure
+    // body is emitted as a `c_`/`cb_` pair.
+    assert!(out.contains("let v_inner: Cell = Rc::new(RefCell::new(Value::None));"));
+    assert!(out.contains("cell_set(&v_inner, Value::function(1u32, \"inner\", vec![]));"));
+    assert!(out.contains("fn c_1(env: &mut Env)"));
+    assert!(out.contains("fn cb_1(env: &mut Env)"));
+}
+
+#[test]
+fn closure_captures_an_enclosing_variable() {
+    // `bump` reads and writes `count`, which becomes a shared cell in `outer`.
+    let out = gen(
+            "such outer:\n    such count = 0\n    such bump:\n        very count = count + 1\n        return count\n    wow\n    return bump()\nwow\nwow\n",
+        )
+        .unwrap();
+    assert!(out.contains("let v_count: Cell = Rc::new(RefCell::new(Value::None));"));
+    // The closure receives `count` as a leading cell parameter.
+    assert!(out.contains("fn cb_1(v_count: Cell, env: &mut Env)"));
+    assert!(out.contains("cell_set(&v_count, add(cell_get(&v_count), Value::Int(1i64))?);"));
+    // Construction threads the shared cell into the function value.
+    assert!(
+        out.contains("cell_set(&v_bump, Value::function(1u32, \"bump\", vec![v_count.clone()]));")
+    );
+}
+
+#[test]
+fn direct_nested_call_keeps_compile_time_arity() {
+    let err = gen(
+            "such outer:\n    such add2 much a, b:\n        return a + b\n    wow\n    return add2(1)\nwow\nwow\n",
+        )
+        .unwrap_err();
+    assert_eq!(err.headline, "very args. much wrong.");
+    assert_eq!(err.message, "add2 takes 2 arguments, got 1");
+}
+
+#[test]
+fn reassigning_a_nested_function_is_an_error() {
+    let err = gen(
+        "such outer:\n    such inner:\n        bark 1\n    wow\n    very inner = 5\nwow\nwow\n",
+    )
+    .unwrap_err();
+    assert_eq!(err.headline, "very function. much fixed.");
+}
+
+#[test]
+fn module_func_as_value_constructs_a_function_value() {
+    let out = gen("so nerd\nsuch s = nerd.sqrt\nwow\n").unwrap();
+    assert!(out.contains("Value::function("));
+    assert!(out.contains("\"nerd.sqrt\", vec![]"));
+}
+
+#[test]
+fn so_math_hints_at_nerd() {
+    let err = gen("so math\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very import. much unknown.");
+    assert!(err.hint.as_deref().unwrap_or_default().contains("so nerd"));
+}
+
+#[test]
+fn unknown_module_is_an_error() {
+    let err = gen("so bogus\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very import. much unknown.");
+    assert_eq!(err.message, "doge has no module named bogus");
+    assert!(err
+        .hint
+        .as_deref()
+        .unwrap_or_default()
+        .contains("nerd, strings"));
+}
+
+#[test]
+fn module_call_emits_runtime_fn() {
+    let out = gen("so nerd\nbark nerd.sqrt(16)\nwow\n").unwrap();
+    assert!(out.contains("nerd_sqrt(&Value::Int(16i64))?"));
+}
+
+#[test]
+fn module_const_emits_value() {
+    let out = gen("so nerd\nbark nerd.pi\nwow\n").unwrap();
+    assert!(out.contains("Value::Float(std::f64::consts::PI)"));
+}
+
+#[test]
+fn unknown_member_is_an_error() {
+    let err = gen("so nerd\nbark nerd.bogus(1)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very module. much unknown.");
+    assert_eq!(err.message, "nerd has no member bogus");
+}
+
+#[test]
+fn module_member_arity_error_is_precise() {
+    let err = gen("so nerd\nbark nerd.sqrt(1, 2)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very args. much wrong.");
+    assert_eq!(err.message, "nerd.sqrt takes 1 argument, got 2");
+    assert_eq!(err.hint.as_deref(), Some("nerd.sqrt(x)"));
+}
+
+#[test]
+fn module_const_called_is_an_error() {
+    let err = gen("so nerd\nbark nerd.pi(1)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very module. much confuse.");
+    assert_eq!(err.message, "nerd.pi is a constant, not a function");
+}
+
+#[test]
+fn module_as_value_is_an_error() {
+    let err = gen("so nerd\nbark nerd\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very module. much confuse.");
+    assert_eq!(err.message, "nerd is a module, not a value");
+}
+
+#[test]
+fn bare_module_func_is_a_value() {
+    // `bark nerd.sqrt` prints the function value rather than erroring.
+    let out = gen("so nerd\nbark nerd.sqrt\nwow\n").unwrap();
+    assert!(out.contains("Value::function("));
+    assert!(out.contains("\"nerd.sqrt\", vec![]"));
+}
+
+#[test]
+fn calling_a_module_is_an_error() {
+    let err = gen("so nerd\nbark nerd(1)\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very module. much confuse.");
+    assert_eq!(err.message, "nerd is a module, not a function");
+}
+
+#[test]
+fn assign_to_module_name_is_an_error() {
+    let err = gen("so nerd\nnerd = 5\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very module. much fixed.");
+}
+
+#[test]
+fn assign_into_module_is_an_error() {
+    let err = gen("so nerd\nnerd.x = 5\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very module. much fixed.");
+    assert_eq!(err.message, "cannot assign into a module");
+}
+
+#[test]
+fn nested_import_is_an_error() {
+    let err = gen("such f:\n    so nerd\nwow\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very nested. much import.");
+}
+
+#[test]
+fn assign_to_function_name_is_an_error() {
+    let err = gen("such greet:\n    bark 1\nwow\nvery greet = 5\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very function. much fixed.");
+}
+
+#[test]
+fn fn_local_vs_global_resolution() {
+    // The function reassigns a top-level name (env field) and declares its
+    // own local (a plain `v_`).
+    let out = gen(
+            "such total = 0\nsuch tally much n:\n    such step = n\n    very total = total + step\n    return total\nwow\nbark tally(2)\nwow\n",
+        )
+        .unwrap();
+    assert!(out.contains("let mut v_step: Value = Value::None;"));
+    assert!(out.contains("env.v_total = add(env.v_total.clone(), v_step.clone())?;"));
+}
+
+#[test]
+fn bare_return_and_missing_return_yield_none() {
+    let out = gen("such f:\n    return\nwow\nf()\nwow\n").unwrap();
+    assert!(out.contains("return Ok(Value::None);"));
+    // The body still ends with the fall-off-end none.
+    assert!(out.contains("    Ok(Value::None)\n}\n"));
+}
+
+#[test]
+fn object_golden_shape() {
+    let src = "many Shibe:\n    such init much name, age:\n        self.name = name\n        self.age = age\n    wow\n\n    such speak:\n        bark self.name + \" says bork\"\n    wow\nwow\n\nsuch kabosu = Shibe(\"kabosu\", 18)\nkabosu.speak()\nwow\n";
+    let out = gen(src).unwrap();
+    let expected = r#"#![allow(warnings)]
+use doge_runtime::*;
+
+static LINES: &[&str] = &[
+    "many Shibe:",
+    "    such init much name, age:",
+    "        self.name = name",
+    "        self.age = age",
+    "    wow",
+    "",
+    "    such speak:",
+    "        bark self.name + \" says bork\"",
+    "    wow",
+    "wow",
+    "",
+    "such kabosu = Shibe(\"kabosu\", 18)",
+    "kabosu.speak()",
+    "wow",
+    "",
+];
+
+struct Env {
+    cur_line: u32,
+    depth: usize,
+    v_kabosu: Value,
+}
+
+fn main() -> std::process::ExitCode {
+    let mut env = Env {
+        cur_line: 0,
+        depth: 0,
+        v_kabosu: Value::None,
+    };
+    match run(&mut env) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            let line = LINES.get((env.cur_line as usize).saturating_sub(1)).copied().unwrap_or("");
+            eprintln!("very error. much broken.\n\n  examples/hello.doge:{}\n    {line}\n  {e}", env.cur_line);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(env: &mut Env) -> DogeResult<()> {
+    env.cur_line = 12;
+    env.v_kabosu = n_0(Value::str("kabosu"), Value::Int(18i64), &mut *env)?;
+    env.cur_line = 13;
+    let _ = call_method(env.v_kabosu.clone(), "speak", vec![], &mut *env)?;
+    Ok(())
+}
+
+fn n_0(v_name: Value, v_age: Value, env: &mut Env) -> DogeResult<Value> {
+    let obj = Value::object(0u32, "Shibe");
+    mf_0_init(obj.clone(), v_name, v_age, env)?;
+    Ok(obj)
+}
+
+fn mf_0_init(v_self: Value, v_name: Value, v_age: Value, env: &mut Env) -> DogeResult<Value> {
+    enter_call(&mut env.depth)?;
+    let result = mb_0_init(v_self, v_name, v_age, env);
+    exit_call(&mut env.depth);
+    result
+}
+
+fn mb_0_init(mut v_self: Value, mut v_name: Value, mut v_age: Value, env: &mut Env) -> DogeResult<Value> {
+    env.cur_line = 3;
+    attr_set(&v_self.clone(), "name", v_name.clone())?;
+    env.cur_line = 4;
+    attr_set(&v_self.clone(), "age", v_age.clone())?;
+    Ok(Value::None)
+}
+
+fn mf_0_speak(v_self: Value, env: &mut Env) -> DogeResult<Value> {
+    enter_call(&mut env.depth)?;
+    let result = mb_0_speak(v_self, env);
+    exit_call(&mut env.depth);
+    result
+}
+
+fn mb_0_speak(mut v_self: Value, env: &mut Env) -> DogeResult<Value> {
+    env.cur_line = 8;
+    let _ = bark(&add(attr_get(&v_self.clone(), "name")?, Value::str(" says bork"))?);
+    Ok(Value::None)
+}
+
+fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
+    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }
+    match (object_class_id(&recv, name)?, name) {
+        (0u32, "init") => {
+            if args.len() != 2 { return Err(method_arity_error("Shibe", "init", 2, args.len())); }
+            mf_0_init(recv, args.remove(0), args.remove(0), env)
+        }
+        (0u32, "speak") => {
+            if args.len() != 0 { return Err(method_arity_error("Shibe", "speak", 0, args.len())); }
+            mf_0_speak(recv, env)
+        }
+        _ => Err(no_such_method(&recv, name)),
+    }
+}
+"#;
+    assert_eq!(out, expected);
+}
+
+#[test]
+fn attr_get_and_set_emission() {
+    let out = gen("such x = 1\nx.name = 2\nbark x.name\nwow\n").unwrap();
+    assert!(out.contains("attr_set(&env.v_x.clone(), \"name\", Value::Int(2i64))?;"));
+    assert!(out.contains("attr_get(&env.v_x.clone(), \"name\")?"));
+}
+
+#[test]
+fn attr_in_try_breaks_to_label() {
+    let out = gen("such x = 1\npls\n    bark x.name\noh no err!\n    bark err\nwow\n").unwrap();
+    assert!(out.contains(
+        "match attr_get(&env.v_x.clone(), \"name\") { Ok(v) => v, Err(e) => break 'p0 Err(e) }"
+    ));
+}
+
+#[test]
+fn method_call_is_dynamic() {
+    let out =
+        gen("many S:\n    such go:\n        bark 1\n    wow\nwow\nsuch a = S()\na.go()\nwow\n")
+            .unwrap();
+    assert!(out.contains("call_method(env.v_a.clone(), \"go\", vec![], &mut *env)?"));
+    assert!(out.contains("object_class_id(&recv, name)?"));
+    assert!(out.contains(
+        "if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }"
+    ));
+}
+
+#[test]
+fn self_resolves_to_param() {
+    let out = gen("many Shibe:\n    such speak:\n        bark self\n    wow\nwow\nsuch k = Shibe()\nk.speak()\nwow\n").unwrap();
+    assert!(out.contains("fn mb_0_speak(mut v_self: Value, env: &mut Env)"));
+    assert!(out.contains("bark(&v_self.clone())"));
+}
+
+#[test]
+fn constructor_arity_error_is_precise() {
+    let err = gen("many Shibe:\n    such init much name, age:\n        self.name = name\n    wow\nwow\nsuch k = Shibe(\"x\")\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very args. much wrong.");
+    assert_eq!(err.message, "Shibe takes 2 arguments, got 1");
+    assert_eq!(err.hint.as_deref(), Some("Shibe(name, age)"));
+}
+
+#[test]
+fn no_init_class_takes_no_args() {
+    let out =
+        gen("many Thing:\n    such go:\n        bark 1\n    wow\nwow\nsuch t = Thing()\nwow\n")
+            .unwrap();
+    assert!(out.contains("fn n_0(env: &mut Env) -> DogeResult<Value> {"));
+    assert!(out.contains("let obj = Value::object(0u32, \"Thing\");"));
+    assert!(!out.contains("mf_0_init"));
+    let err =
+        gen("many Thing:\n    such go:\n        bark 1\n    wow\nwow\nsuch t = Thing(1)\nwow\n")
+            .unwrap_err();
+    assert_eq!(err.message, "Thing takes 0 arguments, got 1");
+    assert_eq!(err.hint.as_deref(), Some("Thing()"));
+}
+
+#[test]
+fn class_as_value_lands_m6() {
+    let err = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
+        .unwrap_err();
+    assert_eq!(err.headline, "very soon. much roadmap.");
+    assert!(err.message.contains("Shibe is an object definition"));
+    assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+}
+
+#[test]
+fn assign_to_class_name_is_an_error() {
+    let err = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nvery Shibe = 5\nwow\n")
+        .unwrap_err();
+    assert_eq!(err.headline, "very object. much fixed.");
+}
+
+#[test]
+fn nested_objdef_is_an_error() {
+    let err = gen("such f:\n    many Inner:\n        such g:\n            bark 1\n        wow\n    wow\nwow\nwow\n").unwrap_err();
+    assert_eq!(err.headline, "very nested. much object.");
+}
+
+#[test]
+fn lines_static_escapes_quotes() {
+    let out = gen("bark \"hi\"\nwow\n").unwrap();
+    assert!(out.contains("static LINES: &[&str] = &["));
+    assert!(out.contains(r#"    "bark \"hi\"","#));
+}
+
+#[test]
+fn no_dispatcher_without_objects() {
+    let out = gen("bark 1\nwow\n").unwrap();
+    assert!(!out.contains("fn call_method"));
+}
+
+/// Build a two-file program by hand (no filesystem) to lock the module
+/// name-mangling: a module's function is `f1_…`, its constant is a `g1_…`
+/// `Env` field, and a multi-file program carries a `FILES` table.
+#[test]
+fn module_names_are_mangled_by_file_id() {
+    use crate::modules::{Program, ProgramFile};
+    let m_src = "so K = 7\nsuch sq much x:\n    return x * x\nwow\nwow\n";
+    let e_src = "so m\nbark m.sq(3)\nbark m.K\nwow\n";
+    let m = parse("m.doge", m_src).unwrap();
+    let e = parse("app.doge", e_src).unwrap();
+    let program = Program {
+        files: vec![
+            ProgramFile {
+                file_id: 0,
+                is_entry: true,
+                name: "app".into(),
+                path: "app.doge".into(),
+                source: e_src.into(),
+                script: e,
+                stdlib_imports: vec![],
+                user_imports: vec![("m".into(), 1)],
+            },
+            ProgramFile {
+                file_id: 1,
+                is_entry: false,
+                name: "m".into(),
+                path: "m.doge".into(),
+                source: m_src.into(),
+                script: m,
+                stdlib_imports: vec![],
+                user_imports: vec![],
+            },
+        ],
+        init_order: vec![1],
+    };
+
+    let out = generate_program(&program).unwrap();
+    assert!(
+        out.contains("f_1_sq("),
+        "module call is file-id mangled:\n{out}"
+    );
+    assert!(
+        out.contains("env.g1_K"),
+        "module const is a g1_ field:\n{out}"
+    );
+    assert!(
+        out.contains("static FILES"),
+        "multi-file uses a FILES table"
+    );
+    assert!(out.contains("env.cur_file ="), "multi-file tracks cur_file");
+}

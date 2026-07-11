@@ -218,6 +218,30 @@ impl UnOp {
     }
 }
 
+impl Stmt {
+    /// The source span this statement starts at.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Decl { span, .. }
+            | Stmt::ConstDecl { span, .. }
+            | Stmt::Import { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Bark { span, .. }
+            | Stmt::If { span, .. }
+            | Stmt::For { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::FuncDef { span, .. }
+            | Stmt::ObjDef { span, .. }
+            | Stmt::Try { span, .. }
+            | Stmt::Return { span, .. }
+            | Stmt::Bonk { span, .. }
+            | Stmt::Bork { span }
+            | Stmt::Continue { span } => *span,
+            Stmt::ExprStmt { expr } => expr.span(),
+        }
+    }
+}
+
 impl Expr {
     /// The source span this expression starts at.
     pub fn span(&self) -> Span {

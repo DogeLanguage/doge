@@ -22,6 +22,16 @@ pub struct Diagnostic {
 /// The default meme framing, used unless a more specific headline fits.
 pub const DEFAULT_HEADLINE: &str = "very error. much confuse.";
 
+/// The 1-based source line a diagnostic points at, pulled from a file's
+/// already-split lines. A line number past the end falls back to an empty line.
+/// The lexer, parser, and checker all anchor diagnostics through this.
+pub(crate) fn source_line(lines: &[String], line: u32) -> String {
+    lines
+        .get((line as usize).saturating_sub(1))
+        .cloned()
+        .unwrap_or_default()
+}
+
 impl Diagnostic {
     /// Build a diagnostic with the default headline.
     pub fn new(
