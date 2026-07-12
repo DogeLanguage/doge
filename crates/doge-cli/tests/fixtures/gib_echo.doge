@@ -1,0 +1,7 @@
+such name = gib("name? ")
+bark "much hello {name}"
+such next = gib()
+bark next
+such done = gib()
+bark done
+wow

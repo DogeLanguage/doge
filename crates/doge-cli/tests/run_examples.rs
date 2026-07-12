@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn examples_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -12,9 +12,18 @@ fn cache_dir() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/doge-cache"))
 }
 
+/// A scratch working directory for the examples, so one that touches files
+/// (`io.doge`) does so on a relative path here instead of the source tree. Named
+/// per engine so the compiled and interpreted suites never collide on a file.
+fn run_cwd() -> PathBuf {
+    PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/compiled-cwd"))
+}
+
 #[test]
 fn examples_with_expected_output_run_and_match() {
     let dir = examples_dir();
+    let cwd = run_cwd();
+    std::fs::create_dir_all(&cwd).expect("scratch cwd should be creatable");
     let mut ran = 0;
     for entry in std::fs::read_dir(&dir).expect("examples directory should exist") {
         let doge = entry.expect("readable dir entry").path();
@@ -31,6 +40,8 @@ fn examples_with_expected_output_run_and_match() {
         let output = Command::new(env!("CARGO_BIN_EXE_doge"))
             .arg("bark")
             .arg(&doge)
+            .current_dir(&cwd)
+            .stdin(Stdio::null())
             .env("DOGE_CACHE_DIR", cache_dir())
             .output()
             .expect("the doge binary should run");

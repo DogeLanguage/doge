@@ -18,6 +18,9 @@ pub enum BuiltinShape {
     /// `range`: one argument (`0..n`) or two (`a..b`), each a fallible `range`
     /// call with the runtime's two-argument shape.
     Range,
+    /// `gib`: no argument (read a line) or one (a prompt printed first), a fallible
+    /// call that maps to the runtime's `Option<&Value>` prompt shape.
+    Prompt,
 }
 
 /// One builtin: its name, the `doge-runtime` function a call emits, the argument
@@ -90,6 +93,13 @@ pub const BUILTINS: &[BuiltinFn] = &[
         arities: &[1, 2],
         shape: BuiltinShape::Range,
         hint: "range(n) or range(a, b)",
+    },
+    BuiltinFn {
+        name: "gib",
+        runtime_fn: "gib",
+        arities: &[0, 1],
+        shape: BuiltinShape::Prompt,
+        hint: "gib() or gib(\"prompt\")",
     },
 ];
 

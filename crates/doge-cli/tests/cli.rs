@@ -228,6 +228,60 @@ fn bark_prints_a_class_value_and_it_constructs() {
 }
 
 #[test]
+fn bark_forwards_command_line_arguments_to_the_script() {
+    // Everything after the script path reaches the program through `env.args()`.
+    let fixture = cli_fixtures_dir().join("args_echo.doge");
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .arg("alpha")
+        .arg("beta")
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "a script reading args runs cleanly, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert_eq!(stdout, "alpha\nbeta\n", "env.args() should echo both args");
+}
+
+#[test]
+fn gib_reads_a_line_of_input_and_none_at_end() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // Two lines then EOF: the first two gib calls read them, the third is `none`.
+    let fixture = cli_fixtures_dir().join("gib_echo.doge");
+    let mut child = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the doge binary should start");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"kabosu\ndoge\n")
+        .expect("write the input");
+    let output = child.wait_with_output().expect("the script should finish");
+
+    assert!(
+        output.status.success(),
+        "a script reading input runs cleanly, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    // The prompt prints inline before the first bark; EOF yields `none`.
+    assert_eq!(stdout, "name? much hello kabosu\ndoge\nnone\n");
+}
+
+#[test]
 fn uncaught_bonk_reports_path_and_line() {
     let fixture = cli_fixtures_dir().join("bonk.doge");
     let output = doge_cached()

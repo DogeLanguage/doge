@@ -23,6 +23,9 @@ pub enum ErrorKind {
     KeyError,
     /// A value was the right type but not a usable value (e.g. `int("dog")`).
     ValueError,
+    /// An I/O or environment operation failed: a file could not be read/written,
+    /// or held bytes that were not valid text.
+    IOError,
     /// A missing field or method on an object, or a method call on a value whose
     /// type has no methods at all.
     AttrError,
@@ -44,6 +47,7 @@ impl ErrorKind {
             ErrorKind::IndexOutOfBounds => "IndexOutOfBounds",
             ErrorKind::KeyError => "KeyError",
             ErrorKind::ValueError => "ValueError",
+            ErrorKind::IOError => "IOError",
             ErrorKind::AttrError => "AttrError",
             ErrorKind::Bonk => "Bonk",
             ErrorKind::AssertError => "AssertError",
@@ -107,6 +111,10 @@ impl DogeError {
 
     pub fn attr_error(message: impl Into<String>) -> Self {
         DogeError::new(ErrorKind::AttrError, message)
+    }
+
+    pub fn io_error(message: impl Into<String>) -> Self {
+        DogeError::new(ErrorKind::IOError, message)
     }
 }
 

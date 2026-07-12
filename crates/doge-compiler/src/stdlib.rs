@@ -172,4 +172,58 @@ pub const MODULES: &[Module] = &[
         ],
         consts: &[],
     },
+    Module {
+        name: "fetch",
+        funcs: &[
+            ModuleFn {
+                name: "read",
+                arity: 1,
+                runtime_fn: "fetch_read",
+                hint: "fetch.read(path)",
+            },
+            ModuleFn {
+                name: "write",
+                arity: 2,
+                runtime_fn: "fetch_write",
+                hint: "fetch.write(path, text)",
+            },
+            ModuleFn {
+                name: "append",
+                arity: 2,
+                runtime_fn: "fetch_append",
+                hint: "fetch.append(path, text)",
+            },
+            ModuleFn {
+                name: "exists",
+                arity: 1,
+                runtime_fn: "fetch_exists",
+                hint: "fetch.exists(path)",
+            },
+            ModuleFn {
+                name: "delete",
+                arity: 1,
+                runtime_fn: "fetch_delete",
+                hint: "fetch.delete(path)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "env",
+        funcs: &[
+            ModuleFn {
+                name: "args",
+                arity: 0,
+                runtime_fn: "env_args",
+                hint: "env.args()",
+            },
+            ModuleFn {
+                name: "get",
+                arity: 1,
+                runtime_fn: "env_get",
+                hint: "env.get(name)",
+            },
+        ],
+        consts: &[],
+    },
 ];

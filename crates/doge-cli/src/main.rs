@@ -33,7 +33,7 @@ fn main() -> ExitCode {
     // Skip argv[0] (the program name).
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
-        [cmd, path] if cmd == "bark" => run_bark(path),
+        [cmd, path, rest @ ..] if cmd == "bark" => run_bark(path, rest),
         [cmd, path] if cmd == "build" => run_build(path),
         [cmd, path] if cmd == "check" => run_check(path),
         [cmd, path] if cmd == "fmt" => run_fmt(path, false),
@@ -48,12 +48,13 @@ fn main() -> ExitCode {
     }
 }
 
-/// `doge bark <path>`: compile the script (using the cache) and run it,
-/// propagating the script's own exit code.
-fn run_bark(path: &str) -> ExitCode {
+/// `doge bark <path> [args…]`: compile the script (using the cache) and run it,
+/// forwarding any trailing arguments to the program and propagating its exit code.
+fn run_bark(path: &str, args: &[String]) -> ExitCode {
     if std::env::var_os(INTERP_ENV).is_some() {
         let path = path.to_string();
-        return on_big_stack(move || run_interpreted(&path));
+        let args = args.to_vec();
+        return on_big_stack(move || run_interpreted(&path, args));
     }
     let (source, generated) = match compile_to_rust(path) {
         Ok(pair) => pair,
@@ -66,7 +67,7 @@ fn run_bark(path: &str) -> ExitCode {
             return ExitCode::from(EXIT_FAILURE);
         }
     };
-    match build::spawn(&binary) {
+    match build::spawn(&binary, args) {
         Ok(code) => ExitCode::from(code as u8),
         Err(message) => {
             eprintln!("{message}");
@@ -172,8 +173,11 @@ fn run_fmt(path: &str, check: bool) -> ExitCode {
 
 /// Run a script through the tree-walking interpreter (the `DOGE_INTERP` path):
 /// load, check, then evaluate the program directly, reporting an uncaught error in
-/// the same doge-flavored form the compiled program uses — never raw Rust.
-fn run_interpreted(path: &str) -> ExitCode {
+/// the same doge-flavored form the compiled program uses — never raw Rust. The
+/// script's arguments are published so `env.args()` sees the same list the
+/// compiled program's `main` would.
+fn run_interpreted(path: &str, args: Vec<String>) -> ExitCode {
+    doge_runtime::set_script_args(args);
     let source = match read_source(path) {
         Ok(source) => source,
         Err(code) => return code,

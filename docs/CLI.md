@@ -7,11 +7,20 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 
 | Command | Effect |
 |---|---|
-| `doge bark script.doge` | compile (cached) and run; exits with the script's own code |
+| `doge bark script.doge [args…]` | compile (cached) and run, forwarding `args…` to the script (`env.args()`); exits with the script's own code |
 | `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
 | `doge check script.doge` | parse + checks only, no build |
 | `doge fmt script.doge` | format the file in place to canonical style; `--check` reports without writing |
 | `doge repl` (or bare `doge`) | start the interactive interpreter — evaluate Doge without a build |
+
+## Script arguments and input
+
+Anything after the script path in `doge bark script.doge alpha beta` is passed
+through to the program and read back with `env.args()` (here `["alpha", "beta"]`);
+a standalone `doge build` binary takes its arguments straight from the OS in the
+same way. A script reads a line of user input with the `gib` builtin, and touches
+files or the environment through the `fetch` and `env` modules
+([STDLIB.md](STDLIB.md)). In the REPL, `env.args()` is empty.
 
 ## REPL
 

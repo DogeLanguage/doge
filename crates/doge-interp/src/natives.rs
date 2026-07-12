@@ -18,10 +18,10 @@ impl Interp {
     /// a stable `fn_id`, so it can be called directly or used as a function value.
     pub(crate) fn register_natives(&mut self) {
         for builtin in dc::BUILTINS {
-            let arity = if builtin.arities.len() == 2 {
-                Arity::OneOrTwo
-            } else {
-                Arity::Exact(builtin.arities[0])
+            let arity = match builtin.shape {
+                dc::BuiltinShape::Range => Arity::OneOrTwo,
+                dc::BuiltinShape::Prompt => Arity::ZeroOrOne,
+                _ => Arity::Exact(builtin.arities[0]),
             };
             let id = self.callables.len();
             self.callables.push(Rc::new(Callable::Native(Native {
@@ -61,6 +61,10 @@ pub(crate) fn call_native(native: &Native, args: Vec<Value>) -> DogeResult<Value
             2 => call_runtime(native.runtime_fn, &args),
             got => Err(function_arity_error(&native.name, 1, Some(2), got)),
         },
+        Arity::ZeroOrOne => match args.len() {
+            0 | 1 => call_runtime(native.runtime_fn, &args),
+            got => Err(function_arity_error(&native.name, 0, Some(1), got)),
+        },
     }
 }
 
@@ -73,6 +77,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "to_int" => rt::to_int(&a[0]),
         "to_float" => rt::to_float(&a[0]),
         "range" => rt::range(&a[0], &a[1]),
+        "gib" => rt::gib(a.first()),
         "nerd_abs" => rt::nerd_abs(&a[0]),
         "nerd_sqrt" => rt::nerd_sqrt(&a[0]),
         "nerd_floor" => rt::nerd_floor(&a[0]),
@@ -88,6 +93,13 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "strings_join" => rt::strings_join(&a[0], &a[1]),
         "strings_contains" => rt::strings_contains(&a[0], &a[1]),
         "strings_replace" => rt::strings_replace(&a[0], &a[1], &a[2]),
+        "fetch_read" => rt::fetch_read(&a[0]),
+        "fetch_write" => rt::fetch_write(&a[0], &a[1]),
+        "fetch_append" => rt::fetch_append(&a[0], &a[1]),
+        "fetch_exists" => rt::fetch_exists(&a[0]),
+        "fetch_delete" => rt::fetch_delete(&a[0]),
+        "env_args" => rt::env_args(),
+        "env_get" => rt::env_get(&a[0]),
         other => Err(DogeError::type_error(format!(
             "interp bug: no runtime function {other}"
         ))),
@@ -144,6 +156,9 @@ mod tests {
             let argc = match native.arity {
                 Arity::Exact(n) => n,
                 Arity::OneOrTwo => 1,
+                // One argument keeps `gib` from reading stdin: the wrongly-typed
+                // prompt errors out before any read.
+                Arity::ZeroOrOne => 1,
             };
             let args = vec![Value::Int(1); argc];
             if let Err(err) = call_native(native, args) {

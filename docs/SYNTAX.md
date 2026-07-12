@@ -185,10 +185,11 @@ promotion, and overflow is a catchable runtime error. String indexing and `len()
 count characters, not bytes.
 
 Builtins (always in scope, no import): `len(x)` (character/element count),
-`str(x)`, `int(x)`, `float(x)` (conversions), and `range`. `range(n)` yields the
-Ints `0 … n-1` as a List; `range(a, b)` yields `a … b-1`; both bounds must be Ints
-and the List is empty when the end is not past the start. Details in
-[STDLIB.md](STDLIB.md).
+`str(x)`, `int(x)`, `float(x)` (conversions), `range`, and `gib` (read a line of
+input). `range(n)` yields the Ints `0 … n-1` as a List; `range(a, b)` yields
+`a … b-1`; both bounds must be Ints and the List is empty when the end is not past
+the start. `gib()` reads one line from standard input as a Str (`none` at end of
+input); `gib("prompt")` prints the prompt first. Details in [STDLIB.md](STDLIB.md).
 
 ## 4. Variables and constants
 
@@ -377,7 +378,7 @@ oh no err!
 
   | Field | Type | Meaning |
   | --- | --- | --- |
-  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit` |
+  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `IOError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit` |
   | `err.message` | `Str` | the plain-English message |
   | `err.file` | `Str` | the script the error was raised in |
   | `err.line` | `Int` | the line it was raised at |
@@ -537,8 +538,8 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available built-in modules (`nerd`, `strings`) are documented in
-[STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
+The available built-in modules (`nerd`, `strings`, `fetch`, `env`) are documented
+in [STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
 List and dict operations are methods on the value (`xs.append(1)`), not a module.
 
 ### Importing other `.doge` files

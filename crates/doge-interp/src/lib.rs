@@ -74,11 +74,13 @@ struct Native {
     arity: Arity,
 }
 
-/// A native's accepted argument count: a fixed number, or `range`'s one-or-two.
+/// A native's accepted argument count: a fixed number, `range`'s one-or-two, or
+/// `gib`'s zero-or-one.
 #[derive(Clone, Copy)]
 enum Arity {
     Exact(usize),
     OneOrTwo,
+    ZeroOrOne,
 }
 
 /// Anything callable through a `fn_id`: a user definition, a runtime native, or a

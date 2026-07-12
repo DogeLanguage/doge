@@ -24,7 +24,7 @@ Program (entry + modules)
 generated .rs  ──rustc/cargo──►  native binary  ──►  cached & executed
 ```
 
-A `so <name>` import resolves to a built-in module (`nerd`/`strings`) or,
+A `so <name>` import resolves to a built-in module (`nerd`/`strings`/`fetch`/`env`) or,
 failing that, the user file `<name>.doge` next to the importer. The loader parses
 every reachable file into one `Program`; the whole downstream pipeline works on
 that. Codegen keeps every file's top-level names in one flat Rust namespace by
@@ -76,7 +76,7 @@ doge/
 │   │                     #   ast/ (mod, dump)      — nodes + shared AST walker
 │   │                     #   plus keywords, token, builtins, stdlib, diagnostics
 │   ├── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
-│   │                     #   (list, dict), builtins, objects, stdlib/ (nerd, strings)
+│   │                     #   (list, dict), builtins, objects, stdlib/ (nerd, strings, fetch, env)
 │   └── doge-interp/      # tree-walking interpreter over the checked AST (doge repl):
 │                         #   analyze (fn ids + captures + class table), exec, expr,
 │                         #   call, natives — evaluates against doge-runtime directly
@@ -95,8 +95,8 @@ salted with that version, a codegen-revision constant, and a hash of the
   `?` through, and `pls`/`oh no` compiles to a `match` on the block's `Result`.
   No panics in the happy path; no `unsafe` anywhere.
 - `bark` is a runtime print with doge-friendly `Display` formatting of values.
-- Stdlib modules (`nerd`, `strings`) are Rust functions in the runtime,
-  one per member, named `{module}_{member}` (`nerd_sqrt`, `strings_beeg`).
+- Stdlib modules (`nerd`, `strings`, `fetch`, `env`) are Rust functions in the
+  runtime, one per member, named `{module}_{member}` (`nerd_sqrt`, `fetch_read`).
 - Objects are `Rc<RefCell<ObjectData>>`: a class id, the class name, and a field
   map. `attr_get`/`attr_set` read and write fields, and a generated dispatcher
   routes each method call to the right runtime call. Inheritance

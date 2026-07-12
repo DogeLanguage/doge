@@ -1,0 +1,26 @@
+# such input. much output. very environment.
+so fetch
+so env
+
+# gib reads a line of input; at end of input (here, no input) it is none.
+bark gib()
+
+# Command-line arguments and environment variables.
+bark env.args()
+bark env.get("DOGE_SURELY_UNSET_KABOSU")
+
+# A file I/O round-trip on a relative path — every step is catchable.
+such path = "io_scratch.txt"
+fetch.write(path, "much ")
+fetch.append(path, "wow")
+bark fetch.read(path)
+bark fetch.exists(path)
+fetch.delete(path)
+bark fetch.exists(path)
+
+# A missing-file read is a catchable IOError, not a crash.
+pls
+    bark fetch.read("does_not_exist_kabosu.txt")
+oh no err!
+    bark err.type
+wow

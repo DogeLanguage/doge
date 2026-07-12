@@ -376,6 +376,17 @@ impl Codegen {
                     self.expr(&args[1], emit)?
                 ),
             )),
+            BuiltinShape::Prompt if args.is_empty() => {
+                Ok(self.fail(emit, format!("{}(None)", builtin.runtime_fn)))
+            }
+            BuiltinShape::Prompt => Ok(self.fail(
+                emit,
+                format!(
+                    "{}(Some(&{}))",
+                    builtin.runtime_fn,
+                    self.expr(&args[0], emit)?
+                ),
+            )),
         }
     }
 

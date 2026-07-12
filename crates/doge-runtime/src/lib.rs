@@ -9,7 +9,7 @@ mod ordered_map;
 mod stdlib;
 mod value;
 
-pub use builtins::{bark, interp, len, range, to_float, to_int, to_str};
+pub use builtins::{bark, gib, interp, len, range, to_float, to_int, to_str};
 pub use error::{
     assert_error, bonk_error, enter_call, error_field, error_value, exit_call, DogeError,
     DogeResult, ErrorKind,
@@ -25,6 +25,8 @@ pub use ops::{
     unpack_value, values_equal,
 };
 pub use ordered_map::OrderedMap;
+pub use stdlib::env::{env_args, env_get, set_script_args};
+pub use stdlib::fetch::{fetch_append, fetch_delete, fetch_exists, fetch_read, fetch_write};
 pub use stdlib::nerd::{
     nerd_abs, nerd_ceil, nerd_floor, nerd_max, nerd_min, nerd_pow, nerd_round, nerd_sqrt,
 };

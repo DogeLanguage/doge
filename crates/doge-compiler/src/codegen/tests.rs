@@ -28,6 +28,7 @@ struct Env {
 }
 
 fn main() -> std::process::ExitCode {
+    set_script_args(std::env::args().skip(1).collect());
     let mut env = Env {
         cur_line: 0,
         depth: 0,
@@ -77,6 +78,7 @@ struct Env {
 }
 
 fn main() -> std::process::ExitCode {
+    set_script_args(std::env::args().skip(1).collect());
     let mut env = Env {
         cur_line: 0,
         depth: 0,
@@ -589,6 +591,7 @@ struct Env {
 }
 
 fn main() -> std::process::ExitCode {
+    set_script_args(std::env::args().skip(1).collect());
     let mut env = Env {
         cur_line: 0,
         depth: 0,
@@ -728,10 +731,10 @@ fn no_init_class_takes_no_args() {
 #[test]
 fn class_as_value_constructs_a_class_value() {
     // A bare class name used as a value builds a `Value::class` over its
-    // constructor arm — its id follows the builtins (there are five).
+    // constructor arm — its id follows the builtins (there are six).
     let out = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
         .unwrap();
-    assert!(out.contains("env.v_g = Value::class(5u32, \"Shibe\");"));
+    assert!(out.contains("env.v_g = Value::class(6u32, \"Shibe\");"));
 }
 
 #[test]
@@ -741,8 +744,8 @@ fn calling_a_class_value_dispatches_to_the_constructor() {
     let out =
         gen("many Shibe:\n    such init much n:\n        self.n = n\n    wow\nwow\nsuch g = Shibe\nsuch s = g(1)\nwow\n")
             .unwrap();
-    assert!(out.contains("Value::class(5u32, \"Shibe\")"));
-    assert!(out.contains("5u32 => {"));
+    assert!(out.contains("Value::class(6u32, \"Shibe\")"));
+    assert!(out.contains("6u32 => {"));
     assert!(out.contains("function_arity_error(\"Shibe\", 1usize, Some(1usize), args.len())"));
     assert!(out.contains("n_0(args.remove(0), &mut *env)"));
 }

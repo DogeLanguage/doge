@@ -95,9 +95,10 @@ fn lock_is_stale(path: &Path) -> bool {
 }
 
 /// Run a freshly built binary with inherited stdio and return its exit code, so
-/// `doge bark` exits exactly as the script did.
-pub fn spawn(binary: &Path) -> Result<i32, String> {
-    match Command::new(binary).status() {
+/// `doge bark` exits exactly as the script did. Trailing `args` are forwarded to
+/// the program, where `env.args()` reads them back.
+pub fn spawn(binary: &Path, args: &[String]) -> Result<i32, String> {
+    match Command::new(binary).args(args).status() {
         Ok(status) => Ok(status.code().unwrap_or(1)),
         Err(err) => Err(format!(
             "very run. much fail.\n\n  doge built your script but could not run it: {err}"
