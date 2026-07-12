@@ -1,0 +1,14 @@
+such test_addition:
+    amaze 1 + 1 == 2
+wow
+
+such test_greeting:
+    amaze greet("doge") == "hi doge"
+wow
+
+# A non-test helper: no `test` prefix, so the runner must not run it as a test.
+such greet much name:
+    return "hi {name}"
+wow
+
+wow

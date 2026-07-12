@@ -1,0 +1,9 @@
+such test_ok:
+    amaze 2 * 2 == 4
+wow
+
+such test_broken:
+    amaze 1 == 2, "one is not two"
+wow
+
+wow

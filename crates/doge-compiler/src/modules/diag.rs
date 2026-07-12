@@ -55,6 +55,37 @@ pub(super) fn missing_module_diag(path: &str, source: &str, name: &str, span: Sp
     .with_hint(hint)
 }
 
+/// The "no file at this path" diagnostic for a string-path import whose target
+/// is not on disk, relative to the importing file.
+pub(super) fn missing_path_module_diag(
+    path: &str,
+    source: &str,
+    raw: &str,
+    target: &Path,
+    span: Span,
+) -> Diagnostic {
+    diag(path, source, span, format!("doge found no file at {raw}"))
+        .with_headline("very import. much unknown.")
+        .with_hint(format!(
+            "paths are relative to this file — doge looked at {}",
+            target.display()
+        ))
+}
+
+/// A module (or the entry itself) importing the entry script back: the entry is
+/// not a module — it holds loose top-level statements that run, so it can never
+/// be imported.
+pub(super) fn entry_import_diag(path: &str, source: &str, span: Span) -> Diagnostic {
+    diag(
+        path,
+        source,
+        span,
+        "this import points back at the main script, which is not a module",
+    )
+    .with_headline("very import. much self.")
+    .with_hint("only modules (definitions-only files) can be imported — split the shared code into its own file")
+}
+
 pub(super) fn read_error_diag(
     path: &str,
     source: &str,
@@ -84,6 +115,21 @@ pub(super) fn shadow_diag(path: &str, source: &str, name: &str, span: Span) -> D
     )
     .with_headline("very shadow. much confuse.")
     .with_hint(format!("rename your file — {name} is a doge stdlib module"))
+}
+
+/// A name that is both a declared dependency and a sibling `<name>.doge`: the
+/// import can't mean both, so the ambiguity must be resolved by renaming one.
+pub(super) fn dep_conflict_diag(path: &str, source: &str, name: &str, span: Span) -> Diagnostic {
+    diag(
+        path,
+        source,
+        span,
+        format!("{name} is both a declared dependency and a file {name}.doge here"),
+    )
+    .with_headline("very ambiguous. much confuse.")
+    .with_hint(format!(
+        "rename one — a dependency and a sibling module can't share the name {name}"
+    ))
 }
 
 /// A circular import: `active` is the chain of modules currently being loaded,

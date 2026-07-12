@@ -12,7 +12,7 @@ statement   = decl | const | assign | if | for | while
 
 decl        = "such" , names , "=" , rhs ;
 const       = "so" , IDENT , "=" , expr ;
-import      = "so" , IDENT ;
+import      = "so" , ( IDENT | STRING ) ;
 assign      = [ "very" ] , ( target , augop , expr           (* augmented: one target *)
                            | targets , "=" , rhs ) ;         (* plain / destructuring *)
 augop       = ( "+" | "-" | "*" | "/" | "//" | "%" | "**"
@@ -68,9 +68,14 @@ shifts, all between the comparisons and `+`/`-`, matching Python.
 - `such IDENT :` or `such IDENT much …` is a function definition
 - `many IDENT :` is an object definition; `many IDENT much IDENT :` inherits, the
   second name being the parent class (see [SYNTAX.md](SYNTAX.md) §8)
-- `so IDENT =` is a constant; `so IDENT` followed by a newline is an import
-- an import `so IDENT` names a built-in module if one matches, otherwise the user
-  module `IDENT.doge` next to the importing file (see [SYNTAX.md](SYNTAX.md) §9)
+- `so IDENT =` is a constant; `so IDENT` followed by a newline is an import;
+  `so STRING` is a string-path import
+- an import `so IDENT` resolves in order: a built-in module if one matches, then a
+  declared dependency of the importing file's project, then the user module
+  `IDENT.doge` next to the importing file (a name that is both a dependency and a
+  sibling file is an ambiguity error); `so "sub/dir/NAME.doge"` names a user module
+  by a `/`-separated path relative to the importing file and binds its stem `NAME`
+  (see [SYNTAX.md](SYNTAX.md) §9 and [PACKAGING.md](PACKAGING.md))
 - `much` never starts a statement; it introduces a function's parameters after
   `such NAME`, or a parent class after an object's `many NAME`
 - `super` only appears as `super.method(…)` inside a method body — never as a bare

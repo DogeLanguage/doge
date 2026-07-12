@@ -228,6 +228,60 @@ fn bark_prints_a_class_value_and_it_constructs() {
 }
 
 #[test]
+fn bark_forwards_command_line_arguments_to_the_script() {
+    // Everything after the script path reaches the program through `env.args()`.
+    let fixture = cli_fixtures_dir().join("args_echo.doge");
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .arg("alpha")
+        .arg("beta")
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "a script reading args runs cleanly, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert_eq!(stdout, "alpha\nbeta\n", "env.args() should echo both args");
+}
+
+#[test]
+fn gib_reads_a_line_of_input_and_none_at_end() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // Two lines then EOF: the first two gib calls read them, the third is `none`.
+    let fixture = cli_fixtures_dir().join("gib_echo.doge");
+    let mut child = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the doge binary should start");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"kabosu\ndoge\n")
+        .expect("write the input");
+    let output = child.wait_with_output().expect("the script should finish");
+
+    assert!(
+        output.status.success(),
+        "a script reading input runs cleanly, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    // The prompt prints inline before the first bark; EOF yields `none`.
+    assert_eq!(stdout, "name? much hello kabosu\ndoge\nnone\n");
+}
+
+#[test]
 fn uncaught_bonk_reports_path_and_line() {
     let fixture = cli_fixtures_dir().join("bonk.doge");
     let output = doge_cached()
@@ -496,6 +550,86 @@ fn an_object_defined_in_a_module_is_importable() {
     assert_eq!(stdout, "1\n", "utils.Shibe().woof() should print 1");
 }
 
+#[test]
+fn new_scaffolds_a_project_that_runs() {
+    // `doge new` creates a project; a bare `doge bark` inside it runs the entry.
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/new-project"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(&workdir).expect("scratch dir");
+
+    let created = doge()
+        .arg("new")
+        .arg("demo")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+    assert!(created.status.success(), "doge new should exit 0");
+    let project = workdir.join("demo");
+    assert!(project.join("doge.toml").is_file(), "a manifest is written");
+    assert!(project.join("main.doge").is_file(), "an entry is written");
+
+    let run = doge_cached()
+        .arg("bark")
+        .current_dir(&project)
+        .output()
+        .expect("the doge binary should run");
+    assert!(
+        run.status.success(),
+        "the scaffolded project should run, stderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let stdout = String::from_utf8(run.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("much hello from demo"),
+        "the scaffold greets, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn new_refuses_to_overwrite_an_existing_directory() {
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/new-existing"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(workdir.join("taken")).expect("scratch dir");
+
+    let output = doge()
+        .arg("new")
+        .arg("taken")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+    assert_eq!(output.status.code(), Some(1), "an occupied name exits 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("very exists. much occupied."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn new_rejects_a_path_traversal_name() {
+    // A name with path separators must not create dirs outside the working dir.
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/new-traversal"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(&workdir).expect("scratch dir");
+
+    let output = doge()
+        .arg("new")
+        .arg("../escaped")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+    assert_eq!(output.status.code(), Some(1), "an invalid name exits 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("very name. much invalid."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+    assert!(
+        !workdir.parent().unwrap().join("escaped").exists(),
+        "nothing may be created outside the working directory"
+    );
+}
+
 /// Drive the interactive REPL by piping a scripted session into it and asserting
 /// on the echoed values and printed output.
 fn repl_session(input: &str) -> String {
@@ -640,5 +774,155 @@ fn fmt_on_unparseable_source_reports_a_diagnostic() {
     assert!(
         stderr.contains("very"),
         "doge-flavored diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_runs_a_file_and_ignores_non_test_functions() {
+    let fixture = cli_fixtures_dir().join("tests_pass.doge");
+    let output = doge()
+        .arg("test")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(output.status.success(), "all tests pass, so exit 0");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_addition") && stdout.contains("✓ test_greeting"),
+        "should report each test as passing, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("greet") || stdout.contains("test_greeting"),
+        "the `greet` helper is not a test and must not run, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("2 passed"),
+        "should aggregate a pass count, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_reports_a_failing_assertion_with_location() {
+    let fixture = cli_fixtures_dir().join("tests_fail.doge");
+    let output = doge()
+        .arg("test")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a failing test exits 1");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_ok"),
+        "the passing test still runs, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("✗ test_broken") && stdout.contains("one is not two"),
+        "should name the failing test and its message, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("tests_fail.doge:6"),
+        "should carry the failing assertion's location, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("1 passed, 1 failed"),
+        "should aggregate pass/fail counts, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_discovers_test_files_recursively_in_a_directory() {
+    let dir = cli_fixtures_dir().join("test_suite");
+    let output = doge()
+        .arg("test")
+        .arg(&dir)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "every discovered test passes, exit 0"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_a") && stdout.contains("✓ test_b") && stdout.contains("✓ test_c"),
+        "should discover test_*.doge at any depth, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("test_should_be_ignored"),
+        "helper.doge is not a test_*.doge file and must be skipped, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("3 passed"),
+        "should aggregate across files, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_resolves_a_projects_declared_dependency() {
+    // A test file inside a project must see that project's dependencies, exactly
+    // as `doge bark`/`build`/`check` do — not just sibling files.
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/test-with-deps"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    let greet = workdir.join("lib/greet");
+    std::fs::create_dir_all(&greet).expect("scratch project dirs");
+
+    std::fs::write(
+        workdir.join("doge.toml"),
+        "[package]\nname = \"app\"\n\n[dependencies]\ngreet = { path = \"lib/greet\" }\n",
+    )
+    .expect("write app manifest");
+    std::fs::write(greet.join("doge.toml"), "[package]\nname = \"greet\"\n")
+        .expect("write dep manifest");
+    std::fs::write(
+        greet.join("main.doge"),
+        "such hello much who:\n    return \"hi \" + who\nwow\nwow\n",
+    )
+    .expect("write dep entry");
+    std::fs::write(
+        workdir.join("test_greet.doge"),
+        "so greet\n\nsuch test_hello:\n    amaze greet.hello(\"x\") == \"hi x\"\nwow\nwow\n",
+    )
+    .expect("write the test file");
+
+    let output = doge()
+        .arg("test")
+        .arg("test_greet.doge")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "a test importing a declared dependency should pass, stderr:\n{}\nstdout:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout),
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_hello") && stdout.contains("1 passed"),
+        "should run the dependency-importing test, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_with_no_test_functions_reports_an_empty_suite() {
+    let hello = examples_dir().join("hello.doge");
+    let output = doge()
+        .arg("test")
+        .arg(&hello)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an empty suite exits non-zero"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very empty. much untested."),
+        "should be a doge-flavored empty-suite message, got:\n{stderr}"
     );
 }

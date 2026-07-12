@@ -104,10 +104,16 @@ impl Parser {
     }
 
     /// `so` is contextual: `so NAME =` is a constant, bare `so NAME` is an
-    /// import (docs/GRAMMAR.md).
+    /// import, and `so "path/to/mod.doge"` is a string-path import
+    /// (docs/GRAMMAR.md).
     pub(super) fn parse_so(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         self.eat(TokenKind::So)?;
+
+        if let TokenKind::Str(_) | TokenKind::StrInterp(_) = self.peek() {
+            return self.parse_path_import(span);
+        }
+
         let (name, _) = self.eat_ident("a name after so")?;
         match self.peek() {
             TokenKind::Eq => {
@@ -118,7 +124,11 @@ impl Parser {
             }
             TokenKind::Newline => {
                 self.advance();
-                Ok(Stmt::Import { module: name, span })
+                Ok(Stmt::Import {
+                    module: name,
+                    path: None,
+                    span,
+                })
             }
             _ => {
                 let bad = self.current_span();
@@ -127,9 +137,80 @@ impl Parser {
                         bad,
                         format!("after so {name}, doge expects = (a constant) or a line end (an import)"),
                     )
-                    .with_hint("so PI = 3.14  —  or  —  so math"))
+                    .with_hint("so PI = 3.14  —  so math  —  or  —  so \"lib/utils.doge\""))
             }
         }
+    }
+
+    /// `so "path/to/mod.doge"` — a string-path import. The path is relative to the
+    /// importing file, must end in `.doge`, use `/` separators, and have a stem
+    /// that is a valid identifier (which becomes the module's binding name).
+    fn parse_path_import(&mut self, span: Span) -> Result<Stmt, Diagnostic> {
+        let str_span = self.current_span();
+        if let TokenKind::StrInterp(_) = self.peek() {
+            self.advance();
+            return Err(self
+                .diag(
+                    str_span,
+                    "an import path is a plain string, not an interpolated one",
+                )
+                .with_headline("very import. much confuse.")
+                .with_hint("write a fixed path — so \"lib/utils.doge\""));
+        }
+        let TokenKind::Str(raw) = self.advance().kind else {
+            unreachable!("parse_path_import entered only on a string token");
+        };
+        self.eat(TokenKind::Newline)?;
+
+        let module = self.import_path_stem(&raw, str_span)?;
+        Ok(Stmt::Import {
+            module,
+            path: Some(raw),
+            span,
+        })
+    }
+
+    /// Validate a string import path and return the stem it binds. The rules keep
+    /// paths portable and the binding name usable: forward slashes only, relative,
+    /// ends in `.doge`, and a stem that is a legal identifier.
+    fn import_path_stem(&self, raw: &str, span: Span) -> Result<String, Diagnostic> {
+        let bad = |message: &str, hint: &str| {
+            self.diag(span, message.to_string())
+                .with_headline("very path. much confuse.")
+                .with_hint(hint.to_string())
+        };
+
+        if raw.contains('\\') {
+            return Err(bad(
+                "an import path uses / separators, not \\",
+                "write forward slashes — so \"lib/utils.doge\"",
+            ));
+        }
+        if raw.starts_with('/') {
+            return Err(bad(
+                "an import path is relative to this file, so it cannot start with /",
+                "drop the leading / — so \"lib/utils.doge\"",
+            ));
+        }
+        let Some(file) = raw.rsplit('/').next().filter(|f| !f.is_empty()) else {
+            return Err(bad(
+                "an import path needs a file name",
+                "point at a .doge file — so \"lib/utils.doge\"",
+            ));
+        };
+        let Some(stem) = file.strip_suffix(".doge") else {
+            return Err(bad(
+                "an import path names a .doge file",
+                "add the extension — so \"lib/utils.doge\"",
+            ));
+        };
+        if stem.is_empty() || !is_ident(stem) {
+            return Err(bad(
+                "the file name in an import path must be a plain name (so it can bind the module)",
+                "rename the file to a plain name — so \"lib/utils.doge\"",
+            ));
+        }
+        Ok(stem.to_string())
     }
 
     /// `many NAME [much PARENT]: … wow` — an object definition whose body is only
@@ -632,4 +713,16 @@ impl Parser {
         self.advance();
         Ok(())
     }
+}
+
+/// Whether `s` is a legal Doge identifier: a leading letter or `_`, then letters,
+/// digits, or `_`. Mirrors the lexer's word rule ([`crate::lexer`]) so an import
+/// path's stem can only bind a name the lexer would accept.
+fn is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }

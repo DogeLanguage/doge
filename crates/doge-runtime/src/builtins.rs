@@ -1,4 +1,6 @@
-use crate::error::DogeResult;
+use std::io::Write;
+
+use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
 /// `bark x` — print a value on its own line and evaluate to `none`, so
@@ -6,6 +8,36 @@ use crate::value::Value;
 pub fn bark(v: &Value) -> Value {
     println!("{v}");
     Value::None
+}
+
+/// `gib()` / `gib("prompt")` — read one line from standard input. An optional
+/// prompt, which must be a Str, is written without a trailing newline and flushed
+/// first. The returned Str has its trailing newline stripped; at end of input the
+/// result is `none`. A stdin read failure is a catchable IOError.
+pub fn gib(prompt: Option<&Value>) -> DogeResult {
+    if let Some(p) = prompt {
+        let text = match p {
+            Value::Str(s) => s,
+            _ => {
+                return Err(DogeError::type_error(format!(
+                    "gib needs a Str prompt, got {}",
+                    p.describe()
+                )))
+            }
+        };
+        print!("{text}");
+        let _ = std::io::stdout().flush();
+    }
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) => Ok(Value::None),
+        Ok(_) => {
+            let line = line.strip_suffix('\n').unwrap_or(&line);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            Ok(Value::str(line))
+        }
+        Err(err) => Err(DogeError::io_error(format!("could not read input: {err}"))),
+    }
 }
 
 /// `len(x)` — character count for a Str, element count for a List or Dict.

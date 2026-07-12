@@ -1,0 +1,4 @@
+so env
+for a in env.args():
+    bark a
+wow

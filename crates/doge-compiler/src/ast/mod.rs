@@ -116,8 +116,14 @@ pub enum Stmt {
         expr: Expr,
         span: Span,
     },
-    /// `so math`
-    Import { module: String, span: Span },
+    /// `so math`, or the string-path form `so "lib/utils.doge"`. `module` is the
+    /// binding name (the stem for a path import); `path` is the raw string of a
+    /// path import, `None` for a bare-name import.
+    Import {
+        module: String,
+        path: Option<String>,
+        span: Span,
+    },
     /// `[very] target = e`, or a destructuring `[very] a, b = e` /
     /// `[very] a, many rest = e` — `flavored` is true when written with `very`.
     /// `targets` are the leading assignable targets in order; `rest`, when

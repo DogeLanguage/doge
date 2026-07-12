@@ -107,7 +107,50 @@ fn so_disambiguates_const_vs_import() {
     let konst = parse_ok("so PI = 3\nwow\n");
     assert!(matches!(konst.stmts[0], Stmt::ConstDecl { .. }));
     let import = parse_ok("so math\nwow\n");
-    assert!(matches!(import.stmts[0], Stmt::Import { .. }));
+    assert!(matches!(import.stmts[0], Stmt::Import { path: None, .. }));
+}
+
+#[test]
+fn so_string_is_a_path_import_binding_the_stem() {
+    let import = parse_ok("so \"lib/utils.doge\"\nwow\n");
+    match &import.stmts[0] {
+        Stmt::Import { module, path, .. } => {
+            assert_eq!(module, "utils");
+            assert_eq!(path.as_deref(), Some("lib/utils.doge"));
+        }
+        other => panic!("expected a path import, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_path_import_must_end_in_doge() {
+    let err = parse_err("so \"lib/utils\"\nwow\n");
+    assert_eq!(err.headline, "very path. much confuse.");
+    assert!(err.message.contains(".doge"));
+}
+
+#[test]
+fn a_path_import_rejects_backslashes() {
+    let err = parse_err("so \"lib\\\\utils.doge\"\nwow\n");
+    assert_eq!(err.headline, "very path. much confuse.");
+}
+
+#[test]
+fn a_path_import_must_be_relative() {
+    let err = parse_err("so \"/lib/utils.doge\"\nwow\n");
+    assert_eq!(err.headline, "very path. much confuse.");
+}
+
+#[test]
+fn a_path_import_stem_must_be_a_plain_name() {
+    let err = parse_err("so \"lib/my-utils.doge\"\nwow\n");
+    assert_eq!(err.headline, "very path. much confuse.");
+}
+
+#[test]
+fn a_path_import_rejects_interpolation() {
+    let err = parse_err("so \"lib/{x}.doge\"\nwow\n");
+    assert_eq!(err.headline, "very import. much confuse.");
 }
 
 #[test]

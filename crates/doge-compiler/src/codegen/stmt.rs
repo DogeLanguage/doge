@@ -268,7 +268,7 @@ impl Codegen {
                 );
                 out.push_str(&format!("{pad}{}\n", self.emit_bind(emit, name, &value)));
             }
-            Stmt::Import { module, span } => {
+            Stmt::Import { module, span, .. } => {
                 return Err(self
                     .diag(*span, "so imports live at the top of the script")
                     .with_headline("very nested. much import.")

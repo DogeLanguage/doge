@@ -115,6 +115,12 @@ pub fn resolve(source: &str) -> Result<CachePaths, String> {
     })
 }
 
+/// Where fetched git dependencies are cached: `<root>/deps`. Shared across
+/// projects, so a given repository is cloned once per machine.
+pub fn deps_root() -> Result<PathBuf, String> {
+    Ok(cache_root()?.join("deps"))
+}
+
 /// A cache hit needs both the built binary AND a stored source that reads back
 /// byte-identical — this guards against hash collisions and torn writes.
 pub fn cache_hit(entry_dir: &Path, binary: &Path, source: &str) -> bool {

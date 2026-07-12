@@ -74,11 +74,13 @@ struct Native {
     arity: Arity,
 }
 
-/// A native's accepted argument count: a fixed number, or `range`'s one-or-two.
+/// A native's accepted argument count: a fixed number, `range`'s one-or-two, or
+/// `gib`'s zero-or-one.
 #[derive(Clone, Copy)]
 enum Arity {
     Exact(usize),
     OneOrTwo,
+    ZeroOrOne,
 }
 
 /// Anything callable through a `fn_id`: a user definition, a runtime native, or a
@@ -158,6 +160,18 @@ impl Interp {
     pub fn run(&mut self, program: &dc::Program) -> DogeResult<()> {
         self.integrate_program(program);
         self.run_entry(program)
+    }
+
+    /// Integrate a loaded program *without* running its entry body — the setup the
+    /// test runner needs before it drives individual `test`-prefixed functions with
+    /// [`call_entry_function`]. A module constant initializer that failed during
+    /// integration surfaces here, just as it would when the entry runs.
+    pub fn prepare(&mut self, program: &dc::Program) -> DogeResult<()> {
+        self.integrate_program(program);
+        match self.pending_module_error.take() {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 
     /// The file id and line the interpreter last executed — the site of an uncaught

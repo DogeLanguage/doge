@@ -1,12 +1,12 @@
 {
   "name": "doge",
   "displayName": "Doge Language",
-  "description": "Rainbow syntax highlighting, file icon, and language association for .doge scripts. such language. much wow.",
-  "version": "0.2.0",
+  "description": "Rainbow syntax highlighting, diagnostics, and completion for .doge scripts. such language. much wow.",
+  "version": "0.3.0",
   "publisher": "DogeLanguage",
   "license": "Apache-2.0",
   "engines": {
-    "vscode": "^1.60.0"
+    "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages"
@@ -23,7 +23,20 @@
   "scripts": {
     "test": "node --test"
   },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
   "contributes": {
+    "configuration": {
+      "title": "Doge",
+      "properties": {
+        "doge.serverPath": {
+          "type": "string",
+          "default": "doge",
+          "description": "Path to the doge executable used for the language server (doge lsp). Defaults to `doge` on your PATH."
+        }
+      }
+    },
     "languages": [
       {
         "id": "doge",

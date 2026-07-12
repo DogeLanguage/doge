@@ -1,15 +1,20 @@
 //! The module loader: it turns an entry `.doge` script into a whole [`Program`]
-//! by following `so` imports. A `so <name>` first resolves against the stdlib
-//! table ([`crate::stdlib`]); anything else is a user module — the file
-//! `<name>.doge` next to the importing file. Loading is recursive (a module may
-//! import other modules) with cycle detection, so the pipeline downstream of
-//! here — checks and codegen — sees every file at once.
+//! by following `so` imports. A bare `so <name>` first resolves against the
+//! stdlib table ([`crate::stdlib`]); anything else is a user module — the file
+//! `<name>.doge` next to the importing file. A string-path import
+//! `so "sub/dir/mod.doge"` names a user file by a `/`-separated path relative to
+//! the importing file, binding the file's stem. Loading is recursive (a module
+//! may import other modules); dedup and cycle detection key on each file's
+//! canonical path, so the same file reached by two routes loads once and two
+//! different files may share a stem. The pipeline downstream of here — checks and
+//! codegen — sees every file at once.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(super) use crate::ast::{Script, Stmt};
 pub(super) use crate::diagnostics::Diagnostic;
+pub(super) use crate::project::DependencyMap;
 pub(super) use crate::stdlib::{self, Module};
 pub(super) use crate::token::Span;
 
@@ -43,15 +48,29 @@ pub struct ProgramFile {
     pub user_imports: Vec<(String, u32)>,
 }
 
-/// Load the entry script and every module it imports into a [`Program`].
+/// Load the entry script and every module it imports into a [`Program`],
+/// resolving `so <name>` against the stdlib and sibling files only (no project
+/// dependencies).
 pub fn load_program(entry_path: &str, entry_source: &str) -> Result<Program, Diagnostic> {
+    load_program_with_deps(entry_path, entry_source, DependencyMap::new())
+}
+
+/// Load a program, resolving bare imports against `deps` (a project's resolved
+/// dependency graph) in addition to the stdlib and sibling files.
+pub fn load_program_with_deps(
+    entry_path: &str,
+    entry_source: &str,
+    deps: DependencyMap,
+) -> Result<Program, Diagnostic> {
     let entry_script = crate::parser::parse(entry_path, entry_source)?;
     let mut loader = Loader {
         modules: Vec::new(),
-        by_name: HashMap::new(),
+        by_path: HashMap::new(),
         init_order: Vec::new(),
         active: Vec::new(),
         next_id: 1,
+        entry_key: canonical_key(Path::new(entry_path)),
+        deps,
     };
     let (stdlib_imports, user_imports) =
         loader.resolve_imports(entry_path, entry_source, &entry_script)?;
@@ -94,10 +113,17 @@ pub fn single_file_program(
 ) -> Result<Program, Diagnostic> {
     let mut stdlib_imports = Vec::new();
     for stmt in &script.stmts {
-        if let Stmt::Import { module, span } = stmt {
-            match stdlib::module(module) {
-                Some(m) => stdlib_imports.push((module.clone(), m)),
-                None => return Err(unknown_stdlib_module(path, source, module, *span)),
+        if let Stmt::Import {
+            module,
+            path: import_path,
+            span,
+        } = stmt
+        {
+            // Single-file mode has no loader, so a user module — bare or path —
+            // cannot be resolved here; only stdlib imports are valid.
+            match (import_path, stdlib::module(module)) {
+                (None, Some(m)) => stdlib_imports.push((module.clone(), m)),
+                _ => return Err(unknown_stdlib_module(path, source, module, *span)),
             }
         }
     }
@@ -123,14 +149,28 @@ type ResolvedImports = (Vec<(String, &'static Module)>, Vec<(String, u32)>);
 struct Loader {
     /// Loaded modules in completion (dependency) order.
     modules: Vec<ProgramFile>,
-    /// Module name → file id, so a module imported twice loads once.
-    by_name: HashMap<String, u32>,
+    /// Canonical module path → file id, so a file reached twice loads once even
+    /// when the two routes spell its path differently.
+    by_path: HashMap<PathBuf, u32>,
     /// Module file ids in dependency order (completion order).
     init_order: Vec<u32>,
-    /// Module names on the current DFS path, for cycle detection.
-    active: Vec<String>,
+    /// Modules on the current DFS path, for cycle detection.
+    active: Vec<ActiveModule>,
     /// Next module file id to hand out (the entry is always 0).
     next_id: u32,
+    /// The entry file's canonical path, so a module importing the entry back is
+    /// caught (the entry is not a module — it has loose top-level statements).
+    entry_key: PathBuf,
+    /// The project's resolved dependency graph, keyed by canonical package root.
+    /// Empty for a bare script with no `doge.toml`.
+    deps: DependencyMap,
+}
+
+/// A module currently being loaded on the DFS path: its binding name (for a
+/// readable cycle message) and its canonical path (the identity we match on).
+struct ActiveModule {
+    name: String,
+    key: PathBuf,
 }
 
 impl Loader {
@@ -147,79 +187,177 @@ impl Loader {
         let mut user_imports = Vec::new();
 
         for stmt in &script.stmts {
-            let Stmt::Import { module, span } = stmt else {
+            let Stmt::Import { module, path, span } = stmt else {
                 continue;
             };
 
-            if let Some(entry) = stdlib::module(module) {
-                if module_file_exists(dir, module) {
+            // A bare `so name` may resolve to a stdlib module; a string-path
+            // import always names a user file, so its stem must not collide with
+            // a stdlib module (the binding would be unusable).
+            match path {
+                None => {
+                    if let Some(entry) = stdlib::module(module) {
+                        if module_file_exists(dir, module) {
+                            return Err(shadow_diag(importer_path, importer_source, module, *span));
+                        }
+                        stdlib_imports.push((module.clone(), entry));
+                        continue;
+                    }
+                }
+                Some(_) if stdlib::module(module).is_some() => {
                     return Err(shadow_diag(importer_path, importer_source, module, *span));
                 }
-                stdlib_imports.push((module.clone(), entry));
-                continue;
+                Some(_) => {}
             }
 
-            if self.active.iter().any(|m| m == module) {
-                return Err(cycle_diag(
-                    importer_path,
-                    importer_source,
-                    &self.active,
-                    module,
-                    *span,
-                ));
-            }
-
-            let target_id = match self.by_name.get(module) {
-                Some(id) => *id,
-                None => self.load_module(dir, importer_path, importer_source, module, *span)?,
+            let target = match path {
+                Some(raw) => path_import_path(dir, raw),
+                None => match self.dep_entry(importer_path, module) {
+                    // A bare, non-stdlib name may name a declared dependency. If a
+                    // sibling file of the same name also exists, the import is
+                    // ambiguous — a name to fix now rather than resolve silently.
+                    Some(entry) => {
+                        if module_file_exists(dir, module) {
+                            return Err(dep_conflict_diag(
+                                importer_path,
+                                importer_source,
+                                module,
+                                *span,
+                            ));
+                        }
+                        entry
+                    }
+                    None => module_path(dir, module),
+                },
             };
+            let target_id = self.resolve_user_module(
+                importer_path,
+                importer_source,
+                module,
+                path.as_deref(),
+                &target,
+                *span,
+            )?;
             user_imports.push((module.clone(), target_id));
         }
 
         Ok((stdlib_imports, user_imports))
     }
 
-    /// Read, parse, and recursively resolve a user module `<name>.doge` sitting
-    /// next to its importer. Returns the new file id.
-    fn load_module(
+    /// The entry file a bare `so <alias>` binds when `alias` is a dependency of
+    /// the package owning `importer_path`, or `None` when it names no dependency.
+    fn dep_entry(&self, importer_path: &str, alias: &str) -> Option<PathBuf> {
+        let pkg = self.owning_package(importer_path)?;
+        self.deps.get(&pkg)?.get(alias).cloned()
+    }
+
+    /// The canonical root of the package that owns `importer_path`: the nearest
+    /// ancestor directory present in the dependency map. `None` when the file is
+    /// outside every resolved package (e.g. a bare script with no project).
+    fn owning_package(&self, importer_path: &str) -> Option<PathBuf> {
+        let canon = std::fs::canonicalize(importer_path).ok()?;
+        let mut dir = canon.parent();
+        while let Some(candidate) = dir {
+            if self.deps.contains_key(candidate) {
+                return Some(candidate.to_path_buf());
+            }
+            dir = candidate.parent();
+        }
+        None
+    }
+
+    /// Resolve one user-module import to a file id: canonicalize its path (which
+    /// also detects a missing file), reject a self-import of the entry, check the
+    /// active DFS path for a cycle, reuse an already-loaded file, or load it.
+    fn resolve_user_module(
         &mut self,
-        dir: Option<&Path>,
         importer_path: &str,
         importer_source: &str,
         name: &str,
+        raw_path: Option<&str>,
+        target: &Path,
         span: Span,
     ) -> Result<u32, Diagnostic> {
-        let path = module_path(dir, name);
-        let source = match std::fs::read_to_string(&path) {
-            Ok(source) => source,
+        let key = match std::fs::canonicalize(target) {
+            Ok(key) => key,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                return Err(missing_module_diag(
-                    importer_path,
-                    importer_source,
-                    name,
-                    span,
-                ))
+                return Err(match raw_path {
+                    Some(raw) => {
+                        missing_path_module_diag(importer_path, importer_source, raw, target, span)
+                    }
+                    None => missing_module_diag(importer_path, importer_source, name, span),
+                });
             }
             Err(err) => {
                 return Err(read_error_diag(
                     importer_path,
                     importer_source,
                     name,
-                    &path,
+                    target,
                     &err,
                     span,
                 ))
             }
         };
 
-        let path_str = path.to_string_lossy().into_owned();
+        if key == self.entry_key {
+            return Err(entry_import_diag(importer_path, importer_source, span));
+        }
+
+        if self.active.iter().any(|m| m.key == key) {
+            let chain: Vec<String> = self.active.iter().map(|m| m.name.clone()).collect();
+            return Err(cycle_diag(
+                importer_path,
+                importer_source,
+                &chain,
+                name,
+                span,
+            ));
+        }
+
+        if let Some(id) = self.by_path.get(&key) {
+            return Ok(*id);
+        }
+
+        self.load_module(name, target, key, importer_path, importer_source, span)
+    }
+
+    /// Read, parse, and recursively resolve a user module at `target` (already
+    /// canonicalized to `key`). Returns the new file id.
+    fn load_module(
+        &mut self,
+        name: &str,
+        target: &Path,
+        key: PathBuf,
+        importer_path: &str,
+        importer_source: &str,
+        span: Span,
+    ) -> Result<u32, Diagnostic> {
+        let source = match std::fs::read_to_string(target) {
+            Ok(source) => source,
+            Err(err) => {
+                return Err(read_error_diag(
+                    importer_path,
+                    importer_source,
+                    name,
+                    target,
+                    &err,
+                    span,
+                ))
+            }
+        };
+
+        let path_str = target.to_string_lossy().into_owned();
         let script = crate::parser::parse(&path_str, &source)?;
 
         let file_id = self.next_id;
         self.next_id += 1;
-        self.by_name.insert(name.to_string(), file_id);
+        self.by_path.insert(key.clone(), file_id);
 
-        self.active.push(name.to_string());
+        self.active.push(ActiveModule {
+            name: name.to_string(),
+            key,
+        });
         let (stdlib_imports, user_imports) = self.resolve_imports(&path_str, &source, &script)?;
         self.active.pop();
 
@@ -238,12 +376,28 @@ impl Loader {
     }
 }
 
-fn module_path(dir: Option<&Path>, name: &str) -> std::path::PathBuf {
+fn module_path(dir: Option<&Path>, name: &str) -> PathBuf {
     let file = format!("{name}.doge");
     match dir {
         Some(dir) => dir.join(file),
-        None => std::path::PathBuf::from(file),
+        None => PathBuf::from(file),
     }
+}
+
+/// The file a string-path import `so "raw"` targets, relative to the importing
+/// file's directory. `raw` is validated by the parser (relative, `/`-separated).
+fn path_import_path(dir: Option<&Path>, raw: &str) -> PathBuf {
+    match dir {
+        Some(dir) => dir.join(raw),
+        None => PathBuf::from(raw),
+    }
+}
+
+/// A file's identity for dedup and cycle detection: its canonical path when it
+/// resolves, else the path as given (so identity is still stable enough to work
+/// with before the file is confirmed to exist).
+fn canonical_key(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn module_file_exists(dir: Option<&Path>, name: &str) -> bool {

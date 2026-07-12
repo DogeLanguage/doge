@@ -185,10 +185,11 @@ promotion, and overflow is a catchable runtime error. String indexing and `len()
 count characters, not bytes.
 
 Builtins (always in scope, no import): `len(x)` (character/element count),
-`str(x)`, `int(x)`, `float(x)` (conversions), and `range`. `range(n)` yields the
-Ints `0 … n-1` as a List; `range(a, b)` yields `a … b-1`; both bounds must be Ints
-and the List is empty when the end is not past the start. Details in
-[STDLIB.md](STDLIB.md).
+`str(x)`, `int(x)`, `float(x)` (conversions), `range`, and `gib` (read a line of
+input). `range(n)` yields the Ints `0 … n-1` as a List; `range(a, b)` yields
+`a … b-1`; both bounds must be Ints and the List is empty when the end is not past
+the start. `gib()` reads one line from standard input as a Str (`none` at end of
+input); `gib("prompt")` prints the prompt first. Details in [STDLIB.md](STDLIB.md).
 
 ## 4. Variables and constants
 
@@ -377,7 +378,7 @@ oh no err!
 
   | Field | Type | Meaning |
   | --- | --- | --- |
-  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit` |
+  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `IOError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit` |
   | `err.message` | `Str` | the plain-English message |
   | `err.file` | `Str` | the script the error was raised in |
   | `err.line` | `Int` | the line it was raised at |
@@ -403,7 +404,10 @@ oh no err!
   false.`). The message is evaluated only on failure, so `amaze ok, expensive()`
   never calls `expensive()` while `ok` holds. `amaze x > 0, "x much wrong: {x}"` is
   the flavored equivalent of `if not (x > 0): bonk "x much wrong: {x}"`, but with the
-  distinct `AssertError` type so a caught assertion is recognizable.
+  distinct `AssertError` type so a caught assertion is recognizable. `amaze` is the
+  building block of the test runner: `doge test` discovers top-level, zero-argument
+  functions whose name starts with `test` and runs each, reporting pass/fail
+  ([CLI.md](CLI.md)).
 - Runtime errors (division by zero, missing key, wrong types for an operator),
   `bonk`s, and failed `amaze`s are catchable with `pls`/`oh no`; an uncaught error
   exits with a doge-flavored message and the source line it came from (see
@@ -537,8 +541,8 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available built-in modules (`nerd`, `strings`) are documented in
-[STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
+The available built-in modules (`nerd`, `strings`, `fetch`, `env`) are documented
+in [STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
 List and dict operations are methods on the value (`xs.append(1)`), not a module.
 
 ### Importing other `.doge` files
@@ -576,11 +580,63 @@ import — two files that import each other — is a compile error naming the cy
 A user file whose name collides with a built-in module (`nerd.doge`) is a compile
 error, since the built-in always wins.
 
+#### Importing from another directory
+
+A bare `so <name>` only reaches a sibling file. To import a module that lives
+elsewhere, give a **string path**:
+
+```doge
+so "lib/shibe_math.doge"
+
+bark shibe_math.square(4)   # 16
+wow
+```
+
+The path is a plain string (not interpolated), relative to the importing file's
+directory, written with `/` separators, and ending in `.doge`; `..` segments may
+climb to a parent directory. It binds the file's **stem** as the module name
+(`shibe_math` above), and everything else — member access, first-class functions,
+constants, classes, the definitions-only rule — works exactly as for a bare
+import. The stem must be a plain name (so it can bind), and a stem that collides
+with a built-in module (`so "lib/nerd.doge"`) is the same shadow error as a
+sibling `nerd.doge`.
+
+Imports are keyed by the file they resolve to, so importing the same file by two
+different paths loads it once, while two different files that happen to share a
+stem are distinct modules (though one file cannot bind the same name twice). The
+main script is not a module — an import that resolves back to it is a compile
+error.
+
 A module may also define objects (`many`). A module class is constructed by
 member, exactly like a function call — `utils.Shibe("doge")` — and its methods
 and fields work the same as a class defined in the main script. The class itself
 can also be taken as a value (`such c = utils.Shibe`); it is the same callable a
 bare class name yields, equal to the module's own `Shibe`.
+
+#### Importing a dependency
+
+A script that lives in a **project** (a directory with a `doge.toml`) can import a
+declared **dependency** by its alias, with the same bare `so <name>` form:
+
+```doge
+# doge.toml
+#   [dependencies]
+#   greet = { path = "lib/greet" }
+
+so greet
+
+bark greet.hello("doge")
+wow
+```
+
+A dependency is another project; `so <alias>` binds its entry module, and member
+access, first-class functions, constants, and classes all work exactly as for a
+local module. A bare `so <name>` resolves in order: a built-in stdlib module, then
+a declared dependency of the importing file's package, then a sibling `<name>.doge`.
+A name that is both a declared dependency and an on-disk sibling is an ambiguity
+error — rename one. Dependencies come from a local path or a git repository and are
+pinned in `doge.lock`; the manifest format, sources, and lockfile are covered in
+[PACKAGING.md](PACKAGING.md).
 
 ## 10. Complete example
 

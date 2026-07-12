@@ -1,0 +1,6 @@
+so "lib/shibe_math.doge"
+
+bark shibe_math.square(4)
+bark shibe_math.hypot(3, 4)
+bark shibe_math.cube(3)
+wow

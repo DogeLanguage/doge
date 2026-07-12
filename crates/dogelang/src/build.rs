@@ -95,9 +95,10 @@ fn lock_is_stale(path: &Path) -> bool {
 }
 
 /// Run a freshly built binary with inherited stdio and return its exit code, so
-/// `doge bark` exits exactly as the script did.
-pub fn spawn(binary: &Path) -> Result<i32, String> {
-    match Command::new(binary).status() {
+/// `doge bark` exits exactly as the script did. Trailing `args` are forwarded to
+/// the program, where `env.args()` reads them back.
+pub fn spawn(binary: &Path, args: &[String]) -> Result<i32, String> {
+    match Command::new(binary).args(args).status() {
         Ok(status) => Ok(status.code().unwrap_or(1)),
         Err(err) => Err(format!(
             "very run. much fail.\n\n  doge built your script but could not run it: {err}"
@@ -121,39 +122,51 @@ fn detect_toolchain() -> Result<(), String> {
     }
 }
 
-/// The `doge-runtime` crate, as an absolute path. The build is pinned to this dev
-/// checkout; bundling the runtime into a released binary is future work.
-fn runtime_path() -> Result<PathBuf, String> {
+/// The `doge-runtime` crate as an absolute path when this is a dev checkout, or
+/// `None` once installed (the source tree beside the compiler no longer exists).
+fn runtime_path() -> Option<PathBuf> {
     let raw = concat!(env!("CARGO_MANIFEST_DIR"), "/../doge-runtime");
-    std::fs::canonicalize(raw).map_err(|err| {
-        format!("very rust. much missing.\n\n  doge cannot find its runtime crate at {raw}: {err}")
-    })
+    std::fs::canonicalize(raw).ok()
 }
 
-fn write_entry(paths: &CachePaths, source: &str, generated: &str) -> Result<(), String> {
-    let runtime = runtime_path()?;
-    let src_dir = paths.entry_dir.join("src");
-    std::fs::create_dir_all(&src_dir).map_err(disk_err)?;
+/// How the generated crate depends on `doge-runtime`: a `path` dependency into the
+/// dev checkout when it exists, else the version-pinned crates.io release that an
+/// installed `doge` was published alongside. This is what lets a `cargo install`ed
+/// compiler build scripts without the source tree.
+fn runtime_dependency(runtime: Option<&Path>) -> String {
+    match runtime {
+        Some(path) => format!("doge-runtime = {{ path = {:?} }}", path.to_string_lossy()),
+        None => format!("doge-runtime = \"={}\"", env!("CARGO_PKG_VERSION")),
+    }
+}
 
-    let runtime_lit = format!("{:?}", runtime.to_string_lossy());
-    // The empty `[workspace]` makes this its own workspace root, so it never
-    // attaches to a repo workspace when the cache happens to live inside one.
-    let cargo_toml = format!(
+/// The generated crate's `Cargo.toml`. The empty `[workspace]` makes it its own
+/// workspace root, so it never attaches to a repo workspace when the cache happens
+/// to live inside one.
+fn cargo_manifest(package: &str, runtime: Option<&Path>) -> String {
+    format!(
         "[package]\n\
-         name = \"{pkg}\"\n\
+         name = \"{package}\"\n\
          version = \"0.0.0\"\n\
          edition = \"2021\"\n\
          \n\
          [workspace]\n\
          \n\
          [dependencies]\n\
-         doge-runtime = {{ path = {runtime_lit} }}\n\
+         {dependency}\n\
          \n\
          [[bin]]\n\
-         name = \"{pkg}\"\n\
+         name = \"{package}\"\n\
          path = \"src/main.rs\"\n",
-        pkg = paths.package,
-    );
+        dependency = runtime_dependency(runtime),
+    )
+}
+
+fn write_entry(paths: &CachePaths, source: &str, generated: &str) -> Result<(), String> {
+    let src_dir = paths.entry_dir.join("src");
+    std::fs::create_dir_all(&src_dir).map_err(disk_err)?;
+
+    let cargo_toml = cargo_manifest(&paths.package, runtime_path().as_deref());
     std::fs::write(paths.entry_dir.join("Cargo.toml"), cargo_toml).map_err(disk_err)?;
     std::fs::write(src_dir.join("main.rs"), generated).map_err(disk_err)?;
     // Written LAST: source.doge is the validity marker `cache_hit` checks, so it
@@ -191,4 +204,37 @@ fn compile(paths: &CachePaths) -> Result<(), String> {
 
 fn disk_err(err: std::io::Error) -> String {
     format!("very disk. much sad.\n\n  doge could not write its build cache: {err}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installed_build_uses_the_versioned_runtime() {
+        // With no dev checkout, the generated crate must depend on the published
+        // runtime by version so an installed `doge` can build without the source.
+        let manifest = cargo_manifest("doge_script_abc", None);
+        assert!(
+            manifest.contains(&format!(
+                "doge-runtime = \"={}\"",
+                env!("CARGO_PKG_VERSION")
+            )),
+            "expected a version-pinned runtime dep, got:\n{manifest}"
+        );
+        assert!(
+            !manifest.contains("doge-runtime = { path"),
+            "no path runtime dep when installed, got:\n{manifest}"
+        );
+    }
+
+    #[test]
+    fn dev_build_uses_the_path_runtime() {
+        let runtime = PathBuf::from("/checkout/doge-runtime");
+        let manifest = cargo_manifest("doge_script_abc", Some(&runtime));
+        assert!(
+            manifest.contains("doge-runtime = { path = "),
+            "expected a path runtime dep, got:\n{manifest}"
+        );
+    }
 }

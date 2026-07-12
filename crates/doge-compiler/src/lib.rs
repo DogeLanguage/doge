@@ -4,12 +4,15 @@ mod ast;
 mod builtins;
 mod check;
 mod codegen;
+mod complete;
 mod diagnostics;
 mod fmt;
 mod keywords;
 mod lexer;
+mod manifest;
 mod modules;
 mod parser;
+mod project;
 mod stdlib;
 mod token;
 
@@ -19,9 +22,14 @@ pub use ast::{
 };
 pub use builtins::{builtin, is_builtin, BuiltinFn, BuiltinShape, BUILTINS};
 pub use check::{check_snippet, ClassInfo, SessionScope};
+pub use complete::{complete, Completion, CompletionKind};
 pub use diagnostics::Diagnostic;
-pub use modules::{load_program, single_file_program, Program, ProgramFile};
+pub use manifest::{Dependency, DependencySource, GitRev, Manifest, MANIFEST_NAME};
+pub use modules::{
+    load_program, load_program_with_deps, single_file_program, Program, ProgramFile,
+};
 pub use parser::{parse_repl, ReplParse};
+pub use project::{discover_root, read_manifest, resolve_project, DependencyMap};
 pub use stdlib::{module as stdlib_module, Module, ModuleFn, MODULES};
 pub use token::Span;
 

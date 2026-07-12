@@ -1,0 +1,10 @@
+so nerd
+
+such greet much who:
+    return "much wow, " + who
+wow
+
+such distance much a, b:
+    return nerd.sqrt(a * a + b * b)
+wow
+wow

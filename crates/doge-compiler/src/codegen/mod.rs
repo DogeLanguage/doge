@@ -336,6 +336,7 @@ impl Codegen {
         out.push_str("}\n\n");
 
         out.push_str("fn main() -> std::process::ExitCode {\n");
+        out.push_str("    set_script_args(std::env::args().skip(1).collect());\n");
         out.push_str("    let mut env = Env {\n");
         out.push_str("        cur_line: 0,\n");
         if self.multifile {
