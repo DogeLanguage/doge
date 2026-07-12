@@ -7,9 +7,10 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 
 | Command | Effect |
 |---|---|
-| `doge bark script.doge [args…]` | compile (cached) and run, forwarding `args…` to the script (`env.args()`); exits with the script's own code |
-| `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
-| `doge check script.doge` | parse + checks only, no build |
+| `doge new <name>` | scaffold a new project directory (`doge.toml`, `main.doge`, `.gitignore`) |
+| `doge bark [script.doge] [args…]` | compile (cached) and run, forwarding `args…` to the script (`env.args()`); exits with the script's own code. With no path, runs the current project's entry |
+| `doge build [script.doge]` | compile (cached) and copy the binary to `./<name>` (the project package name, or the script stem; `.exe` on Windows) |
+| `doge check [script.doge]` | parse + checks only, no build |
 | `doge fmt script.doge` | format the file in place to canonical style; `--check` reports without writing |
 | `doge test <file.doge>` \| `doge test <dir>` | discover and run test functions, reporting aggregate pass/fail |
 | `doge lsp` | start the language server (LSP over stdin/stdout) for editors — diagnostics and completion |
@@ -23,6 +24,16 @@ a standalone `doge build` binary takes its arguments straight from the OS in the
 same way. A script reads a line of user input with the `gib` builtin, and touches
 files or the environment through the `fetch` and `env` modules
 ([STDLIB.md](STDLIB.md)). In the REPL, `env.args()` is empty.
+
+## Projects and dependencies
+
+`doge new <name>` scaffolds a project — a directory with a `doge.toml` manifest, a
+runnable `main.doge`, and a `.gitignore`. Inside a project, `doge bark`/`build`/
+`check` run without a script path (using `[package].entry`) and `doge build` names
+the binary after the package. A project declares dependencies (local `path` or
+`git`) that `so <alias>` then imports. The full story — manifest format, dependency
+sources, the `doge.lock` lockfile, install and sharing — is in
+[PACKAGING.md](PACKAGING.md).
 
 ## REPL
 
@@ -120,22 +131,27 @@ over stdin/stdout. Editors spawn it to get:
   so completion never drifts from what the language accepts.
 
 The server reads unsaved buffer text, so diagnostics and completion track edits
-live. It resolves imported modules from disk; an unsaved sibling module is not yet
-seen, and an error in an imported file is surfaced on the active file with the real
-`path:line` named in the message. The VS Code extension under `editors/vscode/`
+live. It resolves imported modules from disk — sibling files and a project's `path`
+dependencies alike; an unsaved sibling module is not yet seen, and an error in an
+imported file is surfaced on the active file with the real `path:line` named in the
+message. A git dependency that has not been fetched yet is reported as one honest
+diagnostic pointing at `doge bark`, never a false "unknown module". The VS Code extension under `editors/vscode/`
 starts the server automatically; the `doge.serverPath` setting points it at the
 `doge` binary (default: `doge` on `PATH`).
 
 ## Build cache
 
-The key is a hand-rolled FNV-1a 64-bit hash (no hash-crate dependency) over the
-compiler version and the source, so a compiler upgrade or a source edit misses the
-stale entry. When a script imports other `.doge` files, the key covers every
-imported file's path and source too, so editing any module rebuilds. Each script
+The key is a hand-rolled FNV-1a 64-bit hash (no hash-crate dependency) salted with
+the compiler version, a codegen-revision constant, and a hash of the `doge-runtime`
+source, then taken over the program source — so a compiler upgrade, a codegen or
+runtime change, or a source edit all miss the stale entry. When a script imports
+other `.doge` files (sibling modules or resolved dependencies), the key covers every
+imported file's path and source too, so editing any of them rebuilds. Each script
 gets its own tiny Cargo project at
-`<cache>/scripts/<hash>/` (Cargo.toml, `src/main.rs`, and `source.doge`) with a path
-dependency on `doge-runtime`; all scripts share one `<cache>/target` dir so the
-runtime compiles once. A cache hit requires both the built binary and a stored
+`<cache>/scripts/<hash>/` (Cargo.toml, `src/main.rs`, and `source.doge`) depending
+on `doge-runtime` (by path in a dev checkout, by published version once installed);
+all scripts share one `<cache>/target` dir so the runtime compiles once. Fetched git
+dependencies live under `<cache>/deps`, shared across projects. A cache hit requires both the built binary and a stored
 `source.doge` that reads back byte-identical, which makes hash collisions and torn
 writes harmless (mismatch means rebuild). Concurrent `doge` runs on the same script
 are serialized by a `build.lock` marker in the script's entry dir, so two builds

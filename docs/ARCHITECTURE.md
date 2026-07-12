@@ -24,10 +24,14 @@ Program (entry + modules)
 generated .rs  ──rustc/cargo──►  native binary  ──►  cached & executed
 ```
 
-A `so <name>` import resolves to a built-in module (`nerd`/`strings`/`fetch`/`env`) or,
-failing that, the user file `<name>.doge` next to the importer. The loader parses
-every reachable file into one `Program`; the whole downstream pipeline works on
-that. Codegen keeps every file's top-level names in one flat Rust namespace by
+A `so <name>` import resolves in order to a built-in module
+(`nerd`/`strings`/`fetch`/`env`), a declared **dependency** of the importing file's
+project, or the user file `<name>.doge` next to the importer. When the entry lives
+in a project (a directory with a `doge.toml`), the CLI first resolves the manifest's
+dependency graph into a map of package-root → alias → entry file and hands it to the
+loader; a bare script with no manifest resolves against the stdlib and siblings only,
+exactly as before. The loader parses every reachable file into one `Program`; the
+whole downstream pipeline works on that. Codegen keeps every file's top-level names in one flat Rust namespace by
 mangling with a per-file id: the entry (file 0) keeps its plain `f_`/`v_` scheme,
 so single-file output is unchanged, and a module (file N) carries its id right
 after the prefix (`f1_square`, `g1_ANSWER`) — a digit can't start a doge
@@ -76,6 +80,20 @@ results to `lsp-types`. It is the only crate with third-party dependencies
 (`lsp-server`, `lsp-types`), since hand-rolling the JSON-RPC protocol would be far
 more code than a focused, synchronous LSP library.
 
+## 1c. Dependency resolution boundary
+
+Projects and dependencies ([PACKAGING.md](PACKAGING.md)) split cleanly across the
+crate boundary. `doge-compiler` owns everything that is pure parsing and
+filesystem: parsing `doge.toml` (`manifest`), and walking the dependency graph into
+a package-root → alias → entry-file map (`project::resolve_project`), resolving
+`path` dependencies from disk. It never touches the network or the cache — git
+sources are handed to a caller-supplied closure. `dogelang` supplies that closure:
+it shells out to `git`, caches clones under `<cache>/deps`, and pins resolved commits
+in `doge.lock`. The language server (`doge-lsp`) supplies a closure that only reads
+an already-fetched clone, so editors resolve path dependencies without ever running
+git. This keeps `doge-compiler` free of third-party and I/O concerns while both the
+CLI and the LSP reuse one resolver.
+
 ## 2. Crate layout
 
 ```
@@ -83,7 +101,8 @@ doge/
 ├── Cargo.toml            # workspace ([workspace.package] shares version/edition)
 ├── rust-toolchain.toml   # pinned stable toolchain (rustfmt + clippy)
 ├── crates/
-│   ├── dogelang/         # `doge` binary: main + build + cache; build.rs salts the
+│   ├── dogelang/         # `doge` binary: main + build + cache + new (scaffold) +
+│   │                     #   deps (git fetch + doge.lock); build.rs salts the
 │   │                     #   cache key with a hash of the doge-runtime source
 │   ├── doge-compiler/    # each pass is a directory module:
 │   │                     #   lexer/ (mod, scan, strings)
@@ -93,6 +112,7 @@ doge/
 │   │                     #             stmt, expr, calls, dispatch)
 │   │                     #   modules/ (mod, diag)  — the import loader
 │   │                     #   ast/ (mod, dump)      — nodes + shared AST walker
+│   │                     #   manifest, project     — doge.toml + dependency graph
 │   │                     #   plus keywords, token, builtins, stdlib, diagnostics
 │   ├── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
 │   │                     #   (list, dict), builtins, objects, stdlib/ (nerd, strings, fetch, env)
@@ -107,7 +127,10 @@ doge/
 
 All crates share one version through `[workspace.package]`; the build cache is
 salted with that version, a codegen-revision constant, and a hash of the
-`doge-runtime` source, so a runtime change never serves a stale cached binary.
+`doge-runtime` source, so a runtime change never serves a stale cached binary. The
+generated per-script crate depends on `doge-runtime` by path in a dev checkout, and
+by the compiler's own published version once `doge` is installed — so a
+`cargo install`ed binary compiles scripts without the source tree beside it.
 
 ## 3. Runtime model (`doge-runtime`)
 

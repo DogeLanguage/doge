@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 pub(super) use crate::ast::{Script, Stmt};
 pub(super) use crate::diagnostics::Diagnostic;
+pub(super) use crate::project::DependencyMap;
 pub(super) use crate::stdlib::{self, Module};
 pub(super) use crate::token::Span;
 
@@ -47,8 +48,20 @@ pub struct ProgramFile {
     pub user_imports: Vec<(String, u32)>,
 }
 
-/// Load the entry script and every module it imports into a [`Program`].
+/// Load the entry script and every module it imports into a [`Program`],
+/// resolving `so <name>` against the stdlib and sibling files only (no project
+/// dependencies).
 pub fn load_program(entry_path: &str, entry_source: &str) -> Result<Program, Diagnostic> {
+    load_program_with_deps(entry_path, entry_source, DependencyMap::new())
+}
+
+/// Load a program, resolving bare imports against `deps` (a project's resolved
+/// dependency graph) in addition to the stdlib and sibling files.
+pub fn load_program_with_deps(
+    entry_path: &str,
+    entry_source: &str,
+    deps: DependencyMap,
+) -> Result<Program, Diagnostic> {
     let entry_script = crate::parser::parse(entry_path, entry_source)?;
     let mut loader = Loader {
         modules: Vec::new(),
@@ -57,6 +70,7 @@ pub fn load_program(entry_path: &str, entry_source: &str) -> Result<Program, Dia
         active: Vec::new(),
         next_id: 1,
         entry_key: canonical_key(Path::new(entry_path)),
+        deps,
     };
     let (stdlib_imports, user_imports) =
         loader.resolve_imports(entry_path, entry_source, &entry_script)?;
@@ -147,6 +161,9 @@ struct Loader {
     /// The entry file's canonical path, so a module importing the entry back is
     /// caught (the entry is not a module — it has loose top-level statements).
     entry_key: PathBuf,
+    /// The project's resolved dependency graph, keyed by canonical package root.
+    /// Empty for a bare script with no `doge.toml`.
+    deps: DependencyMap,
 }
 
 /// A module currently being loaded on the DFS path: its binding name (for a
@@ -195,7 +212,23 @@ impl Loader {
 
             let target = match path {
                 Some(raw) => path_import_path(dir, raw),
-                None => module_path(dir, module),
+                None => match self.dep_entry(importer_path, module) {
+                    // A bare, non-stdlib name may name a declared dependency. If a
+                    // sibling file of the same name also exists, the import is
+                    // ambiguous — a name to fix now rather than resolve silently.
+                    Some(entry) => {
+                        if module_file_exists(dir, module) {
+                            return Err(dep_conflict_diag(
+                                importer_path,
+                                importer_source,
+                                module,
+                                *span,
+                            ));
+                        }
+                        entry
+                    }
+                    None => module_path(dir, module),
+                },
             };
             let target_id = self.resolve_user_module(
                 importer_path,
@@ -209,6 +242,28 @@ impl Loader {
         }
 
         Ok((stdlib_imports, user_imports))
+    }
+
+    /// The entry file a bare `so <alias>` binds when `alias` is a dependency of
+    /// the package owning `importer_path`, or `None` when it names no dependency.
+    fn dep_entry(&self, importer_path: &str, alias: &str) -> Option<PathBuf> {
+        let pkg = self.owning_package(importer_path)?;
+        self.deps.get(&pkg)?.get(alias).cloned()
+    }
+
+    /// The canonical root of the package that owns `importer_path`: the nearest
+    /// ancestor directory present in the dependency map. `None` when the file is
+    /// outside every resolved package (e.g. a bare script with no project).
+    fn owning_package(&self, importer_path: &str) -> Option<PathBuf> {
+        let canon = std::fs::canonicalize(importer_path).ok()?;
+        let mut dir = canon.parent();
+        while let Some(candidate) = dir {
+            if self.deps.contains_key(candidate) {
+                return Some(candidate.to_path_buf());
+            }
+            dir = candidate.parent();
+        }
+        None
     }
 
     /// Resolve one user-module import to a file id: canonicalize its path (which

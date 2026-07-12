@@ -1,0 +1,7 @@
+[package]
+name = "pkg_demo"
+version = "0.1.0"
+entry = "main.doge"
+
+[dependencies]
+shibe = { path = "lib/shibe" }

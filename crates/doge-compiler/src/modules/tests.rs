@@ -257,6 +257,68 @@ fn a_path_import_stem_may_not_shadow_a_stdlib_module() {
 }
 
 #[test]
+fn a_dependency_import_resolves_to_its_entry() {
+    let dir = TempDir::new("dep-basic");
+    dir.write(
+        "dep/doge.toml",
+        "[package]\nname = \"greet\"\nentry = \"main.doge\"\n",
+    );
+    dir.write("dep/main.doge", "such hi much n:\n    return n\nwow\nwow\n");
+    dir.write(
+        "app/doge.toml",
+        "[package]\nname = \"app\"\n\n[dependencies]\ngreet = { path = \"../dep\" }\n",
+    );
+    let entry = dir.write("app/main.doge", "so greet\nbark greet.hi(1)\nwow\n");
+    let source = std::fs::read_to_string(&entry).unwrap();
+
+    let app_root = std::fs::canonicalize(dir.0.join("app")).unwrap();
+    let dep_root = std::fs::canonicalize(dir.0.join("dep")).unwrap();
+    let dep_entry = std::fs::canonicalize(dir.0.join("dep/main.doge")).unwrap();
+    let mut deps = DependencyMap::new();
+    deps.insert(
+        app_root,
+        std::collections::HashMap::from([("greet".to_string(), dep_entry)]),
+    );
+    deps.insert(dep_root, std::collections::HashMap::new());
+
+    let program = match load_program_with_deps(&entry, &source, deps) {
+        Ok(program) => program,
+        Err(e) => panic!("should load: {}", e.render()),
+    };
+    assert_eq!(program.files.len(), 2, "entry + the dependency's entry");
+    assert_eq!(program.files[1].name, "greet");
+}
+
+#[test]
+fn a_dependency_colliding_with_a_sibling_is_ambiguous() {
+    let dir = TempDir::new("dep-conflict");
+    dir.write("dep/doge.toml", "[package]\nname = \"greet\"\n");
+    dir.write("dep/main.doge", "such hi:\n    return 1\nwow\nwow\n");
+    // A sibling file of the same name as the dependency alias.
+    dir.write("app/greet.doge", "such hi:\n    return 2\nwow\nwow\n");
+    dir.write(
+        "app/doge.toml",
+        "[package]\nname = \"app\"\n\n[dependencies]\ngreet = { path = \"../dep\" }\n",
+    );
+    let entry = dir.write("app/main.doge", "so greet\nbark greet.hi()\nwow\n");
+    let source = std::fs::read_to_string(&entry).unwrap();
+
+    let app_root = std::fs::canonicalize(dir.0.join("app")).unwrap();
+    let dep_entry = std::fs::canonicalize(dir.0.join("dep/main.doge")).unwrap();
+    let mut deps = DependencyMap::new();
+    deps.insert(
+        app_root,
+        std::collections::HashMap::from([("greet".to_string(), dep_entry)]),
+    );
+
+    let err = match load_program_with_deps(&entry, &source, deps) {
+        Err(e) => e,
+        Ok(_) => panic!("a dependency/sibling collision should fail"),
+    };
+    assert_eq!(err.headline, "very ambiguous. much confuse.");
+}
+
+#[test]
 fn single_file_program_rejects_an_unknown_stdlib_module() {
     let script = crate::parser::parse("t.doge", "so bogus\nwow\n").unwrap();
     let err = match single_file_program("t.doge", "so bogus\nwow\n", script) {

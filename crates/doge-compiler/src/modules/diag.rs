@@ -117,6 +117,21 @@ pub(super) fn shadow_diag(path: &str, source: &str, name: &str, span: Span) -> D
     .with_hint(format!("rename your file — {name} is a doge stdlib module"))
 }
 
+/// A name that is both a declared dependency and a sibling `<name>.doge`: the
+/// import can't mean both, so the ambiguity must be resolved by renaming one.
+pub(super) fn dep_conflict_diag(path: &str, source: &str, name: &str, span: Span) -> Diagnostic {
+    diag(
+        path,
+        source,
+        span,
+        format!("{name} is both a declared dependency and a file {name}.doge here"),
+    )
+    .with_headline("very ambiguous. much confuse.")
+    .with_hint(format!(
+        "rename one — a dependency and a sibling module can't share the name {name}"
+    ))
+}
+
 /// A circular import: `active` is the chain of modules currently being loaded,
 /// and `name` closes the loop back onto one of them.
 pub(super) fn cycle_diag(

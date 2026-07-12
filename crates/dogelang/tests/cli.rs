@@ -550,6 +550,61 @@ fn an_object_defined_in_a_module_is_importable() {
     assert_eq!(stdout, "1\n", "utils.Shibe().woof() should print 1");
 }
 
+#[test]
+fn new_scaffolds_a_project_that_runs() {
+    // `doge new` creates a project; a bare `doge bark` inside it runs the entry.
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/new-project"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(&workdir).expect("scratch dir");
+
+    let created = doge()
+        .arg("new")
+        .arg("demo")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+    assert!(created.status.success(), "doge new should exit 0");
+    let project = workdir.join("demo");
+    assert!(project.join("doge.toml").is_file(), "a manifest is written");
+    assert!(project.join("main.doge").is_file(), "an entry is written");
+
+    let run = doge_cached()
+        .arg("bark")
+        .current_dir(&project)
+        .output()
+        .expect("the doge binary should run");
+    assert!(
+        run.status.success(),
+        "the scaffolded project should run, stderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let stdout = String::from_utf8(run.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("much hello from demo"),
+        "the scaffold greets, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn new_refuses_to_overwrite_an_existing_directory() {
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/new-existing"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(workdir.join("taken")).expect("scratch dir");
+
+    let output = doge()
+        .arg("new")
+        .arg("taken")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+    assert_eq!(output.status.code(), Some(1), "an occupied name exits 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("very exists. much occupied."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+}
+
 /// Drive the interactive REPL by piping a scripted session into it and asserting
 /// on the echoed values and printed output.
 fn repl_session(input: &str) -> String {

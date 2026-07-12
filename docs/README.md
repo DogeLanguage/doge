@@ -15,3 +15,4 @@ File extension: `.doge`
 | [ERRORS.md](ERRORS.md) | Diagnostic and runtime error message style |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 | [CLI.md](CLI.md) | The `doge` binary: `bark`, `build`, `check`, and the build cache |
+| [PACKAGING.md](PACKAGING.md) | Projects, the `doge.toml` manifest, dependencies, install, and sharing |

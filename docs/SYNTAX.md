@@ -613,6 +613,31 @@ and fields work the same as a class defined in the main script. The class itself
 can also be taken as a value (`such c = utils.Shibe`); it is the same callable a
 bare class name yields, equal to the module's own `Shibe`.
 
+#### Importing a dependency
+
+A script that lives in a **project** (a directory with a `doge.toml`) can import a
+declared **dependency** by its alias, with the same bare `so <name>` form:
+
+```doge
+# doge.toml
+#   [dependencies]
+#   greet = { path = "lib/greet" }
+
+so greet
+
+bark greet.hello("doge")
+wow
+```
+
+A dependency is another project; `so <alias>` binds its entry module, and member
+access, first-class functions, constants, and classes all work exactly as for a
+local module. A bare `so <name>` resolves in order: a built-in stdlib module, then
+a declared dependency of the importing file's package, then a sibling `<name>.doge`.
+A name that is both a declared dependency and an on-disk sibling is an ambiguity
+error — rename one. Dependencies come from a local path or a git repository and are
+pinned in `doge.lock`; the manifest format, sources, and lockfile are covered in
+[PACKAGING.md](PACKAGING.md).
+
 ## 10. Complete example
 
 ```doge

@@ -16,13 +16,38 @@ use crate::Documents;
 /// the first problem, so a failed check yields exactly one).
 pub fn diagnostics_for(uri: &Url, text: &str) -> Vec<Diagnostic> {
     let path = document_path(uri);
-    let outcome = match doge_compiler::load(&path, text) {
+    let outcome = match load_document(&path, text) {
         Ok(program) => doge_compiler::check_program(&program),
         Err(diag) => Err(diag),
     };
     match outcome {
         Ok(()) => Vec::new(),
         Err(diag) => vec![to_lsp_diagnostic(&path, &diag)],
+    }
+}
+
+/// Load `path`'s program, resolving project dependencies when the file lives in a
+/// project. The server never fetches: path dependencies resolve from disk, and a
+/// git dependency that hasn't been fetched yet surfaces as one honest diagnostic
+/// pointing the user at `doge bark` (rather than a false "unknown module").
+#[allow(clippy::result_large_err)]
+fn load_document(
+    path: &str,
+    text: &str,
+) -> Result<doge_compiler::Program, doge_compiler::Diagnostic> {
+    let start = std::path::Path::new(path)
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    match doge_compiler::discover_root(&start) {
+        Some(root) => {
+            let mut git = |_url: &str, _rev: &doge_compiler::GitRev| {
+                Err("this git dependency isn't fetched yet".to_string())
+            };
+            let deps = doge_compiler::resolve_project(&root, &mut git)?;
+            doge_compiler::load_program_with_deps(path, text, deps)
+        }
+        None => doge_compiler::load(path, text),
     }
 }
 

@@ -63,3 +63,51 @@ fn examples_with_expected_output_run_and_match() {
     }
     assert!(ran > 0, "no runnable examples with .out files were found");
 }
+
+/// Project examples: a subdirectory with a `doge.toml` and an `expected.out`.
+/// Each is run via a bare `doge bark` from inside the project, so its manifest
+/// entry and declared dependencies are resolved exactly as a user's would be.
+#[test]
+fn project_examples_run_and_match() {
+    let dir = examples_dir();
+    let mut ran = 0;
+    for entry in std::fs::read_dir(&dir).expect("examples directory should exist") {
+        let project = entry.expect("readable dir entry").path();
+        if !project.is_dir() {
+            continue;
+        }
+        if !project.join("doge.toml").is_file() {
+            continue;
+        }
+        let out = project.join("expected.out");
+        if !out.exists() {
+            continue;
+        }
+        ran += 1;
+
+        let expected = std::fs::read_to_string(&out).expect("readable expected.out file");
+        let output = Command::new(env!("CARGO_BIN_EXE_doge"))
+            .arg("bark")
+            .current_dir(&project)
+            .stdin(Stdio::null())
+            .env("DOGE_CACHE_DIR", cache_dir())
+            .output()
+            .expect("the doge binary should run");
+
+        let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "{} should run cleanly, exit={:?}\nstderr:\n{stderr}",
+            project.display(),
+            output.status.code(),
+        );
+        assert_eq!(
+            stdout,
+            expected,
+            "{} stdout should match its expected.out",
+            project.display()
+        );
+    }
+    assert!(ran > 0, "no runnable project examples were found");
+}

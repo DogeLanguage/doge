@@ -51,13 +51,33 @@ The first run pays the Rust compile time (a few seconds); the binary is then cac
 
 | Command | Effect |
 |---|---|
+| `doge new <name>` | scaffold a new project (`doge.toml` + `main.doge`) |
 | `doge bark script.doge` | compile (cached) and run |
-| `doge build script.doge` | compile and copy the binary to `./<script-stem>` |
+| `doge build script.doge` | compile and copy the binary to `./<name>` |
 | `doge check script.doge` | parse and check only, no build |
 | `doge repl` (or bare `doge`) | interactive interpreter — evaluate Doge with no build |
 
 The `examples/` folder tours the language; start with `examples/tour.doge`. For a
 quick play, `doge repl` drops you into an interactive prompt.
+
+## Projects and dependencies
+
+`doge new my_app` scaffolds a project — a directory with a `doge.toml` manifest.
+A project declares dependencies by local path or git, imported with `so <alias>`:
+
+```toml
+[package]
+name = "my_app"
+entry = "main.doge"
+
+[dependencies]
+greet = { path = "lib/greet" }
+cool  = { git = "https://github.com/u/cool", tag = "v1.0.0" }
+```
+
+Inside a project, `doge bark`/`build`/`check` need no script path. See
+[PACKAGING.md](docs/PACKAGING.md) for the full manifest, dependency, and sharing
+story.
 
 ## Documentation
 
@@ -69,6 +89,7 @@ quick play, `doge repl` drops you into an interactive prompt.
 | [ERRORS.md](docs/ERRORS.md) | Diagnostic and runtime error message style |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 | [CLI.md](docs/CLI.md) | The `doge` binary and the build cache |
+| [PACKAGING.md](docs/PACKAGING.md) | Projects, the `doge.toml` manifest, dependencies, install, and sharing |
 
 ## License
 

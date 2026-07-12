@@ -6,11 +6,16 @@
 
 mod build;
 mod cache;
+mod deps;
+mod new;
 mod repl;
 mod test;
 
 use std::path::Path;
 use std::process::ExitCode;
+
+use deps::Located;
+use doge_compiler::DependencyMap;
 
 /// Exit codes: success, a Doge-level failure (bad program, unreadable file, or a
 /// build problem), and a usage error.
@@ -18,7 +23,7 @@ const EXIT_OK: u8 = 0;
 const EXIT_FAILURE: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 
-const USAGE: &str = "such usage: doge <bark|build|check|fmt|test|lsp|repl> [script.doge]";
+const USAGE: &str = "such usage: doge <new|bark|build|check|fmt|test|lsp|repl> [name|script.doge]";
 /// Headline when the language server's transport fails — an editor/protocol
 /// problem, never a Doge program error.
 const LSP_ERROR_HEADLINE: &str = "very server. much broken.";
@@ -38,9 +43,15 @@ fn main() -> ExitCode {
     // Skip argv[0] (the program name).
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
-        [cmd, path, rest @ ..] if cmd == "bark" => run_bark(path, rest),
-        [cmd, path] if cmd == "build" => run_build(path),
-        [cmd, path] if cmd == "check" => run_check(path),
+        // `doge new <name>` scaffolds a fresh project directory.
+        [cmd, name] if cmd == "new" => new::run(name),
+        [cmd, path, rest @ ..] if cmd == "bark" => run_bark(Some(path), rest),
+        // A bare `doge bark`/`doge build` runs the current project's entry.
+        [cmd] if cmd == "bark" => run_bark(None, &[]),
+        [cmd, path] if cmd == "build" => run_build(Some(path)),
+        [cmd] if cmd == "build" => run_build(None),
+        [cmd, path] if cmd == "check" => run_check(Some(path)),
+        [cmd] if cmd == "check" => run_check(None),
         [cmd, path] if cmd == "fmt" => run_fmt(path, false),
         [cmd, flag, path] if cmd == "fmt" && flag == "--check" => run_fmt(path, true),
         // `doge test <file|dir>` discovers and runs test functions on the interpreter.
@@ -60,15 +71,22 @@ fn main() -> ExitCode {
     }
 }
 
-/// `doge bark <path> [args…]`: compile the script (using the cache) and run it,
+/// `doge bark [path] [args…]`: compile the script (using the cache) and run it,
 /// forwarding any trailing arguments to the program and propagating its exit code.
-fn run_bark(path: &str, args: &[String]) -> ExitCode {
+/// With no path, the current project's `[package].entry` is run.
+fn run_bark(path: Option<&str>, args: &[String]) -> ExitCode {
+    let located = match deps::locate(path) {
+        Ok(located) => located,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(EXIT_FAILURE);
+        }
+    };
     if std::env::var_os(INTERP_ENV).is_some() {
-        let path = path.to_string();
         let args = args.to_vec();
-        return on_big_stack(move || run_interpreted(&path, args));
+        return on_big_stack(move || run_interpreted(located, args));
     }
-    let (source, generated) = match compile_to_rust(path) {
+    let (source, generated) = match compile_program(&located.entry, located.deps) {
         Ok(pair) => pair,
         Err(code) => return code,
     };
@@ -88,10 +106,18 @@ fn run_bark(path: &str, args: &[String]) -> ExitCode {
     }
 }
 
-/// `doge build <path>`: compile the script (using the cache) and drop a
-/// standalone binary at `./<script-stem>` in the current directory.
-fn run_build(path: &str) -> ExitCode {
-    let (source, generated) = match compile_to_rust(path) {
+/// `doge build [path]`: compile the script (using the cache) and drop a standalone
+/// binary in the current directory, named after the project (or the script stem).
+fn run_build(path: Option<&str>) -> ExitCode {
+    let located = match deps::locate(path) {
+        Ok(located) => located,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(EXIT_FAILURE);
+        }
+    };
+    let stem = binary_stem(&located);
+    let (source, generated) = match compile_program(&located.entry, located.deps) {
         Ok(pair) => pair,
         Err(code) => return code,
     };
@@ -102,11 +128,7 @@ fn run_build(path: &str) -> ExitCode {
             return ExitCode::from(EXIT_FAILURE);
         }
     };
-    let stem = Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(DEFAULT_BINARY_STEM);
-    match build::copy_to_cwd(&binary, stem) {
+    match build::copy_to_cwd(&binary, &stem) {
         Ok(()) => {
             println!("such binary: ./{stem}");
             ExitCode::from(EXIT_OK)
@@ -118,16 +140,38 @@ fn run_build(path: &str) -> ExitCode {
     }
 }
 
-/// `doge check <path>`: load and check the program (the entry and every module
-/// it imports), printing the entry's AST dump on success or one doge-flavored
-/// diagnostic on failure.
-fn run_check(path: &str) -> ExitCode {
-    let source = match read_source(path) {
+/// The name for a `doge build` binary: the project's package name, else the
+/// entry's file stem, else a fixed fallback.
+fn binary_stem(located: &Located) -> String {
+    if let Some(name) = &located.package_name {
+        return name.clone();
+    }
+    located
+        .entry
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(DEFAULT_BINARY_STEM)
+        .to_string()
+}
+
+/// `doge check <path>`: load and check the program (the entry, every module it
+/// imports, and its resolved dependencies), printing the entry's AST dump on
+/// success or one doge-flavored diagnostic on failure.
+fn run_check(path: Option<&str>) -> ExitCode {
+    let located = match deps::locate(path) {
+        Ok(located) => located,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(EXIT_FAILURE);
+        }
+    };
+    let entry = located.entry.to_string_lossy().into_owned();
+    let source = match read_source(&entry) {
         Ok(source) => source,
         Err(code) => return code,
     };
 
-    let program = match doge_compiler::load(path, &source) {
+    let program = match doge_compiler::load_program_with_deps(&entry, &source, located.deps) {
         Ok(program) => program,
         Err(diag) => {
             eprint!("{}", diag.render());
@@ -201,13 +245,14 @@ fn run_lsp() -> ExitCode {
 /// the same doge-flavored form the compiled program uses — never raw Rust. The
 /// script's arguments are published so `env.args()` sees the same list the
 /// compiled program's `main` would.
-fn run_interpreted(path: &str, args: Vec<String>) -> ExitCode {
+fn run_interpreted(located: Located, args: Vec<String>) -> ExitCode {
     doge_runtime::set_script_args(args);
-    let source = match read_source(path) {
+    let entry = located.entry.to_string_lossy().into_owned();
+    let source = match read_source(&entry) {
         Ok(source) => source,
         Err(code) => return code,
     };
-    let program = match doge_compiler::load(path, &source) {
+    let program = match doge_compiler::load_program_with_deps(&entry, &source, located.deps) {
         Ok(program) => program,
         Err(diag) => {
             eprint!("{}", diag.render());
@@ -242,9 +287,10 @@ fn run_interpreted(path: &str, args: Vec<String>) -> ExitCode {
 /// `bark` and `build`. Returns the cache-key source (a blob covering every
 /// imported file, so a change to any of them rebuilds) and the generated Rust.
 /// On any failure it prints the diagnostic and returns the exit code.
-fn compile_to_rust(path: &str) -> Result<(String, String), ExitCode> {
-    let source = read_source(path)?;
-    let program = match doge_compiler::load(path, &source) {
+fn compile_program(entry: &Path, deps: DependencyMap) -> Result<(String, String), ExitCode> {
+    let entry = entry.to_string_lossy().into_owned();
+    let source = read_source(&entry)?;
+    let program = match doge_compiler::load_program_with_deps(&entry, &source, deps) {
         Ok(program) => program,
         Err(diag) => {
             eprint!("{}", diag.render());
