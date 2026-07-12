@@ -26,7 +26,8 @@ writes harmless (mismatch means rebuild). Concurrent `doge` runs on the same scr
 are serialized by a `build.lock` marker in the script's entry dir, so two builds
 never relink one cached binary out from under a run; late arrivals reuse the binary
 the lock holder built. The cache lives at `$DOGE_CACHE_DIR`, else
-`$XDG_CACHE_HOME/doge`, else `$HOME/.cache/doge`.
+`$XDG_CACHE_HOME/doge`, else `$HOME/.cache/doge`, else `%LOCALAPPDATA%\doge`
+(the default Windows location).
 
 ## Toolchain handling
 
