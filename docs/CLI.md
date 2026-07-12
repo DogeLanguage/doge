@@ -28,7 +28,9 @@ files or the environment through the `fetch` and `env` modules
 ## Projects and dependencies
 
 `doge new <name>` scaffolds a project — a directory with a `doge.toml` manifest, a
-runnable `main.doge`, and a `.gitignore`. Inside a project, `doge bark`/`build`/
+runnable `main.doge`, and a `.gitignore`. The `<name>` is a single path segment of
+letters, digits, `-`, and `_` (so it names one new directory here, never a nested or
+parent path). Inside a project, `doge bark`/`build`/
 `check` run without a script path (using `[package].entry`) and `doge build` names
 the binary after the package. A project declares dependencies (local `path` or
 `git`) that `so <alias>` then imports. The full story — manifest format, dependency
@@ -105,6 +107,10 @@ wow
 - `doge test script.doge` runs every test function in that one file.
 - `doge test <dir>` discovers every `test_*.doge` file beneath the directory
   (recursively, in path order) and runs each one's tests.
+
+A test file inside a project ([PACKAGING.md](PACKAGING.md)) resolves that project's
+dependencies just like `doge bark`/`build`/`check`, so a test may `so <alias>` a
+declared dependency, not only a sibling file.
 
 Each test runs on the tree-walking interpreter ([ARCHITECTURE.md](ARCHITECTURE.md)),
 so there is no `rustc` build and one test's error never aborts the rest: a failing

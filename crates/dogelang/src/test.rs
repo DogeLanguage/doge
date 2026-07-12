@@ -84,7 +84,18 @@ fn run_file(path: &Path, totals: &mut Totals) {
         }
     };
 
-    let program = match doge_compiler::load(&display, &source) {
+    // A test file inside a project sees that project's dependencies, exactly as
+    // `doge bark`/`build`/`check` do — the whole CLI resolves through one path.
+    let deps = match crate::deps::locate(Some(&display)) {
+        Ok(located) => located.deps,
+        Err(message) => {
+            eprintln!("{message}");
+            totals.failed += 1;
+            return;
+        }
+    };
+
+    let program = match doge_compiler::load_program_with_deps(&display, &source, deps) {
         Ok(program) => program,
         Err(diag) => {
             eprint!("{}", diag.render());

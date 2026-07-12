@@ -605,6 +605,31 @@ fn new_refuses_to_overwrite_an_existing_directory() {
     );
 }
 
+#[test]
+fn new_rejects_a_path_traversal_name() {
+    // A name with path separators must not create dirs outside the working dir.
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/new-traversal"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    std::fs::create_dir_all(&workdir).expect("scratch dir");
+
+    let output = doge()
+        .arg("new")
+        .arg("../escaped")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+    assert_eq!(output.status.code(), Some(1), "an invalid name exits 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("very name. much invalid."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+    assert!(
+        !workdir.parent().unwrap().join("escaped").exists(),
+        "nothing may be created outside the working directory"
+    );
+}
+
 /// Drive the interactive REPL by piping a scripted session into it and asserting
 /// on the echoed values and printed output.
 fn repl_session(input: &str) -> String {
@@ -831,6 +856,53 @@ fn test_discovers_test_files_recursively_in_a_directory() {
     assert!(
         stdout.contains("3 passed"),
         "should aggregate across files, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_resolves_a_projects_declared_dependency() {
+    // A test file inside a project must see that project's dependencies, exactly
+    // as `doge bark`/`build`/`check` do — not just sibling files.
+    let workdir = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/test-with-deps"));
+    let _ = std::fs::remove_dir_all(&workdir);
+    let greet = workdir.join("lib/greet");
+    std::fs::create_dir_all(&greet).expect("scratch project dirs");
+
+    std::fs::write(
+        workdir.join("doge.toml"),
+        "[package]\nname = \"app\"\n\n[dependencies]\ngreet = { path = \"lib/greet\" }\n",
+    )
+    .expect("write app manifest");
+    std::fs::write(greet.join("doge.toml"), "[package]\nname = \"greet\"\n")
+        .expect("write dep manifest");
+    std::fs::write(
+        greet.join("main.doge"),
+        "such hello much who:\n    return \"hi \" + who\nwow\nwow\n",
+    )
+    .expect("write dep entry");
+    std::fs::write(
+        workdir.join("test_greet.doge"),
+        "so greet\n\nsuch test_hello:\n    amaze greet.hello(\"x\") == \"hi x\"\nwow\nwow\n",
+    )
+    .expect("write the test file");
+
+    let output = doge()
+        .arg("test")
+        .arg("test_greet.doge")
+        .current_dir(&workdir)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "a test importing a declared dependency should pass, stderr:\n{}\nstdout:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout),
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_hello") && stdout.contains("1 passed"),
+        "should run the dependency-importing test, got:\n{stdout}"
     );
 }
 

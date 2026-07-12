@@ -8,6 +8,13 @@ use crate::{EXIT_FAILURE, EXIT_OK};
 
 /// Create a new project directory named `name`, or report why it could not.
 pub fn run(name: &str) -> ExitCode {
+    if !is_valid_name(name) {
+        eprintln!(
+            "very name. much invalid.\n\n  {name:?} is not a valid project name — a project is one\n  path segment of letters, digits, - and _ (so it can't escape the\n  current directory or become an odd package name).\n\nsuch fix: try doge new my_app"
+        );
+        return ExitCode::from(EXIT_FAILURE);
+    }
+
     let dir = Path::new(name);
     if dir.exists() {
         eprintln!(
@@ -41,4 +48,37 @@ pub fn run(name: &str) -> ExitCode {
 
     println!("such new: created {name}/ — cd {name} && doge bark");
     ExitCode::from(EXIT_OK)
+}
+
+/// A project name is a single path segment of letters, digits, `-`, and `_`. This
+/// blocks path traversal (`../evil`, `/etc/x`), nested paths (`a/b`), and names
+/// that would make an odd package name or `doge.toml` value.
+fn is_valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_names_are_valid() {
+        assert!(is_valid_name("my_app"));
+        assert!(is_valid_name("doge-lib"));
+        assert!(is_valid_name("app2"));
+    }
+
+    #[test]
+    fn traversal_and_separators_are_rejected() {
+        assert!(!is_valid_name(""));
+        assert!(!is_valid_name(".."));
+        assert!(!is_valid_name("../evil"));
+        assert!(!is_valid_name("/etc/passwd"));
+        assert!(!is_valid_name("a/b"));
+        assert!(!is_valid_name("has space"));
+        assert!(!is_valid_name("weird\"quote"));
+    }
 }
