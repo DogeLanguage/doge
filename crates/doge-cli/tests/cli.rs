@@ -455,7 +455,7 @@ fn a_loose_statement_in_a_module_is_a_doge_diagnostic() {
 #[test]
 fn an_object_defined_in_a_module_is_importable() {
     let entry = module_fixtures_dir().join("obj_entry.doge");
-    let output = doge()
+    let output = doge_cached()
         .arg("bark")
         .arg(&entry)
         .output()
