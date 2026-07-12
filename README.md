@@ -8,7 +8,7 @@
   <a href="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/DogeLanguage/doge/ci.yml?branch=main&color=f4b400&label=very%20build" alt="CI"></a>
   <a href="https://github.com/DogeLanguage/doge/issues"><img src="https://img.shields.io/github/issues/DogeLanguage/doge?color=f4b400&label=much%20borks" alt="Open issues"></a>
   <a href="https://github.com/DogeLanguage/doge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DogeLanguage/doge?color=f4b400&label=such%20license" alt="License"></a>
-  <img src="https://img.shields.io/badge/wow--f4b400" alt="wow">
+  <img src="https://img.shields.io/badge/wow-555" alt="wow">
 </p>
 
 Doge is a dynamically typed scripting language that reads like Python and runs as a native binary. Scripts transpile to Rust and compile ahead of time, so you write clear, low-ceremony code and ship real performance:
@@ -53,8 +53,10 @@ cached in `~/.cache/doge/`, so an unchanged script runs instantly.
 | `doge bark script.doge` | compile (cached) and run |
 | `doge build script.doge` | compile and copy the binary to `./<script-stem>` |
 | `doge check script.doge` | parse and check only, no build |
+| `doge repl` (or bare `doge`) | interactive interpreter — evaluate Doge with no build |
 
-The `examples/` folder tours the language; start with `examples/tour.doge`.
+The `examples/` folder tours the language; start with `examples/tour.doge`. For a
+quick play, `doge repl` drops you into an interactive prompt.
 
 ## Documentation
 

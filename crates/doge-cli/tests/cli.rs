@@ -83,8 +83,14 @@ fn check_on_a_bad_program_prints_a_diagnostic_to_stderr() {
 }
 
 #[test]
-fn no_arguments_prints_usage_and_exits_two() {
-    let output = doge().output().expect("the doge binary should run");
+fn an_unknown_command_prints_usage_and_exits_two() {
+    // A bare `doge` now starts the REPL, so usage is reported for an unrecognized
+    // subcommand instead.
+    let output = doge()
+        .arg("frobnicate")
+        .arg("x.doge")
+        .output()
+        .expect("the doge binary should run");
     assert_eq!(output.status.code(), Some(2), "expected exit 2");
     let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
     assert!(
@@ -495,4 +501,76 @@ fn an_object_defined_in_a_module_is_importable() {
     );
     let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
     assert_eq!(stdout, "1\n", "utils.Shibe().woof() should print 1");
+}
+
+/// Drive the interactive REPL by piping a scripted session into it and asserting
+/// on the echoed values and printed output.
+fn repl_session(input: &str) -> String {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = doge()
+        .arg("repl")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the doge binary should start");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(input.as_bytes())
+        .expect("write the session");
+    let output = child.wait_with_output().expect("the repl should finish");
+    String::from_utf8(output.stdout).expect("utf-8 stdout")
+}
+
+#[test]
+fn repl_runs_a_session_and_persists_bindings() {
+    // Declare a variable, use it, redefine it, and echo a trailing expression —
+    // across separate lines, so the session must persist state between them.
+    let stdout = repl_session("such x = 20\nbark x + 1\nsuch x = 100\nx * 2\nwow\n");
+    assert!(
+        stdout.contains("21"),
+        "bark should print 21, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("200"),
+        "the trailing expression should echo 200 after redefinition, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn repl_recovers_after_an_error() {
+    // An unknown name reports an error, then the session keeps going.
+    let stdout = repl_session("bark nope\nbark 7\nwow\n");
+    assert!(
+        stdout.contains("7"),
+        "the session should continue after an error, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_bare_doge_starts_the_repl() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = doge()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("the doge binary should start");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"bark 42\nwow\n")
+        .expect("write the session");
+    let output = child.wait_with_output().expect("the repl should finish");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("42"),
+        "a bare `doge` should start the repl, got:\n{stdout}"
+    );
 }

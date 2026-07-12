@@ -10,6 +10,32 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 | `doge bark script.doge` | compile (cached) and run; exits with the script's own code |
 | `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
 | `doge check script.doge` | parse + checks only, no build |
+| `doge repl` (or bare `doge`) | start the interactive interpreter — evaluate Doge without a build |
+
+## REPL
+
+`doge repl`, or running `doge` with no arguments, starts an interactive session.
+Unlike `bark`/`build`, it never invokes `rustc`: each line is parsed, checked, and
+evaluated by the tree-walking interpreter ([ARCHITECTURE.md](ARCHITECTURE.md)), so
+results appear instantly. The interpreter runs the same `doge-runtime` a compiled
+program does, so behaviour is identical — every `examples/*.doge` produces the same
+output through both engines (an enforced test).
+
+- **Prompts.** `doge> ` for a new statement, `...   ` while a construct is still
+  open. A bare expression is echoed: `1 + 2` prints `3`; a statement like `bark x`
+  or `such x = …` prints only what it would in a script.
+- **Multi-line input.** A construct that is not finished on one line — a `such …:`
+  function or `many …:` object (closed by `wow`), or an `if`/`for`/`while`/`pls`
+  block — keeps reading until a **blank line** runs it, Python-style.
+- **Session state.** Bindings persist across lines; a later line may use or redefine
+  an earlier one (`such` variables, functions, and objects can be redefined, but a
+  `so` constant still cannot be reassigned). `so nerd`/`so strings` make the stdlib
+  available. Importing your own `.doge` modules is not supported in the REPL yet —
+  run the file with `doge bark` to use them.
+- **Errors don't end the session.** A syntax, check, or runtime error is reported in
+  the usual doge-flavored form ([ERRORS.md](ERRORS.md)) and the prompt returns with
+  state intact.
+- **Leaving.** Type `wow` on its own line, or press Ctrl-D (EOF).
 
 ## Build cache
 

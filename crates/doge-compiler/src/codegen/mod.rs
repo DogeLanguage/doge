@@ -6,7 +6,7 @@ pub(super) use std::cell::{Cell, RefCell};
 pub(super) use std::collections::{HashMap, HashSet};
 
 pub(super) use crate::ast::{
-    hoisted_names, toplevel_hoisted, BinOp, Expr, InterpPart, Params, Stmt, UnOp,
+    child_funcdefs, hoisted_names, toplevel_hoisted, BinOp, Expr, InterpPart, Params, Stmt, UnOp,
 };
 pub(super) use crate::builtins::{BuiltinFn, BuiltinShape};
 pub(super) use crate::diagnostics::Diagnostic;

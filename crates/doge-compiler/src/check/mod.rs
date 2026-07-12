@@ -52,16 +52,74 @@ fn check_module_defs_only(path: &str, source: &str, script: &Script) -> Result<(
     Ok(())
 }
 
+/// The accumulated top-level scope of a REPL session: every name in scope, the
+/// subset that are constants, and the object definitions (for inheritance and
+/// `super` checks). A snippet is checked as if these were already declared, so it
+/// can reference — and redefine — anything earlier snippets introduced. Built by
+/// the interpreter from its live session state, so the checker and the runtime
+/// always agree on what exists.
+#[derive(Default)]
+pub struct SessionScope {
+    pub globals: Vec<String>,
+    pub consts: Vec<String>,
+    pub classes: Vec<ClassInfo>,
+}
+
+/// One class already defined in a REPL session: its name, the parent it inherits
+/// from (if any), and its method names.
+pub struct ClassInfo {
+    pub name: String,
+    pub parent: Option<String>,
+    pub methods: Vec<String>,
+}
+
+impl SessionScope {
+    /// An empty session — no prior declarations. Used by the batch [`check`].
+    pub fn empty() -> SessionScope {
+        SessionScope::default()
+    }
+}
+
 /// Run every semantic check over `script`. `path`/`source` are only used to
 /// render diagnostics against the original text.
 pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
+    check_snippet(path, source, script, &SessionScope::empty())
+}
+
+/// Check a REPL snippet against a session's accumulated scope. Identical to
+/// [`check`] but with `session`'s names pre-declared: top-level references to
+/// earlier snippets resolve, and a snippet may redefine a name an earlier one
+/// introduced (only the current snippet is checked for duplicate definitions).
+/// Constant reassignment and undeclared-name use stay errors.
+pub fn check_snippet(
+    path: &str,
+    source: &str,
+    script: &Script,
+    session: &SessionScope,
+) -> Result<(), Diagnostic> {
     let lines = crate::diagnostics::split_source_lines(source);
     let mut checker = Checker {
         path: path.to_string(),
         lines,
-        globals: HashSet::new(),
-        consts: HashSet::new(),
-        classes: HashMap::new(),
+        globals: session.globals.iter().cloned().collect(),
+        consts: session.consts.iter().cloned().collect(),
+        classes: session
+            .classes
+            .iter()
+            .map(|c| {
+                (
+                    c.name.clone(),
+                    ClassSig {
+                        parent: c.parent.clone(),
+                        methods: c.methods.iter().cloned().collect(),
+                        // A prior snippet's class carries no span in this source;
+                        // it was validated when first entered, so an inheritance
+                        // error can only originate from a class in this snippet.
+                        span: Span { line: 0, col: 0 },
+                    },
+                )
+            })
+            .collect(),
     };
 
     // Pre-pass: every top-level name, and the top-level constants.
@@ -129,7 +187,10 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
     checker.check_inheritance()?;
 
     let mut ctx = Ctx {
-        locals: HashSet::new(),
+        // Prior-session names are in scope at the top level from the first line;
+        // this snippet's own names are added by `check_stmt` as it reaches them,
+        // preserving declare-before-use *within* the snippet.
+        locals: session.globals.iter().cloned().collect(),
         in_function: false,
         class: None,
         loop_depth: 0,

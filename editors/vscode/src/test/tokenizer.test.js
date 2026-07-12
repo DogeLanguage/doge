@@ -50,6 +50,14 @@ test('`oh no err!` fuses the compound keyword with the bound name', () => {
   assert.equal(c.get('err')[0], ohColour, 'the bound name joins the group');
 });
 
+test('`amaze` is its own group and its asserted name reuses that colour', () => {
+  const c = coloursByText('such age = 7\namaze age\nwow');
+  const suchColour = c.get('such')[0];
+  const amazeColour = c.get('amaze')[0];
+  assert.notEqual(amazeColour, suchColour, 'amaze starts a fresh group');
+  assert.equal(c.get('age')[1], suchColour, 'the asserted name keeps its definition colour');
+});
+
 test('strings and comments are never coloured', () => {
   const toks = tokenize('bark "such wow much bark"  # such comment\nwow');
   // Only the two `bark`/`wow` keywords outside the string/comment are coloured.

@@ -8,7 +8,7 @@
 
 /// How a builtin call is emitted and dispatched.
 #[derive(Clone, Copy)]
-pub(crate) enum BuiltinShape {
+pub enum BuiltinShape {
     /// Returns `Result` at runtime, so the emitted call threads `?`/labeled-break
     /// and the value-dispatcher arm forwards the `Result` as-is.
     Fallible,
@@ -23,7 +23,7 @@ pub(crate) enum BuiltinShape {
 /// One builtin: its name, the `doge-runtime` function a call emits, the argument
 /// counts it accepts, its emission shape, and the call-shape hint for arity
 /// diagnostics.
-pub(crate) struct BuiltinFn {
+pub struct BuiltinFn {
     pub name: &'static str,
     pub runtime_fn: &'static str,
     pub arities: &'static [usize],
@@ -55,7 +55,7 @@ impl BuiltinFn {
     }
 }
 
-pub(crate) const BUILTINS: &[BuiltinFn] = &[
+pub const BUILTINS: &[BuiltinFn] = &[
     BuiltinFn {
         name: "len",
         runtime_fn: "len",
@@ -94,12 +94,12 @@ pub(crate) const BUILTINS: &[BuiltinFn] = &[
 ];
 
 /// The builtin named `name`, if there is one.
-pub(crate) fn builtin(name: &str) -> Option<&'static BuiltinFn> {
+pub fn builtin(name: &str) -> Option<&'static BuiltinFn> {
     BUILTINS.iter().find(|b| b.name == name)
 }
 
 /// Whether `name` is a builtin — always in scope, never redefinable.
-pub(crate) fn is_builtin(name: &str) -> bool {
+pub fn is_builtin(name: &str) -> bool {
     builtin(name).is_some()
 }
 

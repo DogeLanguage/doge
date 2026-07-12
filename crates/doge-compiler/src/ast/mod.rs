@@ -1,9 +1,11 @@
 use crate::token::Span;
 
+mod analysis;
 mod dump;
 #[cfg(test)]
 mod tests;
 
+pub use analysis::{celled_locals, child_funcdefs, free_names};
 pub use dump::dump;
 
 /// A whole parsed script: a sequence of top-level statements (the terminating
@@ -433,7 +435,7 @@ impl Expr {
 /// this one. This match is exhaustive with no wildcard, so a new block-carrying
 /// statement cannot be silently skipped by the scope collectors and capture
 /// analysis that fold over it.
-pub(crate) fn for_each_child_block<'a>(stmt: &'a Stmt, f: &mut impl FnMut(&'a [Stmt])) {
+pub fn for_each_child_block<'a>(stmt: &'a Stmt, f: &mut impl FnMut(&'a [Stmt])) {
     match stmt {
         Stmt::If {
             branches,
@@ -473,7 +475,7 @@ pub(crate) fn for_each_child_block<'a>(stmt: &'a Stmt, f: &mut impl FnMut(&'a [S
 /// first-seen order, each once. These become the scope's `Env` fields or hoisted
 /// locals. A nested function's own body is not descended into: its inner names
 /// belong to its own scope.
-pub(crate) fn hoisted_names(stmts: &[Stmt]) -> Vec<String> {
+pub fn hoisted_names(stmts: &[Stmt]) -> Vec<String> {
     let mut names = Vec::new();
     collect_hoisted(stmts, &mut names);
     names
