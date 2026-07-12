@@ -36,6 +36,8 @@ pub enum TokenKind {
     Many,
     So,
     Very,
+    /// `super` — call a method inherited from the enclosing class's parent.
+    Super,
     /// The fused `oh no` compound keyword
     OhNo,
 
@@ -128,6 +130,7 @@ impl TokenKind {
             | TokenKind::Many
             | TokenKind::So
             | TokenKind::Very
+            | TokenKind::Super
             | TokenKind::If
             | TokenKind::Elif
             | TokenKind::Else

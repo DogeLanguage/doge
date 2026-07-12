@@ -3,11 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/DogeLanguage/doge/ci.yml?branch=main&color=f4b400&label=very%20build" alt="CI"></a>
   <a href="https://github.com/DogeLanguage/doge/stargazers"><img src="https://img.shields.io/github/stars/DogeLanguage/doge?style=flat&label=doges%20wowed&color=f4b400" alt="Stars"></a>
   <a href="https://github.com/DogeLanguage/doge/commits/main"><img src="https://img.shields.io/github/last-commit/DogeLanguage/doge/main?color=f4b400&label=last%20bark" alt="Last commit"></a>
-  <a href="https://github.com/DogeLanguage/doge/issues"><img src="https://img.shields.io/github/issues/DogeLanguage/doge?color=f4b400&label=such%20bonks" alt="Open issues"></a>
-  <a href="https://github.com/DogeLanguage/doge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DogeLanguage/doge?color=f4b400&label=much%20license" alt="License"></a>
+  <a href="https://github.com/DogeLanguage/doge/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/DogeLanguage/doge/ci.yml?branch=main&color=f4b400&label=very%20build" alt="CI"></a>
+  <a href="https://github.com/DogeLanguage/doge/issues"><img src="https://img.shields.io/github/issues/DogeLanguage/doge?color=f4b400&label=much%20bonks" alt="Open issues"></a>
+  <a href="https://github.com/DogeLanguage/doge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DogeLanguage/doge?color=f4b400&label=such%20license" alt="License"></a>
+  <img src="https://img.shields.io/badge/-wow-f4b400" alt="wow">
 </p>
 
 Doge is a scripting language inspired by the ease of use from Python and with the Rust engine underneath. Rust's skill floor is too high for casual scripting, while Python proved that a clear, low-ceremony language is what most people reach for. Doge aims to be the language with:
@@ -35,14 +36,10 @@ wow
 
 ## Installation
 
-Doge needs a Rust toolchain to install and to compile scripts — get one from
-[rustup.rs](https://rustup.rs) if you don't have it.
+Doge needs a [Rust](https://rustup.rs) toolchain to install and to compile scripts.
 
 ```sh
-git clone https://github.com/DogeLanguage/doge
-cd doge
-cargo install --path crates/doge-cli
-doge bark examples/hello.doge   # check that it worked
+cargo install --git https://github.com/DogeLanguage/doge doge-cli
 ```
 
 The first run pays the Rust compile time (a few seconds); the binary is then
@@ -68,14 +65,6 @@ The `examples/` folder tours the language; start with `examples/tour.doge`.
 | [ERRORS.md](docs/ERRORS.md) | Diagnostic and runtime error message style |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 | [CLI.md](docs/CLI.md) | The `doge` binary and the build cache |
-
-## Status
-
-The core language works end-to-end: variables, control flow, functions,
-closures and first-class functions, `pls`/`oh no` error handling, `many Name:`
-objects, list/dict methods, the `nerd`/`strings` stdlib, and `.doge` module
-imports. Remaining features (objects as first-class values, a REPL) are tracked
-as [issues](https://github.com/DogeLanguage/doge/issues).
 
 ## License
 

@@ -153,6 +153,38 @@ fn object_body_rejects_non_methods() {
 }
 
 #[test]
+fn object_can_name_a_parent() {
+    let src = "many Corgi much Shibe:\n    such speak:\n        bark 1\n    wow\nwow\nwow\n";
+    let script = parse_ok(src);
+    match &script.stmts[0] {
+        Stmt::ObjDef { name, parent, .. } => {
+            assert_eq!(name, "Corgi");
+            assert_eq!(parent.as_deref(), Some("Shibe"));
+        }
+        other => panic!("expected ObjDef, got {other:?}"),
+    }
+    // A plain object has no parent.
+    let plain = parse_ok("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nwow\n");
+    match &plain.stmts[0] {
+        Stmt::ObjDef { parent, .. } => assert!(parent.is_none()),
+        other => panic!("expected ObjDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn super_parses_as_a_method_call() {
+    let src = "many Corgi much Shibe:\n    such speak:\n        return super.speak()\n    wow\nwow\nwow\n";
+    let script = parse_ok(src);
+    assert!(dump(&script).contains("SuperCall speak"));
+}
+
+#[test]
+fn bare_super_is_a_friendly_error() {
+    let err = parse_err("many A much B:\n    such go:\n        return super\n    wow\nwow\nwow\n");
+    assert_eq!(err.headline, "very super. much confuse.");
+}
+
+#[test]
 fn if_elif_else() {
     let script = parse_ok("if a:\n    bark 1\nelif b:\n    bark 2\nelse:\n    bark 3\nwow\n");
     match &script.stmts[0] {

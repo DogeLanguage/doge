@@ -24,7 +24,9 @@ rhs         = expr , { "," , expr } ;    (* >=2 exprs build an implicit list, on
 bark        = "bark" , expr ;
 bonk        = "bonk" , expr ;
 func_def    = "such" , IDENT , [ "much" , params ] , ":" , block , "wow" ;
-obj_def     = "many" , IDENT , ":" , block , "wow" ;    (* block of func_defs *)
+obj_def     = "many" , IDENT , [ "much" , IDENT ] , ":" , block , "wow" ;
+                                                        (* block of func_defs; "much IDENT" names a parent class *)
+super_call  = "super" , "." , IDENT , "(" , [ call_args ] , ")" ;   (* positional args only *)
 pls         = "pls" , block , "oh no" , IDENT , "!" , block ;
 block       = NEWLINE , INDENT , { statement } , DEDENT ;
 
@@ -51,6 +53,7 @@ bitor     → bitxor → bitand → shift → add → mul
 unary     = ( "-" | "~" ) , unary | power ;
 power     = postfix , [ "**" , unary ] ;               (* right-associative *)
 postfix   = primary , { call | subscript | attr } ;
+primary   = literal | IDENT | super_call | "(" , expr , ")" | list | dict ;
 subscript = "[" , ( expr | [ expr ] , ":" , [ expr ] , [ ":" , [ expr ] ] ) , "]" ;
 ```
 
@@ -62,11 +65,15 @@ shifts, all between the comparisons and `+`/`-`, matching Python.
 
 - `such IDENT =` is a variable declaration
 - `such IDENT :` or `such IDENT much …` is a function definition
-- `many IDENT :` is an object definition
+- `many IDENT :` is an object definition; `many IDENT much IDENT :` inherits, the
+  second name being the parent class (see [SYNTAX.md](SYNTAX.md) §8)
 - `so IDENT =` is a constant; `so IDENT` followed by a newline is an import
 - an import `so IDENT` names a built-in module if one matches, otherwise the user
   module `IDENT.doge` next to the importing file (see [SYNTAX.md](SYNTAX.md) §9)
-- `much` never starts a statement; it only appears inside a function header
+- `much` never starts a statement; it introduces a function's parameters after
+  `such NAME`, or a parent class after an object's `many NAME`
+- `super` only appears as `super.method(…)` inside a method body — never as a bare
+  value or a field access
 - `many` at statement level begins an object definition; inside a `much` parameter
   list it marks the trailing variadic parameter (`much host, many guests`); inside
   a destructuring target list it marks the trailing collector (`such a, many rest =

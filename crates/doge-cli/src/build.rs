@@ -121,8 +121,8 @@ fn detect_toolchain() -> Result<(), String> {
     }
 }
 
-/// The `doge-runtime` crate, as an absolute path. M3 pins the build to this dev
-/// checkout; the packaging story (a bundled runtime) is M6.
+/// The `doge-runtime` crate, as an absolute path. The build is pinned to this dev
+/// checkout; bundling the runtime into a released binary is future work.
 fn runtime_path() -> Result<PathBuf, String> {
     let raw = concat!(env!("CARGO_MANIFEST_DIR"), "/../doge-runtime");
     std::fs::canonicalize(raw).map_err(|err| {

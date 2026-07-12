@@ -27,7 +27,7 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
 }
 
 /// Generate a complete Rust source file from a checked [`Script`], or a
-/// diagnostic pointing at the first feature that only runs in a later milestone.
+/// diagnostic for a construct it cannot compile (a class used as a value).
 pub fn generate(path: &str, source: &str, script: &Script) -> Result<String, Diagnostic> {
     let program = modules::single_file_program(path, source, script.clone())?;
     codegen::generate_program(&program)

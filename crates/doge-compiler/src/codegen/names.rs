@@ -1,6 +1,6 @@
 //! Name-mangling, prefixes, and small string helpers shared across codegen.
 
-pub(super) const UNSUPPORTED_HEADLINE: &str = "very soon. much roadmap.";
+pub(super) const CLASS_VALUE_HEADLINE: &str = "very class. much value.";
 pub(super) const ARITY_HEADLINE: &str = "very args. much wrong.";
 pub(super) const RUNTIME_ERROR_HEADLINE: &str = "very error. much broken.";
 

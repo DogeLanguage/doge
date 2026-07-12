@@ -1,0 +1,46 @@
+many Animal:
+    such init much name:
+        self.name = name
+    wow
+
+    such speak:
+        return self.name + " makes a sound"
+    wow
+
+    such describe:
+        return "this is " + self.name
+    wow
+wow
+
+many Shibe much Animal:
+    such speak:
+        return self.name + " says bork"
+    wow
+wow
+
+many Corgi much Shibe:
+    such init much name, treats:
+        super.init(name)
+        self.treats = treats
+    wow
+
+    such report:
+        return super.speak() + " and has " + str(self.treats) + " treats"
+    wow
+wow
+
+such a = Animal("generic")
+bark a.speak()
+bark a.describe()
+
+such s = Shibe("kabosu")
+bark s.speak()
+bark s.describe()
+
+such c = Corgi("cheems", 3)
+bark c.speak()
+bark c.describe()
+bark c.report()
+bark c.name
+bark c.treats
+wow

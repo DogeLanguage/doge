@@ -13,4 +13,22 @@ wow
 such distance much a, b:
     return doge_helpers.hypot(a, b)
 wow
+
+many Counter:
+    such init much start:
+        self.n = start
+    wow
+
+    such bump:
+        self.n = self.n + 1
+        return self.n
+    wow
+wow
+
+many BigCounter much Counter:
+    such bump:
+        self.n = self.n + 10
+        return self.n
+    wow
+wow
 wow

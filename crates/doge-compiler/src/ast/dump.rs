@@ -124,8 +124,17 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             };
             dump_block(&format!("FuncDef {name}{params}"), body, level, out);
         }
-        Stmt::ObjDef { name, methods, .. } => {
-            dump_block(&format!("ObjDef {name}"), methods, level, out);
+        Stmt::ObjDef {
+            name,
+            parent,
+            methods,
+            ..
+        } => {
+            let heading = match parent {
+                Some(parent) => format!("ObjDef {name} much {parent}"),
+                None => format!("ObjDef {name}"),
+            };
+            dump_block(&heading, methods, level, out);
         }
         Stmt::Try {
             body,
@@ -264,6 +273,12 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::Attr { obj, name, .. } => {
             line(level, &format!("Attr {name}"), out);
             dump_expr(obj, level + 1, out);
+        }
+        Expr::SuperCall { method, args, .. } => {
+            line(level, &format!("SuperCall {method}"), out);
+            for arg in args {
+                dump_block_expr("arg", arg, level + 1, out);
+            }
         }
         Expr::StrInterp { parts, .. } => {
             line(level, "StrInterp", out);

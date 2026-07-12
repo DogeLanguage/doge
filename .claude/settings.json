@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(gh release create*)",
+      "Bash(gh release edit*)",
+      "Bash(gh release delete*)",
+      "Bash(gh release upload*)",
+      "Bash(git push --tags*)",
+      "Bash(git push --follow-tags*)",
+      "Bash(cargo publish*)"
+    ],
+    "ask": [
+      "Bash(git tag*)",
+      "Bash(git push*)",
+      "Bash(gh pr merge*)"
+    ]
+  }
+}

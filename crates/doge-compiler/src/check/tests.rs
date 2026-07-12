@@ -252,3 +252,44 @@ fn bork_inside_a_nested_function_cannot_cross_the_outer_loop() {
     let err = check_src(src).unwrap_err();
     assert_eq!(err.headline, "very bork. much nowhere.");
 }
+
+#[test]
+fn inheritance_from_an_unknown_class_is_an_error() {
+    let src = "many Corgi much Nope:\n    such go:\n        return 1\n    wow\nwow\nwow\n";
+    let err = check_src(src).unwrap_err();
+    assert_eq!(err.headline, "very parent. much unknown.");
+}
+
+#[test]
+fn an_inheritance_cycle_is_an_error() {
+    let src = "many A much B:\n    such g:\n        return 1\n    wow\nwow\nmany B much A:\n    such h:\n        return 2\n    wow\nwow\nwow\n";
+    let err = check_src(src).unwrap_err();
+    assert_eq!(err.headline, "very loop. much family.");
+}
+
+#[test]
+fn clean_inheritance_with_super_passes() {
+    let src = "many A:\n    such init much n:\n        self.n = n\n    wow\n    such go:\n        return self.n\n    wow\nwow\nmany B much A:\n    such go:\n        return super.go()\n    wow\nwow\nsuch b = B(1)\nbark b.go()\nwow\n";
+    assert!(check_src(src).is_ok());
+}
+
+#[test]
+fn super_outside_a_method_is_an_error() {
+    let src = "such f:\n    return super.foo()\nwow\nwow\n";
+    let err = check_src(src).unwrap_err();
+    assert_eq!(err.headline, "very super. much lost.");
+}
+
+#[test]
+fn super_in_a_class_without_a_parent_is_an_error() {
+    let src = "many A:\n    such go:\n        return super.foo()\n    wow\nwow\nwow\n";
+    let err = check_src(src).unwrap_err();
+    assert_eq!(err.headline, "very super. much orphan.");
+}
+
+#[test]
+fn super_to_an_unknown_method_is_an_error() {
+    let src = "many A:\n    such go:\n        return 1\n    wow\nwow\nmany B much A:\n    such go2:\n        return super.nope()\n    wow\nwow\nwow\n";
+    let err = check_src(src).unwrap_err();
+    assert_eq!(err.headline, "very super. much unknown.");
+}

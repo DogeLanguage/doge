@@ -21,7 +21,9 @@ grammar see [GRAMMAR.md](GRAMMAR.md); for builtins and modules see
 | `such` | name + `:` block | function definition (there is no `def`) | `such greet much name, mood:` |
 | `much` | after a function name | parameter list introducer | `such greet much name, mood:` |
 | `many` | name + `:` block | object/struct definition | `many Shibe:` |
+| `many` | after an object name | parent-class introducer for inheritance | `many Corgi much Shibe:` |
 | `many` | last target/param | trailing collector (variadic param, or destructuring rest) | `such head, many rest = xs` |
+| `super` | inside a method | call a parent's method, skipping the override | `super.init(name)` |
 | `so` | top-level, bare name | import | `so math` |
 | `so` | with `=` | constant (immutable binding) | `so PI = 3.14` |
 | `very` | statement start | reassignment (flavored alias for plain `x = ...`) | `very age = 8` |
@@ -30,8 +32,9 @@ grammar see [GRAMMAR.md](GRAMMAR.md); for builtins and modules see
 the meaning (`such name =` is a variable, `such name … :` is a function; `so name =`
 is a constant, bare `so name` is an import). This is handled naturally by a
 hand-written recursive-descent parser (same technique as `async` in other languages).
-`much` has exactly one job: it appears only inside a function header, between the
-name and its parameters.
+`much` introduces what follows a name: a function's parameters in a function
+header (`such greet much name:`), or the parent class in an object header
+(`many Corgi much Shibe:`).
 
 `oh no` is a compound keyword: the lexer fuses adjacent `oh` + `no` tokens.
 
@@ -339,10 +342,10 @@ Functions are values:
 - A function name used as a value produces a first-class function you can store,
   pass as an argument, return, and later call: `such g = greet` then `g("kabosu")`.
   Builtins (`such f = len`) and module functions (`such s = nerd.sqrt`) become
-  values the same way. Object definitions are not values yet (`such c = Shibe` is a
-  compile error) — that lands in a later milestone. Collection methods are not
-  first-class either: `such f = xs.append` is a catchable runtime error, since
-  `xs.append` reads a field before any call.
+  values the same way. An object definition is not a value: `such c = Shibe` is a
+  compile error — you call a class to build an instance, `Shibe(…)`. Collection
+  methods are not first-class either: `such f = xs.append` is a catchable runtime
+  error, since `xs.append` reads a field before any call.
 - Calling by name is checked at compile time: the argument count must match the
   definition. Calling through a variable or expression is checked at run time — a
   wrong count, or calling something that is not a function, is a catchable error
@@ -412,8 +415,7 @@ kabosu.speak()
 Each method closes with `wow` at its own indentation level; the final `wow` closes
 the object definition.
 
-Single-level object model: fields + methods, `self`, `init` constructor. No
-inheritance in v1. The rules:
+Fields + methods, `self`, `init` constructor, and single inheritance. The rules:
 
 - Objects are defined at the top level, and a class name is unique like any
   other top-level name. A `many` nested inside a function or block is a compile
@@ -434,6 +436,57 @@ inheritance in v1. The rules:
 - Objects compare by identity (two instances are equal only when they are the
   same object) and are always truthy. `bark`ing one prints `<Shibe>` (the class
   name in angle brackets).
+
+### Inheritance
+
+`many Child much Parent:` makes `Child` inherit from `Parent`.
+
+```doge
+many Animal:
+    such init much name:
+        self.name = name
+    wow
+
+    such speak:
+        return self.name + " makes a sound"
+    wow
+wow
+
+many Shibe much Animal:
+    such speak:
+        return self.name + " says bork"
+    wow
+wow
+
+many Corgi much Shibe:
+    such init much name, treats:
+        super.init(name)
+        self.treats = treats
+    wow
+
+    such report:
+        return super.speak() + " and has " + str(self.treats) + " treats"
+    wow
+wow
+```
+
+The rules:
+
+- A child inherits every field-setting behaviour and method of its parent (and
+  its parent's parent, and so on up the chain). `Shibe` above has no `init` of its
+  own, so `Shibe("kabosu")` runs `Animal`'s.
+- A method defined in the child **overrides** the one it inherits. Dispatch is by
+  the receiver's own class, so `shibe.speak()` runs `Shibe.speak` even when called
+  through code that only knows about `Animal`.
+- `super.method(args)` calls the version of `method` the parent chain provides,
+  skipping the current class's own override. It is only valid inside a method of a
+  class that has a parent, and some ancestor must define the method — otherwise it
+  is a compile error. `super` passes its arguments positionally.
+- The parent must be a class defined **in the same file**. A parent name that is
+  not a class in this file is a compile error, and so is an inheritance cycle (a
+  class that is its own ancestor).
+- Everything else is unchanged: instances still compare by identity, print as
+  `<Child>`, and set fields on first assignment.
 
 ## 9. Imports
 
@@ -488,8 +541,13 @@ program start, in dependency order (a module before anything that imports it).
 A module may import other user modules (and the built-in modules). A circular
 import — two files that import each other — is a compile error naming the cycle.
 A user file whose name collides with a built-in module (`nerd.doge`) is a compile
-error, since the built-in always wins. Objects (`many`) in a module are not yet
-importable and land in a later milestone.
+error, since the built-in always wins.
+
+A module may also define objects (`many`). A module class is constructed by
+member, exactly like a function call — `utils.Shibe("doge")` — and its methods
+and fields work the same as a class defined in the main script. Taking the class
+itself as a value (`such c = utils.Shibe`) is not supported; call it to build an
+instance.
 
 ## 10. Complete example
 

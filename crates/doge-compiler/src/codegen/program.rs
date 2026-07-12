@@ -1,5 +1,4 @@
 use super::*;
-use crate::modules::ProgramFile;
 
 impl Codegen {
     /// The driver that assembles the whole Rust source: gather per-file analysis,
@@ -8,13 +7,14 @@ impl Codegen {
     pub(super) fn program(&self, program: &Program) -> Result<String, Diagnostic> {
         let tables: Vec<FileTable> = program.files.iter().map(file_table).collect();
         let analysis = analyze_program(program);
-        let classes = self.collect_classes(&program.files[0]);
+        let classes = self.collect_classes(program);
         let env_fields = self.env_fields(program, &tables);
 
         let mut emit = Emit {
             tables: &tables,
             file_id: 0,
             classes: &classes,
+            current_class: None,
             analysis: &analysis,
             uses_method_call: Cell::new(false),
             uses_call_function: Cell::new(false),
@@ -59,25 +59,53 @@ impl Codegen {
         Ok(out)
     }
 
-    /// Objects are entry-only (a module with an object is a check error), so the
-    /// class list comes from the entry alone; each object's source-order index is
-    /// its class id.
-    fn collect_classes(&self, entry: &ProgramFile) -> Vec<Class> {
+    /// Every object in the program, across all files, each with a program-wide
+    /// class id (its position in this list). The entry (file 0) is walked first, so
+    /// its ids are unchanged from the single-file case; a module's objects follow.
+    fn collect_classes(&self, program: &Program) -> Vec<Class> {
         let mut classes: Vec<Class> = Vec::new();
-        for stmt in &entry.script.stmts {
-            if let Stmt::ObjDef { name, methods, .. } = stmt {
-                let methods = methods
-                    .iter()
-                    .filter_map(|m| match m {
-                        Stmt::FuncDef { name, params, .. } => Some((name.clone(), params.clone())),
-                        _ => None,
-                    })
-                    .collect();
-                classes.push(Class {
-                    name: name.clone(),
-                    id: classes.len() as u32,
+        // Parent names, parallel to `classes` by class id, resolved once every
+        // class has an id (a parent may be declared after the child in the file).
+        let mut parent_names: Vec<Option<String>> = Vec::new();
+        for file in &program.files {
+            for stmt in &file.script.stmts {
+                if let Stmt::ObjDef {
+                    name,
+                    parent,
                     methods,
-                });
+                    ..
+                } = stmt
+                {
+                    let methods = methods
+                        .iter()
+                        .filter_map(|m| match m {
+                            Stmt::FuncDef { name, params, .. } => {
+                                Some((name.clone(), params.clone()))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    classes.push(Class {
+                        file_id: file.file_id,
+                        name: name.clone(),
+                        id: classes.len() as u32,
+                        parent: None,
+                        methods,
+                    });
+                    parent_names.push(parent.clone());
+                }
+            }
+        }
+        // A parent is a class of the same file — the checker guarantees it exists
+        // and the chain is acyclic, so an unresolved name here is a checked program
+        // and simply leaves `parent` as `None`.
+        for id in 0..classes.len() {
+            if let Some(parent) = &parent_names[id] {
+                let file_id = classes[id].file_id;
+                classes[id].parent = classes
+                    .iter()
+                    .find(|c| c.file_id == file_id && &c.name == parent)
+                    .map(|c| c.id);
             }
         }
         classes
@@ -147,8 +175,9 @@ impl Codegen {
         Ok(())
     }
 
-    /// Each entry object contributes a constructor plus a wrapper/body pair per
-    /// method; the source is looked up from the `ObjDef`, keyed by class id.
+    /// Each object contributes a constructor plus a wrapper/body pair per method,
+    /// mangled by its program-wide class id. Objects from every file are emitted;
+    /// `classes` is in file-then-source order, matching each file's `ObjDef` order.
     fn emit_objects(
         &self,
         program: &Program,
@@ -156,23 +185,26 @@ impl Codegen {
         emit: &mut Emit,
         out: &mut String,
     ) -> Result<(), Diagnostic> {
-        let entry = &program.files[0];
-        self.enter_file(emit, 0);
-        for (class, stmt) in classes.iter().zip(
-            entry
+        for file in &program.files {
+            self.enter_file(emit, file.file_id);
+            let file_classes = classes.iter().filter(|c| c.file_id == file.file_id);
+            let objdefs = file
                 .script
                 .stmts
                 .iter()
-                .filter(|s| matches!(s, Stmt::ObjDef { .. })),
-        ) {
-            let Stmt::ObjDef { methods, .. } = stmt else {
-                unreachable!("compiler bug: class list and ObjDef filter disagree")
-            };
-            self.constructor(class, out);
-            for method in methods {
-                if let Stmt::FuncDef { span, .. } = method {
-                    self.method(class, *span, emit, out)?;
+                .filter(|s| matches!(s, Stmt::ObjDef { .. }));
+            for (class, stmt) in file_classes.zip(objdefs) {
+                let Stmt::ObjDef { methods, .. } = stmt else {
+                    unreachable!("compiler bug: class list and ObjDef filter disagree")
+                };
+                self.constructor(classes, class, out);
+                emit.current_class = Some(class.id);
+                for method in methods {
+                    if let Stmt::FuncDef { span, .. } = method {
+                        self.method(class, *span, emit, out)?;
+                    }
                 }
+                emit.current_class = None;
             }
         }
         Ok(())

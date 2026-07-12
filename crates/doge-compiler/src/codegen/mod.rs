@@ -104,25 +104,84 @@ static EMPTY_PARAMS: Params = Params {
     vararg: None,
 };
 
-/// A top-level `many Name:` object definition. `id` is its source-order index —
-/// the class tag stored on every instance and matched by the dispatcher.
+/// A top-level `many Name:` object definition. `id` is its program-wide index —
+/// the class tag stored on every instance and matched by the dispatcher — assigned
+/// across every file so a module's objects and the entry's never collide.
 struct Class {
+    /// The file this class is defined in — selects name-mangling for its member
+    /// calls and scopes name resolution (two files may each define a `Shibe`).
+    file_id: u32,
     name: String,
     id: u32,
+    /// The class id this one inherits from, when `many Name much Parent:` gave one.
+    parent: Option<u32>,
     /// Each method as `(name, params)`; `params` excludes the implicit `self`.
     methods: Vec<(String, Params)>,
 }
 
 impl Class {
-    /// The parameters of this class's `init`, or an empty header when it has none
-    /// (a class without `init` constructs from zero arguments).
-    fn init_params(&self) -> &Params {
+    /// This class's own `init` parameters, if it defines one directly. Inherited
+    /// `init` is resolved through the ancestry (see [`effective_init`]).
+    fn own_init(&self) -> Option<&Params> {
         self.methods
             .iter()
             .find(|(name, _)| name == "init")
             .map(|(_, params)| params)
-            .unwrap_or(&EMPTY_PARAMS)
     }
+}
+
+/// A class's ancestry, nearest first and starting with the class itself: `[self,
+/// parent, grandparent, …]`. A cycle (which the checker rejects) is broken
+/// defensively so codegen never loops.
+fn ancestry<'a>(classes: &'a [Class], class: &'a Class) -> Vec<&'a Class> {
+    let mut chain = Vec::new();
+    let mut seen = HashSet::new();
+    let mut cur = Some(class);
+    while let Some(c) = cur {
+        if !seen.insert(c.id) {
+            break;
+        }
+        chain.push(c);
+        cur = c
+            .parent
+            .and_then(|pid| classes.iter().find(|x| x.id == pid));
+    }
+    chain
+}
+
+/// The nearest `init` in `class`'s ancestry: its defining class and that `init`'s
+/// parameters. `None` when no class in the chain defines one (construction then
+/// takes no arguments).
+fn effective_init<'a>(classes: &'a [Class], class: &'a Class) -> Option<(&'a Class, &'a Params)> {
+    ancestry(classes, class)
+        .into_iter()
+        .find_map(|c| c.own_init().map(|params| (c, params)))
+}
+
+/// The parameters `class` constructs from: its effective `init`'s, or an empty
+/// header when nothing in the chain defines `init`.
+fn init_params<'a>(classes: &'a [Class], class: &'a Class) -> &'a Params {
+    effective_init(classes, class)
+        .map(|(_, params)| params)
+        .unwrap_or(&EMPTY_PARAMS)
+}
+
+/// Every method callable on an instance of `class`, with the class that defines
+/// each (nearest override wins) and its parameters. Drives one dispatcher arm per
+/// method: an inherited method dispatches to its ancestor's `mf_` wrapper.
+fn effective_methods<'a>(
+    classes: &'a [Class],
+    class: &'a Class,
+) -> Vec<(&'a str, &'a Class, &'a Params)> {
+    let mut out: Vec<(&str, &Class, &Params)> = Vec::new();
+    for c in ancestry(classes, class) {
+        for (name, params) in &c.methods {
+            if !out.iter().any(|(seen, _, _)| *seen == name.as_str()) {
+                out.push((name.as_str(), c, params));
+            }
+        }
+    }
+    out
 }
 
 /// The mutable state threaded through one function's (or `run`'s) emission.
@@ -132,8 +191,11 @@ struct Emit<'a> {
     /// The file whose code is currently being emitted — selects name-mangling
     /// and which table resolves bare names, calls, and imports.
     file_id: u32,
-    /// Every top-level object definition, in source order (entry only).
+    /// Every object definition across the program, in file-then-source order.
     classes: &'a [Class],
+    /// The class whose method body is currently being emitted, if any — set while
+    /// emitting a method so a `super` call can resolve against its parent.
+    current_class: Option<u32>,
     /// The whole-script function analysis: capture info and value ids.
     analysis: &'a Analysis,
     /// Set once any method-call site is compiled, so the dispatcher is emitted
@@ -167,9 +229,18 @@ impl Emit<'_> {
         &self.tables[self.file_id as usize]
     }
 
-    /// The class named `name`, if one is defined.
+    /// The class named `name` defined in the file currently being emitted, if any.
+    /// Resolution is per-file: two files may each define a `Shibe`.
     fn class(&self, name: &str) -> Option<&Class> {
-        self.classes.iter().find(|c| c.name == name)
+        self.class_in(self.file_id, name)
+    }
+
+    /// The class named `name` defined in file `file_id`, if any — used to resolve a
+    /// module-qualified constructor `utils.Shibe(…)` against the module's classes.
+    fn class_in(&self, file_id: u32, name: &str) -> Option<&Class> {
+        self.classes
+            .iter()
+            .find(|c| c.file_id == file_id && c.name == name)
     }
 
     /// The stdlib module imported as `name` in the current file, if any — but a
@@ -201,23 +272,6 @@ impl Emit<'_> {
             .get(&(self.file_id, name.to_string()))
             .copied()
             .or_else(|| self.analysis.builtin_ids.get(name).copied())
-    }
-}
-
-/// A language feature the parser accepts but the current milestone cannot run
-/// yet, with the exact message and the milestone that lands it.
-enum Unsupported {
-    ClassAsValue(String),
-}
-
-impl Unsupported {
-    fn detail(&self) -> (String, &'static str) {
-        match self {
-            Unsupported::ClassAsValue(name) => (
-                format!("{name} is an object definition — objects as values land in M6"),
-                "M6",
-            ),
-        }
     }
 }
 
@@ -335,13 +389,12 @@ impl Codegen {
         }
     }
 
-    fn unsupported(&self, span: Span, feature: Unsupported) -> Diagnostic {
-        let (message, milestone) = feature.detail();
-        self.diag(span, message)
-            .with_headline(UNSUPPORTED_HEADLINE)
-            .with_hint(format!(
-                "doge check already understands this script — running it lands in {milestone}"
-            ))
+    /// The diagnostic for using a class name as a value (`such f = Shibe`). A
+    /// class is not a first-class value; you call it to build an instance.
+    fn class_as_value(&self, span: Span, name: &str) -> Diagnostic {
+        self.diag(span, format!("{name} is an object definition, not a value"))
+            .with_headline(CLASS_VALUE_HEADLINE)
+            .with_hint(format!("call it to make one — {name}(…)"))
     }
 
     fn diag(&self, span: Span, message: impl Into<String>) -> Diagnostic {

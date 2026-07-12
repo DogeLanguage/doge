@@ -101,13 +101,13 @@ impl Checker {
                 } else {
                     HashSet::new()
                 };
-                self.check_function(params, body, false, &enclosing)?;
+                self.check_function(params, body, None, &enclosing)?;
             }
             Stmt::ObjDef { name, methods, .. } => {
                 ctx.locals.insert(name.clone());
                 for method in methods {
                     if let Stmt::FuncDef { params, body, .. } = method {
-                        self.check_function(params, body, true, &HashSet::new())?;
+                        self.check_function(params, body, Some(name), &HashSet::new())?;
                     }
                 }
             }
@@ -214,7 +214,7 @@ impl Checker {
         &mut self,
         params: &Params,
         body: &[Stmt],
-        is_method: bool,
+        class: Option<&str>,
         enclosing: &HashSet<String>,
     ) -> Result<(), Diagnostic> {
         self.check_duplicate_params(params)?;
@@ -222,7 +222,7 @@ impl Checker {
         self.check_scope_collisions(&binding, body)?;
 
         let mut locals = enclosing.clone();
-        if is_method {
+        if class.is_some() {
             locals.insert("self".to_string());
         }
         for param in &binding {
@@ -234,6 +234,7 @@ impl Checker {
         let mut ctx = Ctx {
             locals,
             in_function: true,
+            class: class.map(str::to_string),
             loop_depth: 0,
         };
         self.check_stmts(body, &mut ctx)
@@ -415,6 +416,13 @@ impl Checker {
             }
             // Attribute names are dynamic — only the object is a name to resolve.
             Expr::Attr { obj, .. } => self.check_expr(obj, ctx),
+            Expr::SuperCall { method, args, span } => {
+                self.check_super(method, ctx, *span)?;
+                for arg in args {
+                    self.check_expr(arg, ctx)?;
+                }
+                Ok(())
+            }
             Expr::StrInterp { parts, .. } => {
                 for part in parts {
                     if let InterpPart::Expr(hole) = part {

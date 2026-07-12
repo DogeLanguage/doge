@@ -156,11 +156,15 @@ impl Codegen {
         Ok(())
     }
 
-    /// Emit a constructor `n_<id>`: build a fresh instance, run `init` (if the
-    /// class has one), and return the object. The callsite wraps the `n_` call in
-    /// the fail suffix, so the `?` on `init` here is correct.
-    pub(super) fn constructor(&self, class: &Class, out: &mut String) {
-        let init_binding = class.init_params().binding_names();
+    /// Emit a constructor `n_<id>`: build a fresh instance tagged with this class,
+    /// run the effective `init` (this class's, or the nearest ancestor's), and
+    /// return the object. The callsite wraps the `n_` call in the fail suffix, so
+    /// the `?` on `init` here is correct.
+    pub(super) fn constructor(&self, classes: &[Class], class: &Class, out: &mut String) {
+        let init = effective_init(classes, class);
+        let init_binding = init
+            .map(|(_, params)| params.binding_names())
+            .unwrap_or_default();
         let ctor_params = signature(&[], &init_binding, false);
         out.push_str(&format!(
             "\nfn {CTOR_PREFIX}{}({ctor_params}) -> DogeResult<Value> {{\n",
@@ -171,13 +175,15 @@ impl Codegen {
             class.id,
             escape_str(&class.name)
         ));
-        if class.methods.iter().any(|(name, _)| name == "init") {
+        // `init` runs against the defining class's wrapper — an inherited `init`
+        // dispatches to the ancestor's `mf_`, with the new object as the receiver.
+        if let Some((def, _)) = init {
             let mut args: Vec<String> = vec!["obj.clone()".to_string()];
             args.extend(init_binding.iter().map(|p| format!("{NAME_PREFIX}{p}")));
             args.push("env".to_string());
             out.push_str(&format!(
                 "    {METHOD_PREFIX}{}_init({})?;\n",
-                class.id,
+                def.id,
                 args.join(", ")
             ));
         }

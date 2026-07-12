@@ -60,8 +60,6 @@ each pointing at the offending `so` line in the file that wrote it:
 - **Loose statement in a module** — `very loose. much module.` — a module file
   only defines things; a statement that would run at import time is rejected with
   a "wrap it in a function, or move it to your main script" hint.
-- **Object in a module** — `very object. much soon.` — `many` in a module is not
-  yet importable; the hint points to defining it in the main script for now.
 - **Import cycle** — `very loop. much import.` — files that import each other in a
   loop; the message spells out the chain (`a → b → a`).
 - **Stdlib shadow** — `very shadow. much confuse.` — a user file named like a
@@ -101,3 +99,24 @@ Parameters with defaults, keyword arguments, and variadics ([SYNTAX.md](SYNTAX.m
 - **Keyword where none is allowed** — `very keyword. much dynamic.` — a keyword
   argument is passed to a method, a stored function value, or a builtin; the hint
   is to pass it positionally or call the function by a name doge knows.
+
+## Object and inheritance diagnostics
+
+Objects (`many`) and single inheritance (`many Child much Parent:`, `super`) carry
+their own compile-time diagnostics ([SYNTAX.md](SYNTAX.md) §8):
+
+- **Unknown parent** — `very parent. much unknown.` — a class inherits from a name
+  that is not a class defined in the same file (a parent in another file is not
+  supported); the hint is to define it here or fix the name.
+- **Inheritance cycle** — `very loop. much family.` — a class is its own ancestor;
+  the message spells out the chain (`A → B → A`) and the hint is to break it.
+- **`super` outside a method** — `very super. much lost.` — `super.method(…)` is
+  used somewhere other than a method body (a plain function, a nested closure, or
+  the top level).
+- **`super` without a parent** — `very super. much orphan.` — `super` is used in a
+  method of a class that declares no parent; the hint shows the `much Parent` form.
+- **Unknown `super` method** — `very super. much unknown.` — `super.method(…)`
+  names a method no ancestor defines; the hint is to check the method name.
+- **`super` as a value** — `very super. much confuse.` — `super` is written without
+  a `.method(…)` call (a bare `super`, or a `super.field` access); it exists only to
+  call a parent method.

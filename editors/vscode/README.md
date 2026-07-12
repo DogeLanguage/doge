@@ -20,11 +20,12 @@ such greet much name:       # such greet → colour 2, much name → colour 3
 wow                         # wow        → colour 5
 ```
 
-Groups: `so <name>`, `such <name>`, `much <params>`, `many <name>`,
+Groups: `so <name>`, `such <name>`, `much <params>`, `many <name>`
+(with `many <child> much <parent>` folding the parent class into the one group),
 `very <name>`, `oh no <name>`, and the standalone keywords `bark`, `wow`, `pls`,
 `bonk`, `bork`. Strings and comments are never recoloured, and universal
-keywords (`if`, `for`, `return`, …) and literals (`true`/`false`/`none`) keep
-your theme's colours — the rainbow is exclusively doge-speak.
+keywords (`if`, `for`, `return`, …), `super`, and literals (`true`/`false`/`none`)
+keep your theme's colours — the rainbow is exclusively doge-speak groups.
 
 A name carries its group's colour wherever it's used, not just where it's bound:
 once `such age` (or `so nerd`, a `much` parameter, an `oh no` binding, …) fixes a

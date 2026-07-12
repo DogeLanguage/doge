@@ -22,7 +22,7 @@ impl Codegen {
                         escape_str(name)
                     ))
                 } else if emit.class(name).is_some() {
-                    Err(self.unsupported(*span, Unsupported::ClassAsValue(name.clone())))
+                    Err(self.class_as_value(*span, name))
                 } else if let Some(member) = self.module_first_member(emit, name) {
                     Err(self
                         .diag(*span, format!("{name} is a module, not a value"))
@@ -127,6 +127,9 @@ impl Codegen {
                         return Err(self.unknown_member(base, name, module, *span));
                     }
                     if let Some(fid) = emit.user_module(base) {
+                        if emit.class_in(fid, name).is_some() {
+                            return Err(self.class_as_value(*span, &format!("{base}.{name}")));
+                        }
                         let table = &emit.tables[fid as usize];
                         if table.consts.contains(name) {
                             return Ok(format!("env.{}.clone()", field_name(fid, name)));
@@ -148,6 +151,7 @@ impl Codegen {
                 );
                 Ok(self.fail(emit, call))
             }
+            Expr::SuperCall { method, args, span } => self.super_call(method, args, *span, emit),
             Expr::StrInterp { parts, .. } => {
                 let mut pieces = Vec::with_capacity(parts.len());
                 for part in parts {
