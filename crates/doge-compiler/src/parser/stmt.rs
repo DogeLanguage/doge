@@ -32,13 +32,7 @@ impl Parser {
                 Err(self.python_habit("no def here", "such greet much name: is the way"))
             }
             TokenKind::Class => Err(self.python_habit("no class here", "many Name: is the way")),
-            TokenKind::Amaze => {
-                let span = self.current_span();
-                Err(self
-                    .diag(span, "amaze is reserved for a future doge")
-                    .with_headline("very reserved. much later.")
-                    .with_hint("pick another name for now"))
-            }
+            TokenKind::Amaze => self.parse_amaze(),
             _ => self.parse_expr_or_assign(),
         }
     }
@@ -305,6 +299,26 @@ impl Parser {
         let expr = self.parse_expr()?;
         self.eat(TokenKind::Newline)?;
         Ok(Stmt::Bonk { expr, span })
+    }
+
+    /// `amaze cond` or `amaze cond, message` — assert. The optional message
+    /// follows a comma; `parse_expr` stops at the comma, so the split is clean.
+    pub(super) fn parse_amaze(&mut self) -> Result<Stmt, Diagnostic> {
+        let span = self.current_span();
+        self.eat(TokenKind::Amaze)?;
+        let cond = self.parse_expr()?;
+        let message = if self.is(&TokenKind::Comma) {
+            self.advance();
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+        self.eat(TokenKind::Newline)?;
+        Ok(Stmt::Amaze {
+            cond,
+            message,
+            span,
+        })
     }
 
     pub(super) fn parse_return(&mut self) -> Result<Stmt, Diagnostic> {

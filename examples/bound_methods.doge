@@ -1,0 +1,58 @@
+# such method. much bound. wow callback.
+
+many Shibe:
+    such init much name:
+        self.name = name
+    wow
+    such speak:
+        return self.name + " says bork"
+    wow
+    such greet much other:
+        return self.name + " greets " + other
+    wow
+wow
+
+such kabosu = Shibe("kabosu")
+
+# A method read off an instance is a value bound to that instance.
+such say = kabosu.speak
+bark say()
+
+# A bound method with its own arguments.
+such hi = kabosu.greet
+bark hi("cheems")
+
+# Passed as a callback, then called.
+such run_twice much f:
+    return f() + " / " + f()
+wow
+
+bark run_twice(kabosu.speak)
+
+# A collection method binds too, and mutates the original when called.
+such xs = [1, 2]
+such push = xs.append
+push(3)
+bark xs
+
+# Printing shows the receiver and method name.
+bark kabosu.speak
+bark xs.append
+
+# Equality: the same method on the same instance is equal; a different
+# instance is not.
+such other = Shibe("balltze")
+bark kabosu.speak == kabosu.speak
+bark kabosu.speak == other.speak
+
+# A field wins over a method of the same name.
+such box = Shibe("box")
+box.speak = "just a string"
+bark box.speak
+
+# Reading a name that is neither a field nor a method is a catchable error.
+pls
+    such nope = kabosu.fly
+oh no err!
+    bark err
+wow

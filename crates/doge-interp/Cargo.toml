@@ -1,0 +1,9 @@
+[package]
+name = "doge-interp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+doge-compiler = { path = "../doge-compiler" }
+doge-runtime = { path = "../doge-runtime" }

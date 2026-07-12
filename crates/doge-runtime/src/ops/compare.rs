@@ -40,6 +40,14 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
                     .zip(y.captures.iter())
                     .all(|(p, q)| Rc::ptr_eq(p, q))
         }
+        // Classes are equal when they name the same constructor: a class captures
+        // nothing, so `Shibe == Shibe` holds and `Shibe == Corgi` does not.
+        (Value::Class(x), Value::Class(y)) => x.fn_id == y.fn_id,
+        // Bound methods are equal when they name the same method on the very same
+        // receiver instance: `a.speak == a.speak` holds, but not `b.speak`.
+        (Value::BoundMethod(x), Value::BoundMethod(y)) => {
+            x.method == y.method && values_equal(&x.receiver, &y.receiver)
+        }
         // Errors are equal when their type, message, and raise site all match.
         (Value::Error(x), Value::Error(y)) => {
             x.kind == y.kind && x.message == y.message && x.file == y.file && x.line == y.line
@@ -56,6 +64,8 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         | (Value::Dict(_), _)
         | (Value::Object(_), _)
         | (Value::Function(_), _)
+        | (Value::Class(_), _)
+        | (Value::BoundMethod(_), _)
         | (Value::Error(_), _) => false,
     }
 }
@@ -104,6 +114,8 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
         | Value::None
         | Value::Object(_)
         | Value::Function(_)
+        | Value::Class(_)
+        | Value::BoundMethod(_)
         | Value::Error(_) => {
             return Err(DogeError::type_error(format!(
                 "in wants a List, Dict, or Str on the right, not {}",
@@ -170,4 +182,30 @@ pub fn ge(a: Value, b: Value) -> DogeResult {
         order(&a, &b)?,
         Ordering::Greater | Ordering::Equal
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bound_methods_equal_only_on_the_same_receiver_and_name() {
+        let a = Value::object(0, "Shibe");
+        let b = Value::object(0, "Shibe");
+        // Same instance, same method → equal.
+        assert!(values_equal(
+            &Value::bound_method(a.clone(), "speak"),
+            &Value::bound_method(a.clone(), "speak"),
+        ));
+        // Same instance, different method → not equal.
+        assert!(!values_equal(
+            &Value::bound_method(a.clone(), "speak"),
+            &Value::bound_method(a.clone(), "wag"),
+        ));
+        // Different instances of the same class → not equal.
+        assert!(!values_equal(
+            &Value::bound_method(a, "speak"),
+            &Value::bound_method(b, "speak"),
+        ));
+    }
 }

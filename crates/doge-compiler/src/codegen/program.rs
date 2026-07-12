@@ -18,6 +18,7 @@ impl Codegen {
             analysis: &analysis,
             uses_method_call: Cell::new(false),
             uses_call_function: Cell::new(false),
+            uses_attr_read: Cell::new(false),
             materialized: RefCell::new(HashSet::new()),
             locals: HashMap::new(),
             local_funcs: HashMap::new(),
@@ -39,8 +40,13 @@ impl Codegen {
         self.enter_file(&mut emit, 0);
         emit.try_stack.clear();
         emit.loop_stack.clear();
-        let dispatcher = self.dispatcher(&classes, emit.uses_method_call.get(), &emit)?;
+        // `call_value` references `call_method`, so an indirect call also forces
+        // the method dispatcher to exist even when no method is called directly.
+        let needs_dispatcher = emit.uses_method_call.get() || emit.uses_call_function.get();
+        let dispatcher = self.dispatcher(&classes, needs_dispatcher, &emit)?;
         let fn_dispatcher = self.function_dispatcher(&emit)?;
+        let call_value = self.call_value_fn(&emit);
+        let class_has_method = self.class_has_method_fn(&classes, &emit);
 
         let mut out = String::new();
         out.push_str("#![allow(warnings)]\n");
@@ -56,6 +62,8 @@ impl Codegen {
         out.push_str(&funcs_src);
         out.push_str(&dispatcher);
         out.push_str(&fn_dispatcher);
+        out.push_str(&call_value);
+        out.push_str(&class_has_method);
         Ok(out)
     }
 

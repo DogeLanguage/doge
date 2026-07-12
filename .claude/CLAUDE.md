@@ -100,7 +100,7 @@ never shown as raw Rust errors.
 | Runtime values | `Value` enum, `Rc`/`RefCell`, `Result`-based errors |
 | Target | Generated Rust source → native binary via `rustc`/`cargo` |
 | Build cache | Content hash → `~/.cache/doge/<hash>/` |
-| CLI | `doge bark` (run), `doge build`, `doge check` |
+| CLI | `doge bark` (run), `doge build`, `doge check`, `doge repl` (interpreter) |
 
 ---
 
@@ -109,15 +109,16 @@ never shown as raw Rust errors.
 ```text
 crates/
   doge-runtime/     # EXISTS: Value enum (incl. objects, insertion-ordered dicts via ordered_map.rs), operators split by concern (ops/ — arith+compare+index; exhaustive Value matches so a new variant is compiler-forced), builtins (bark, len, str/int/float, range, iter_value), object fields/dispatch (objects.rs), collection methods (methods/ — mod+list+dict, shared expect_int/expect_str arg helpers), stdlib (nerd/strings), error model (bonk/recursion guard)
-  doge-compiler/    # EXISTS: keywords (single source of truth — KEYWORDS table drives lexer lookup + diagnostic spellings), lexer/ (mod+scan+strings), parser/ (mod+stmt+expr), AST + shared walker (ast/ — mod+dump; Stmt::span/Expr::span, for_each_child_block + hoisting facts used by both check and codegen), semantic checks (check/ — mod+stmt+scopes), diagnostics (diagnostics.rs — Diagnostic + source_line/split_source_lines helpers), builtins table (builtins.rs — BuiltinFn, single source for check + codegen), stdlib module table, module loader (modules/ — mod+diag), Rust codegen (codegen/ — mod+program+names+analysis+callable+stmt+expr+calls+dispatch). check and codegen depend only on ast/builtins, never each other. Each big pass is a directory module: mod.rs holds the driver + shared structs, siblings hold impl-method groups (pub(super)), tests.rs holds its tests
-  doge-cli/         # EXISTS: `doge` binary — hand-rolled args, bark/build/check subcommands, build cache (cache.rs, salted with crate version + codegen rev + a hash of doge-runtime source from build.rs) + cargo build glue (src/build.rs)
+  doge-compiler/    # EXISTS: keywords (single source of truth — KEYWORDS table drives lexer lookup + diagnostic spellings), lexer/ (mod+scan+strings), parser/ (mod+stmt+expr; parse_repl for snippets), AST + shared walker (ast/ — mod+dump+analysis; Stmt::span/Expr::span, for_each_child_block + hoisting + free_names/captures facts used by both check, codegen, and the interpreter), semantic checks (check/ — mod+stmt+scopes; check_snippet + SessionScope for the REPL), diagnostics (diagnostics.rs — Diagnostic + source_line/split_source_lines helpers), builtins table (builtins.rs — BuiltinFn, single source for check + codegen + interp), stdlib module table, module loader (modules/ — mod+diag), Rust codegen (codegen/ — mod+program+names+analysis+callable+stmt+expr+calls+dispatch). check and codegen depend only on ast/builtins, never each other. Each big pass is a directory module: mod.rs holds the driver + shared structs, siblings hold impl-method groups (pub(super)), tests.rs holds its tests
+  doge-interp/      # EXISTS: tree-walking interpreter over the checked AST (powers `doge repl`) — analyze (program-wide fn ids + closure captures + flattened class table), exec (statements+Flow), expr (operators via binop map), call (functions/methods/ctors/super/bind_args), natives (builtins+stdlib adapters driven by the compiler tables). Calls doge-runtime directly; the examples parity suite asserts it matches compiled output
+  doge-cli/         # EXISTS: `doge` binary — hand-rolled args, bark/build/check/repl subcommands (repl.rs is the interactive loop; DOGE_INTERP env runs a file through doge-interp), build cache (cache.rs, salted with crate version + codegen rev + a hash of doge-runtime source from build.rs) + cargo build glue (src/build.rs)
 examples/           # EXISTS: .doge example programs (hello, tour, objects, control_flow, collections) — double as integration tests; a `.out` sibling means the example runs and its stdout is asserted
 docs/               # EXISTS: authoritative language spec — SYNTAX, GRAMMAR, STDLIB, ERRORS, ARCHITECTURE, CLI
 brand/              # EXISTS: logo/brand kit — mark, lockup, banner, favicon SVGs + icon exporter and brand guide
 editors/            # EXISTS: editor integrations — vscode/ (.doge language association + file icon + rainbow syntax highlighting: TextMate grammar in syntaxes/ + per-group semantic-token provider in src/, tokenizer unit-tested via `node --test`)
 ```
 
-**Where does code belong?** Anything about *what the language means at runtime* → `doge-runtime`. Anything about *turning source into Rust* → `doge-compiler`. Anything about *the user's terminal experience* (subcommands, caching, install hints) → `doge-cli`. A concern never lives in two crates.
+**Where does code belong?** Anything about *what the language means at runtime* → `doge-runtime`. Anything about *turning source into Rust* → `doge-compiler`. Anything about *evaluating the checked AST directly* (the REPL/interpreter engine) → `doge-interp`. Anything about *the user's terminal experience* (subcommands, caching, install hints) → `doge-cli`. A concern never lives in two crates.
 
 **Navigation rule:** read only the crate relevant to the task. Grep before scanning.
 

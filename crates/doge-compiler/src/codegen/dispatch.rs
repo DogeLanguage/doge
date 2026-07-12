@@ -91,6 +91,52 @@ impl Codegen {
         Ok(out)
     }
 
+    /// The `call_value` shim every indirect call goes through: a bound method
+    /// routes back through `call_method` (so it dispatches exactly like a direct
+    /// `a.speak(...)`), and any other value unwraps to its `FunctionData` and goes
+    /// through `call_function`. Emitted whenever the program calls a value.
+    pub(super) fn call_value_fn(&self, emit: &Emit) -> String {
+        if !emit.uses_call_function.get() {
+            return String::new();
+        }
+        let mut out = String::new();
+        out.push_str(
+            "\nfn call_value(callee: Value, args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {\n",
+        );
+        out.push_str("    if let Value::BoundMethod(m) = &callee {\n");
+        out.push_str("        return call_method(m.receiver.clone(), &m.method, args, env);\n");
+        out.push_str("    }\n");
+        // `&*` derefs the `Rc<FunctionData>` explicitly: relying on deref coercion
+        // through the `?` here trips rustc's expected-type propagation.
+        out.push_str("    let f = callee_function(&callee)?;\n");
+        out.push_str("    call_function(&*f, args, env)\n");
+        out.push_str("}\n");
+        out
+    }
+
+    /// The `class_has_method` gate a bound-method read consults: whether an
+    /// instance of `class_id` responds to `name` (its own methods or an inherited
+    /// one). One `(id, name)` pair per entry in every class's effective method set,
+    /// matching the `call_method` dispatcher's arms. Emitted whenever the program
+    /// reads a bare `obj.name` as a value; `false` when the program has no classes.
+    pub(super) fn class_has_method_fn(&self, classes: &[Class], emit: &Emit) -> String {
+        if !emit.uses_attr_read.get() {
+            return String::new();
+        }
+        let mut pairs = Vec::new();
+        for class in classes {
+            for (method, _, _) in effective_methods(classes, class) {
+                pairs.push(format!("({}u32, \"{}\")", class.id, escape_str(method)));
+            }
+        }
+        let body = if pairs.is_empty() {
+            "false".to_string()
+        } else {
+            format!("matches!((class_id, name), {})", pairs.join(" | "))
+        };
+        format!("\nfn class_has_method(class_id: u32, name: &str) -> bool {{ {body} }}\n")
+    }
+
     /// One arm of the `call_function` dispatcher for a given `fn_id`.
     pub(super) fn function_arm(
         &self,
@@ -158,6 +204,30 @@ impl Codegen {
                     (0..*arity).map(|_| "&args.remove(0)".into()).collect();
                 out.push_str(&format!(
                     "            {runtime_fn}({})\n",
+                    call_args.join(", ")
+                ));
+            }
+            ArmSpec::Ctor { file_id, name } => {
+                // Constructing through a value: check arity against the effective
+                // `init`, fill defaults / pack the variadic, then call `n_<id>`.
+                let class = emit
+                    .class_in(*file_id, name)
+                    .expect("compiler bug: ctor arm for an unknown class");
+                let params = init_params(emit.classes, class);
+                let err = format!(
+                    "function_arity_error(\"{}\", {}usize, {}, args.len())",
+                    escape_str(name),
+                    params.required(),
+                    max_repr(params),
+                );
+                out.push_str(&self.dispatch_arg_setup(params, &err, emit)?);
+                let count = params.params.len() + params.has_vararg() as usize;
+                let mut call_args: Vec<String> =
+                    (0..count).map(|_| "args.remove(0)".into()).collect();
+                call_args.push("&mut *env".into());
+                out.push_str(&format!(
+                    "            {CTOR_PREFIX}{}({})\n",
+                    class.id,
                     call_args.join(", ")
                 ));
             }

@@ -1,7 +1,7 @@
 # Doge Error Message Style
 
-How Doge talks to the user when something goes wrong. The `pls`/`oh no`/`bonk`
-language constructs themselves are documented in [SYNTAX.md](SYNTAX.md) §7.
+How Doge talks to the user when something goes wrong. The `pls`/`oh no`/`bonk`/
+`amaze` language constructs themselves are documented in [SYNTAX.md](SYNTAX.md) §7.
 
 Errors are doge-flavored but always carry real information (file, line, caret):
 
@@ -25,6 +25,11 @@ very error. much broken.
     bark a // 0
   cannot // by zero
 ```
+
+A failed `amaze` assertion is one such runtime error: its category is `AssertError`
+and its message is the text after the comma (`amaze cond, "much wrong"`) or the
+default `such amaze. much false.` when none is given — printed in the same
+file/line/source-line frame.
 
 Tone: meme in the framing, precision in the content. Never sacrifice clarity for
 the joke.

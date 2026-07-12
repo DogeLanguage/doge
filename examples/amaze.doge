@@ -1,0 +1,24 @@
+# such amaze. much assert.
+such positive much n:
+    amaze n > 0, "n much wrong: {n}"
+    return n
+wow
+
+# A passing assertion is a silent no-op.
+amaze 1 + 1 == 2
+bark positive(7)
+
+# A failing amaze raises a catchable AssertError with a default message.
+pls
+    amaze false
+oh no err!
+    bark err.type
+    bark err.message
+
+# The optional message becomes err.message, evaluated only on failure.
+pls
+    bark positive(-3)
+oh no err!
+    bark err.type
+    bark err.message
+wow

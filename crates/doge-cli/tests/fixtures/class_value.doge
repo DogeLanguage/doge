@@ -4,4 +4,7 @@ many Shibe:
     wow
 wow
 such c = Shibe
+bark c
+such pet = c()
+pet.speak()
 wow

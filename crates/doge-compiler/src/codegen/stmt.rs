@@ -216,6 +216,20 @@ impl Codegen {
                     None => out.push_str(&format!("{pad}return Err(bonk_error(&{value}));\n")),
                 }
             }
+            Stmt::Amaze { cond, message, .. } => {
+                let cond = self.expr(cond, emit)?;
+                // The message lives inside the failure branch, so it is built only
+                // when the assertion fails (matching Python's lazy assert message).
+                let message = match message {
+                    Some(message) => format!("Some(&{})", self.expr(message, emit)?),
+                    None => "None".to_string(),
+                };
+                let raise = match emit.try_stack.last() {
+                    Some(label) => format!("break 'p{label} Err(assert_error({message}))"),
+                    None => format!("return Err(assert_error({message}))"),
+                };
+                out.push_str(&format!("{pad}if !({cond}).truthy() {{ {raise}; }}\n"));
+            }
             Stmt::Bork { .. } => {
                 let label = emit
                     .loop_stack

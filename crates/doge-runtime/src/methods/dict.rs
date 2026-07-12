@@ -2,6 +2,10 @@ use super::{check_arity, expect_str};
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
+/// Every method name [`dict_method`] dispatches, for the bound-method gate
+/// (`has_builtin_method`). Kept in step with the `match` below by a unit test.
+pub(super) const DICT_METHODS: &[&str] = &["keys", "values", "items", "has", "remove", "clear"];
+
 pub(super) fn dict_method(recv: &Value, name: &str, mut args: Vec<Value>) -> DogeResult {
     let Value::Dict(entries) = recv else {
         unreachable!("compiler bug: dict_method called on a non-Dict")

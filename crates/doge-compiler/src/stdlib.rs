@@ -6,7 +6,7 @@
 
 /// One callable member of a module: its arity, the runtime function a call emits,
 /// and the call-shape hint shown in arity diagnostics.
-pub(crate) struct ModuleFn {
+pub struct ModuleFn {
     pub name: &'static str,
     pub arity: usize,
     pub runtime_fn: &'static str,
@@ -15,7 +15,7 @@ pub(crate) struct ModuleFn {
 
 /// One importable module: its name, its function members, and its constant
 /// members (each a name paired with the Rust expression codegen emits inline).
-pub(crate) struct Module {
+pub struct Module {
     pub name: &'static str,
     pub funcs: &'static [ModuleFn],
     pub consts: &'static [(&'static str, &'static str)],
@@ -53,7 +53,7 @@ impl Module {
 }
 
 /// The module named `name`, if it exists.
-pub(crate) fn module(name: &str) -> Option<&'static Module> {
+pub fn module(name: &str) -> Option<&'static Module> {
     MODULES.iter().find(|m| m.name == name)
 }
 
@@ -66,7 +66,7 @@ pub(crate) fn module_names() -> String {
         .join(", ")
 }
 
-pub(crate) const MODULES: &[Module] = &[
+pub const MODULES: &[Module] = &[
     Module {
         name: "nerd",
         funcs: &[

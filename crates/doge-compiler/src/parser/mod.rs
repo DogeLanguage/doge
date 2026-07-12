@@ -13,6 +13,48 @@ pub fn parse(path: &str, source: &str) -> Result<Script, Diagnostic> {
     Parser::new(path, source, tokens).parse_script()
 }
 
+/// The outcome of parsing an interactive REPL snippet.
+pub enum ReplParse {
+    /// A snippet that parsed cleanly and is ready to run.
+    Complete(Script),
+    /// A snippet that is not finished — a half-typed block or definition, or an
+    /// open bracket/string — carrying the diagnostic it would raise if forced.
+    /// The REPL keeps reading lines until it completes.
+    Incomplete(Diagnostic),
+    /// A genuine syntax error, which the REPL reports and moves past.
+    Error(Diagnostic),
+}
+
+/// Parse a REPL snippet. Unlike [`parse`], the top level does not require a
+/// closing `wow`, so a clean parse to end-of-input is [`ReplParse::Complete`]. A
+/// parse that fails *at* end-of-input — the snippet was cut off mid-construct —
+/// is [`ReplParse::Incomplete`] so the caller can read another line; any failure
+/// at a real token is [`ReplParse::Error`]. A leading top-level `wow` ends the
+/// snippet, so the statements before it parse as complete.
+pub fn parse_repl(path: &str, source: &str) -> ReplParse {
+    let tokens = match lexer::lex(path, source) {
+        Ok(tokens) => tokens,
+        Err(diag) => {
+            return if incomplete_lex(&diag) {
+                ReplParse::Incomplete(diag)
+            } else {
+                ReplParse::Error(diag)
+            };
+        }
+    };
+    Parser::new(path, source, tokens).parse_repl_script()
+}
+
+/// A lexer error that only means "the snippet is not finished yet": input ran
+/// out while a bracket, string, or `{…}` interpolation hole was still open, each
+/// of which a later line can close.
+fn incomplete_lex(diag: &Diagnostic) -> bool {
+    matches!(
+        diag.headline.as_str(),
+        "very open. much bracket." | "very string. much unfinished." | "very hole. much open."
+    )
+}
+
 struct Parser {
     path: String,
     lines: Vec<String>,
@@ -148,6 +190,30 @@ impl Parser {
                 .with_hint("remove the lines after wow, or move them above it"));
         }
         Ok(Script { stmts })
+    }
+
+    /// Parse a REPL snippet's statements, stopping at end-of-input or a top-level
+    /// `wow`. A statement that fails to parse ends the walk: a failure whose
+    /// current token is `Eof` means the snippet was truncated ([`Incomplete`]),
+    /// any other failure is a real [`Error`].
+    ///
+    /// [`Incomplete`]: ReplParse::Incomplete
+    /// [`Error`]: ReplParse::Error
+    fn parse_repl_script(&mut self) -> ReplParse {
+        let mut stmts = Vec::new();
+        while !self.is(&TokenKind::Eof) && !self.is(&TokenKind::Wow) {
+            match self.parse_statement() {
+                Ok(stmt) => stmts.push(stmt),
+                Err(diag) => {
+                    return if self.is(&TokenKind::Eof) {
+                        ReplParse::Incomplete(diag)
+                    } else {
+                        ReplParse::Error(diag)
+                    };
+                }
+            }
+        }
+        ReplParse::Complete(Script { stmts })
     }
 
     fn python_habit(&self, message: &str, hint: &str) -> Diagnostic {

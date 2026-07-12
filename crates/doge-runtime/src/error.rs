@@ -28,6 +28,8 @@ pub enum ErrorKind {
     AttrError,
     /// A `bonk` raised by the program itself.
     Bonk,
+    /// An `amaze` assertion whose condition was falsy.
+    AssertError,
     /// A call chain nested past [`RECURSION_LIMIT`].
     RecursionLimit,
 }
@@ -44,6 +46,7 @@ impl ErrorKind {
             ErrorKind::ValueError => "ValueError",
             ErrorKind::AttrError => "AttrError",
             ErrorKind::Bonk => "Bonk",
+            ErrorKind::AssertError => "AssertError",
             ErrorKind::RecursionLimit => "RecursionLimit",
         }
     }
@@ -143,6 +146,20 @@ pub fn bonk_error(value: &Value) -> DogeError {
     }
 }
 
+/// The default message for an `amaze` assertion that fails without one of its own.
+const ASSERT_DEFAULT_MESSAGE: &str = "such amaze. much false.";
+
+/// Build the error a failing `amaze <cond>` raises. With a message
+/// (`amaze cond, msg`) the message value's display form becomes the error text,
+/// mirroring `bonk`; without one it takes the default doge-flavored line.
+pub fn assert_error(message: Option<&Value>) -> DogeError {
+    let text = match message {
+        Some(value) => value.to_string(),
+        None => ASSERT_DEFAULT_MESSAGE.to_string(),
+    };
+    DogeError::new(ErrorKind::AssertError, text)
+}
+
 /// The value bound by `oh no err!`: a structured `Error` carrying the caught
 /// error's type, message, and location. A re-raised error keeps its embedded
 /// location; a fresh one takes the catch site's `file`/`line`.
@@ -200,6 +217,17 @@ mod tests {
         assert_eq!(bonk_error(&Value::Int(5)).message, "5");
         assert_eq!(bonk_error(&Value::str("much fail")).message, "much fail");
         assert_eq!(bonk_error(&Value::Int(5)).kind, ErrorKind::Bonk);
+    }
+
+    #[test]
+    fn assert_error_uses_message_or_default() {
+        let with_message = assert_error(Some(&Value::str("age much wrong")));
+        assert_eq!(with_message.kind, ErrorKind::AssertError);
+        assert_eq!(with_message.message, "age much wrong");
+
+        let without = assert_error(None);
+        assert_eq!(without.kind, ErrorKind::AssertError);
+        assert_eq!(without.message, ASSERT_DEFAULT_MESSAGE);
     }
 
     #[test]

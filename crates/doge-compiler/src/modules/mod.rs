@@ -25,7 +25,7 @@ pub struct Program {
     /// imports it), so their constants can be initialized in a valid order. The
     /// entry is not listed — its constants initialize inline with its own
     /// top-level statements.
-    pub(crate) init_order: Vec<u32>,
+    pub init_order: Vec<u32>,
 }
 
 /// One source file in the program, with its parsed script and resolved imports.
@@ -38,9 +38,9 @@ pub struct ProgramFile {
     pub source: String,
     pub script: Script,
     /// Imported stdlib modules: `(local name, table entry)`.
-    pub(crate) stdlib_imports: Vec<(String, &'static Module)>,
+    pub stdlib_imports: Vec<(String, &'static Module)>,
     /// Imported user modules: `(local name, target file id)`.
-    pub(crate) user_imports: Vec<(String, u32)>,
+    pub user_imports: Vec<(String, u32)>,
 }
 
 /// Load the entry script and every module it imports into a [`Program`].

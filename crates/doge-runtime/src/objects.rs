@@ -35,6 +35,40 @@ pub fn attr_get(obj: &Value, name: &str) -> DogeResult {
     }
 }
 
+/// Read `obj.name` as a *value*, binding a method when there is no field of that
+/// name — the semantics of `such f = a.speak`. A field always wins over a method
+/// (fields appear on assignment). For a `many` instance, `class_has_method` tells
+/// whether the receiver's class (or an ancestor) defines `name`; for a List/Dict,
+/// [`has_builtin_method`] decides. A name that is neither a field nor a method is
+/// the same catchable error a bare [`attr_get`] would raise.
+///
+/// [`has_builtin_method`]: crate::methods::has_builtin_method
+pub fn attr_get_or_bind(
+    obj: &Value,
+    name: &str,
+    class_has_method: &dyn Fn(u32, &str) -> bool,
+) -> DogeResult {
+    match obj {
+        Value::Object(o) => {
+            let data = o.borrow();
+            if let Some(value) = data.fields.get(name) {
+                return Ok(value.clone());
+            }
+            if class_has_method(data.class_id, name) {
+                return Ok(Value::bound_method(obj.clone(), name));
+            }
+            Err(DogeError::attr_error(format!(
+                "{} has no field or method {name}",
+                a_class(&data.class_name)
+            )))
+        }
+        Value::List(_) | Value::Dict(_) if crate::methods::has_builtin_method(obj, name) => {
+            Ok(Value::bound_method(obj.clone(), name))
+        }
+        _ => attr_get(obj, name),
+    }
+}
+
 /// Write `obj.name = value`. A field appears the first time it is assigned;
 /// setting a field on a non-object is a catchable `TypeError`.
 pub fn attr_set(obj: &Value, name: &str, value: Value) -> DogeResult<()> {
@@ -111,6 +145,47 @@ mod tests {
         let obj = Value::object(0, "Shibe");
         attr_set(&obj, "name", Value::str("kabosu")).unwrap();
         assert!(matches!(attr_get(&obj, "name").unwrap(), Value::Str(s) if &*s == "kabosu"));
+    }
+
+    #[test]
+    fn binds_a_method_when_the_class_defines_it() {
+        let obj = Value::object(0, "Shibe");
+        let bound = attr_get_or_bind(&obj, "speak", &|cid, name| cid == 0 && name == "speak")
+            .expect("speak binds");
+        match bound {
+            Value::BoundMethod(m) => {
+                assert_eq!(&*m.method, "speak");
+                assert!(matches!(&m.receiver, Value::Object(_)));
+            }
+            other => panic!("expected a bound method, got {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn a_field_wins_over_a_method_of_the_same_name() {
+        let obj = Value::object(0, "Shibe");
+        attr_set(&obj, "speak", Value::Int(1)).unwrap();
+        // The class "has" a method speak, but the field shadows it.
+        let got = attr_get_or_bind(&obj, "speak", &|_, _| true).unwrap();
+        assert!(matches!(got, Value::Int(1)));
+    }
+
+    #[test]
+    fn neither_field_nor_method_is_a_catchable_attr_error() {
+        let obj = Value::object(0, "Shibe");
+        let err = attr_get_or_bind(&obj, "fly", &|_, _| false).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::AttrError);
+        assert_eq!(err.message, "a Shibe has no field or method fly");
+    }
+
+    #[test]
+    fn binds_a_collection_method() {
+        let list = Value::list(vec![]);
+        let bound = attr_get_or_bind(&list, "append", &|_, _| false).expect("append binds");
+        assert!(matches!(bound, Value::BoundMethod(_)));
+        // An unknown collection method stays the same error a bare read gives.
+        let err = attr_get_or_bind(&list, "nope", &|_, _| false).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]

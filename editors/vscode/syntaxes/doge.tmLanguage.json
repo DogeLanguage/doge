@@ -49,7 +49,7 @@
       "name": "keyword.control.doge"
     },
     "doge-keywords": {
-      "match": "\\b(such|much|many|so|very|super|pls|bark|bonk|bork|wow)\\b|\\boh\\s+no\\b",
+      "match": "\\b(such|much|many|so|very|super|pls|bark|bonk|bork|amaze|wow)\\b|\\boh\\s+no\\b",
       "name": "keyword.other.doge"
     },
     "operators": {

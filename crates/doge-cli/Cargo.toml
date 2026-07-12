@@ -10,3 +10,5 @@ path = "src/main.rs"
 
 [dependencies]
 doge-compiler = { path = "../doge-compiler" }
+doge-interp = { path = "../doge-interp" }
+doge-runtime = { path = "../doge-runtime" }

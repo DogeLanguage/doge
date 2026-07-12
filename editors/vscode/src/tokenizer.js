@@ -23,7 +23,7 @@
 const PALETTE_SIZE = 8;
 
 // Doge keywords that stand alone as their own group.
-const KEYWORD_ALONE = new Set(['bark', 'wow', 'pls', 'bonk', 'bork']);
+const KEYWORD_ALONE = new Set(['bark', 'wow', 'pls', 'bonk', 'bork', 'amaze']);
 
 // A keyword followed by a single bound name: `so nerd`, `such age`,
 // `many Shibe`, `very age`.
@@ -32,11 +32,11 @@ const KEYWORD_WITH_NAME = new Set(['so', 'such', 'many', 'very']);
 // Every reserved word, so a group never swallows a following keyword as if it
 // were a bound name (highlighting stays sane on syntactically invalid input).
 const RESERVED = new Set([
-  'pls', 'bork', 'bonk', 'bark', 'wow', 'such', 'much', 'many', 'so', 'very',
+  'pls', 'bork', 'bonk', 'bark', 'amaze', 'wow', 'such', 'much', 'many', 'so', 'very',
   'super', 'oh', 'no',
   'if', 'elif', 'else', 'for', 'while', 'in', 'return', 'continue',
   'and', 'or', 'not', 'true', 'false', 'none',
-  'def', 'class', 'amaze',
+  'def', 'class',
 ]);
 
 function isIdentStart(ch) {

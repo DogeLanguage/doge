@@ -5,6 +5,12 @@ use crate::error::{DogeError, DogeResult};
 use crate::ops::{order, slice_contains, values_equal};
 use crate::value::Value;
 
+/// Every method name [`list_method`] dispatches, for the bound-method gate
+/// (`has_builtin_method`). Kept in step with the `match` below by a unit test.
+pub(super) const LIST_METHODS: &[&str] = &[
+    "append", "pop", "insert", "remove", "index_of", "contains", "sort", "reverse", "clear",
+];
+
 pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> DogeResult {
     let Value::List(items) = recv else {
         unreachable!("compiler bug: list_method called on a non-List")

@@ -13,6 +13,7 @@ grammar see [GRAMMAR.md](GRAMMAR.md); for builtins and modules see
 | `pls` | statement | `try` (opens its block bare, no `:`) | `pls` |
 | `oh no` | after `pls` block | `catch` (binds the error; header ends in `!`, not `:`) | `oh no error!` |
 | `bonk` | statement | `raise` (raises a catchable error whose message is the value) | `bonk "much fail"` |
+| `amaze` | statement | `assert` (a no-op when the condition holds, else a catchable `AssertError`) | `amaze age > 0` |
 | `bork` | inside a loop | `break` | `if done: bork` |
 | `bark` | statement | print/output/execute | `bark "much hello"` |
 | `wow` | after a definition body | closes a function or object definition | `wow` |
@@ -48,8 +49,8 @@ and, everywhere else, it is the membership operator (see §3).
 
 ### 1.3 Reserved for future use
 
-`amaze`, plus `def` and `class`, reserved so the compiler can greet Python muscle
-memory with a friendly hint (`"no def here. such greet much name: is the way"`).
+`def` and `class`, reserved so the compiler can greet Python muscle memory with a
+friendly hint (`"no def here. such greet much name: is the way"`).
 
 ## 2. General shape
 
@@ -87,6 +88,7 @@ Dynamic value types (all runtime-checked):
 | Dict | `{"name": "kabosu", "age": 18}` |
 | Function | `such name much params:` definitions |
 | Object | instances of `many Name:` definitions |
+| Class | a `many Name:` definition used as a value — a callable that builds an instance (see §8) |
 | Error | the value `oh no err!` binds; `err.type` / `err.message` / `err.file` / `err.line` (see §7) |
 
 Operators: `+ - * / // % ** == != < <= > >= in and or not`, the bitwise
@@ -342,10 +344,14 @@ Functions are values:
 - A function name used as a value produces a first-class function you can store,
   pass as an argument, return, and later call: `such g = greet` then `g("kabosu")`.
   Builtins (`such f = len`) and module functions (`such s = nerd.sqrt`) become
-  values the same way. An object definition is not a value: `such c = Shibe` is a
-  compile error — you call a class to build an instance, `Shibe(…)`. Collection
-  methods are not first-class either: `such f = xs.append` is a catchable runtime
-  error, since `xs.append` reads a field before any call.
+  values the same way. A class name is also a value: `such c = Shibe` produces a
+  callable that builds an instance when called (see §8), so classes can be stored,
+  passed, and put in collections — `such factories = [Shibe, Corgi]`. A method
+  read off a value is also first-class: `such say = kabosu.speak` produces a bound
+  method — the method captured together with its receiver — that dispatches as
+  `kabosu.speak(...)` when called (see §8). This works for object methods and for
+  collection methods alike, so `such push = xs.append` binds `append` to `xs` and
+  `push(3)` mutates `xs`.
 - Calling by name is checked at compile time: the argument count must match the
   definition. Calling through a variable or expression is checked at run time — a
   wrong count, or calling something that is not a function, is a catchable error
@@ -371,7 +377,7 @@ oh no err!
 
   | Field | Type | Meaning |
   | --- | --- | --- |
-  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `AttrError`, `Bonk`, `RecursionLimit` |
+  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit` |
   | `err.message` | `Str` | the plain-English message |
   | `err.file` | `Str` | the script the error was raised in |
   | `err.line` | `Int` | the line it was raised at |
@@ -390,9 +396,18 @@ oh no err!
   Re-raising a caught error with `bonk err` preserves its original type, message,
   and raise location, so you can handle some errors and re-raise the rest:
   `if err.type == "KeyError": … else: bonk err`.
-- Runtime errors (division by zero, missing key, wrong types for an operator) and
-  `bonk`s are catchable with `pls`/`oh no`; an uncaught error exits with a
-  doge-flavored message and the source line it came from (see [ERRORS.md](ERRORS.md)).
+- `amaze <cond>` asserts that `<cond>` is truthy. When it holds, `amaze` does
+  nothing; when it is falsy it raises a catchable `AssertError`. An optional message
+  follows a comma — `amaze <cond>, <message>` — and its display form becomes
+  `err.message`; without one the message is a default doge line (`such amaze. much
+  false.`). The message is evaluated only on failure, so `amaze ok, expensive()`
+  never calls `expensive()` while `ok` holds. `amaze x > 0, "x much wrong: {x}"` is
+  the flavored equivalent of `if not (x > 0): bonk "x much wrong: {x}"`, but with the
+  distinct `AssertError` type so a caught assertion is recognizable.
+- Runtime errors (division by zero, missing key, wrong types for an operator),
+  `bonk`s, and failed `amaze`s are catchable with `pls`/`oh no`; an uncaught error
+  exits with a doge-flavored message and the source line it came from (see
+  [ERRORS.md](ERRORS.md)).
 
 ## 8. Objects
 
@@ -424,6 +439,24 @@ Fields + methods, `self`, `init` constructor, and single inheritance. The rules:
   time against `init`'s parameters; a class without `init` takes no arguments.
   `init` runs on the new object and its return value is ignored, so `Shibe(...)`
   always evaluates to the object. Otherwise `init` is an ordinary method.
+- The bare class name `Shibe` is a first-class value: a callable that builds an
+  instance the same way `Shibe(...)` does, so a class can be stored, passed, and
+  put in a collection (the factory pattern). Called through a value the argument
+  count is checked at run time against `init`, a catchable error like any other
+  indirect call. `bark`ing a class prints `<class Shibe>`, and two class values
+  are equal when they name the same class (`Shibe == Shibe`, but not `Shibe ==
+  Corgi`). A class value is always truthy.
+- A method read as a value (`such f = kabosu.speak`) is a **bound method**: the
+  method captured together with the receiver it was read off, so `f(...)` dispatches
+  exactly as `kabosu.speak(...)` — checked at run time against the method's
+  parameters, a catchable error like any indirect call. This holds for object
+  methods and for List/Dict methods (`such push = xs.append`). A field always wins
+  over a method of the same name, since fields are read first: after `box.speak =
+  "x"`, `box.speak` is the field `"x"`. Reading a name that is neither a field nor a
+  method is a catchable error. `bark`ing a bound method prints `<method
+  Shibe.speak>` (or `<method List.append>`); two are equal only when they name the
+  same method on the very same instance (`kabosu.speak == kabosu.speak`, but not
+  `other.speak`). A bound method is always truthy.
 - Fields appear on assignment. `self.name = x` (or `kabosu.name = x` from
   outside) creates the field if it is new. Reading a field that was never set is a
   catchable error; so is reading or setting a field on a non-object.
@@ -545,9 +578,9 @@ error, since the built-in always wins.
 
 A module may also define objects (`many`). A module class is constructed by
 member, exactly like a function call — `utils.Shibe("doge")` — and its methods
-and fields work the same as a class defined in the main script. Taking the class
-itself as a value (`such c = utils.Shibe`) is not supported; call it to build an
-instance.
+and fields work the same as a class defined in the main script. The class itself
+can also be taken as a value (`such c = utils.Shibe`); it is the same callable a
+bare class name yields, equal to the module's own `Shibe`.
 
 ## 10. Complete example
 

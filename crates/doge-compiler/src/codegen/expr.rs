@@ -22,7 +22,11 @@ impl Codegen {
                         escape_str(name)
                     ))
                 } else if emit.class(name).is_some() {
-                    Err(self.class_as_value(*span, name))
+                    // A class name as a value: a callable that builds an instance,
+                    // materialized as a `Value::class` over its constructor arm.
+                    let id = emit.analysis.ctor_ids[&(emit.file_id, name.clone())];
+                    emit.materialized.borrow_mut().insert(id);
+                    Ok(format!("Value::class({id}u32, \"{}\")", escape_str(name)))
                 } else if let Some(member) = self.module_first_member(emit, name) {
                     Err(self
                         .diag(*span, format!("{name} is a module, not a value"))
@@ -128,7 +132,11 @@ impl Codegen {
                     }
                     if let Some(fid) = emit.user_module(base) {
                         if emit.class_in(fid, name).is_some() {
-                            return Err(self.class_as_value(*span, &format!("{base}.{name}")));
+                            // `utils.Shibe` as a value: the module's constructor arm,
+                            // sharing its id so it equals the module's own `Shibe`.
+                            let id = emit.analysis.ctor_ids[&(fid, name.clone())];
+                            emit.materialized.borrow_mut().insert(id);
+                            return Ok(format!("Value::class({id}u32, \"{base}.{name}\")"));
                         }
                         let table = &emit.tables[fid as usize];
                         if table.consts.contains(name) {
@@ -144,8 +152,12 @@ impl Codegen {
                         return Err(self.unknown_user_member(emit, base, fid, name, *span));
                     }
                 }
+                // A bare `obj.name` value read binds a method when there is no
+                // field of that name (`such f = a.speak`); `class_has_method` is
+                // the gate for object receivers, collections gate themselves.
+                emit.uses_attr_read.set(true);
                 let call = format!(
-                    "attr_get(&{}, \"{}\")",
+                    "attr_get_or_bind(&{}, \"{}\", &class_has_method)",
                     self.expr(obj, emit)?,
                     escape_str(name)
                 );

@@ -5,7 +5,7 @@ use crate::token::TokenKind;
 /// [`keyword_spelling`] both read this, so a keyword's spelling lives in exactly
 /// one place. The fused `oh no` compound is not here (it is not a bare word).
 ///
-/// Reserved words (`def`/`class`/`amaze`) are lexed as keywords so the parser can
+/// Reserved words (`def`/`class`) are lexed as keywords so the parser can
 /// greet Python muscle memory with a friendly hint instead of a vague
 /// "unexpected identifier".
 pub const KEYWORDS: &[(&str, TokenKind)] = &[

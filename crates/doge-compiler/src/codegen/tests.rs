@@ -350,8 +350,37 @@ fn builtin_as_value_constructs_a_function_value() {
 #[test]
 fn indirect_call_goes_through_the_dispatcher() {
     let out = gen("such x = 1\nx()\nwow\n").unwrap();
-    assert!(out.contains("call_function(&*callee_function(&env.v_x.clone())?, vec![], &mut *env)?"));
+    // Every indirect call goes through the `call_value` shim, which routes a
+    // bound method to `call_method` and everything else to `call_function`.
+    assert!(out.contains("call_value(env.v_x.clone(), vec![], &mut *env)?"));
+    assert!(out.contains("fn call_value(callee: Value"));
     assert!(out.contains("fn call_function(f: &FunctionData"));
+}
+
+#[test]
+fn method_read_as_a_value_binds_and_emits_the_gate() {
+    // `such f = a.speak` reads a method as a value: `attr_get_or_bind` binds it,
+    // and `class_has_method` is the object-receiver gate, listing every method.
+    let out = gen(
+        "many Shibe:\n    such speak:\n        return 1\n    wow\nwow\nsuch a = Shibe()\nsuch f = a.speak\nwow\n",
+    )
+    .unwrap();
+    assert!(out.contains("attr_get_or_bind(&env.v_a.clone(), \"speak\", &class_has_method)"));
+    assert!(out.contains("fn class_has_method(class_id: u32, name: &str) -> bool"));
+    assert!(out.contains("(0u32, \"speak\")"));
+}
+
+#[test]
+fn calling_a_bound_method_routes_through_call_method() {
+    // Reading then calling a method value forces the method dispatcher to exist
+    // even though no method is called directly by name.
+    let out = gen(
+        "many Shibe:\n    such speak:\n        return 1\n    wow\nwow\nsuch a = Shibe()\nsuch f = a.speak\nf()\nwow\n",
+    )
+    .unwrap();
+    assert!(out.contains("if let Value::BoundMethod(m) = &callee"));
+    assert!(out.contains("call_method(m.receiver.clone(), &m.method, args, env)"));
+    assert!(out.contains("fn call_method(recv: Value"));
 }
 
 #[test]
@@ -613,7 +642,7 @@ fn mf_0_speak(v_self: Value, env: &mut Env) -> DogeResult<Value> {
 
 fn mb_0_speak(mut v_self: Value, env: &mut Env) -> DogeResult<Value> {
     env.cur_line = 8;
-    let _ = bark(&add(attr_get(&v_self.clone(), "name")?, Value::str(" says bork"))?);
+    let _ = bark(&add(attr_get_or_bind(&v_self.clone(), "name", &class_has_method)?, Value::str(" says bork"))?);
     Ok(Value::None)
 }
 
@@ -631,22 +660,26 @@ fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> 
         _ => Err(no_such_method(&recv, name)),
     }
 }
+
+fn class_has_method(class_id: u32, name: &str) -> bool { matches!((class_id, name), (0u32, "init") | (0u32, "speak")) }
 "#;
     assert_eq!(out, expected);
 }
 
 #[test]
 fn attr_get_and_set_emission() {
+    // A field read as a value binds a method when there is no field, so it emits
+    // `attr_get_or_bind`; a field write is still a plain `attr_set`.
     let out = gen("such x = 1\nx.name = 2\nbark x.name\nwow\n").unwrap();
     assert!(out.contains("attr_set(&env.v_x.clone(), \"name\", Value::Int(2i64))?;"));
-    assert!(out.contains("attr_get(&env.v_x.clone(), \"name\")?"));
+    assert!(out.contains("attr_get_or_bind(&env.v_x.clone(), \"name\", &class_has_method)?"));
 }
 
 #[test]
 fn attr_in_try_breaks_to_label() {
     let out = gen("such x = 1\npls\n    bark x.name\noh no err!\n    bark err\nwow\n").unwrap();
     assert!(out.contains(
-        "match attr_get(&env.v_x.clone(), \"name\") { Ok(v) => v, Err(e) => break 'p0 Err(e) }"
+        "match attr_get_or_bind(&env.v_x.clone(), \"name\", &class_has_method) { Ok(v) => v, Err(e) => break 'p0 Err(e) }"
     ));
 }
 
@@ -693,14 +726,25 @@ fn no_init_class_takes_no_args() {
 }
 
 #[test]
-fn class_as_value_is_an_error() {
-    let err = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
-        .unwrap_err();
-    assert_eq!(err.headline, "very class. much value.");
-    assert!(err
-        .message
-        .contains("Shibe is an object definition, not a value"));
-    assert!(err.hint.as_deref().unwrap_or_default().contains("Shibe(…)"));
+fn class_as_value_constructs_a_class_value() {
+    // A bare class name used as a value builds a `Value::class` over its
+    // constructor arm — its id follows the builtins (there are five).
+    let out = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
+        .unwrap();
+    assert!(out.contains("env.v_g = Value::class(5u32, \"Shibe\");"));
+}
+
+#[test]
+fn calling_a_class_value_dispatches_to_the_constructor() {
+    // Calling the stored class value routes through `call_function`, whose ctor
+    // arm checks arity against `init` and calls the class's `n_<id>` constructor.
+    let out =
+        gen("many Shibe:\n    such init much n:\n        self.n = n\n    wow\nwow\nsuch g = Shibe\nsuch s = g(1)\nwow\n")
+            .unwrap();
+    assert!(out.contains("Value::class(5u32, \"Shibe\")"));
+    assert!(out.contains("5u32 => {"));
+    assert!(out.contains("function_arity_error(\"Shibe\", 1usize, Some(1usize), args.len())"));
+    assert!(out.contains("n_0(args.remove(0), &mut *env)"));
 }
 
 #[test]

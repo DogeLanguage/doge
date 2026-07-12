@@ -546,3 +546,56 @@ Script
 ";
     assert_eq!(dump(&script), expected);
 }
+
+// ----- REPL snippet parsing -----
+
+fn repl(source: &str) -> ReplParse {
+    parse_repl("repl.doge", source)
+}
+
+#[test]
+fn repl_completes_a_single_statement_without_wow() {
+    assert!(matches!(repl("bark 1\n"), ReplParse::Complete(_)));
+    assert!(matches!(repl("such x = 1\n"), ReplParse::Complete(_)));
+    // A bare expression is a complete snippet on its own (the prompt echoes it).
+    assert!(matches!(repl("1 + 2\n"), ReplParse::Complete(_)));
+}
+
+#[test]
+fn repl_treats_a_cut_off_construct_as_incomplete() {
+    // A block header with no body yet.
+    assert!(matches!(repl("if true:\n"), ReplParse::Incomplete(_)));
+    // A function missing its wow.
+    assert!(matches!(
+        repl("such greet:\n    return 1\n"),
+        ReplParse::Incomplete(_)
+    ));
+    // A pls with no oh no yet.
+    assert!(matches!(
+        repl("pls\n    bark 1\n"),
+        ReplParse::Incomplete(_)
+    ));
+    // An unterminated string can be finished on a later line.
+    assert!(matches!(repl("bark \"hi\n"), ReplParse::Incomplete(_)));
+    // An open bracket.
+    assert!(matches!(repl("such xs = [1,\n"), ReplParse::Incomplete(_)));
+}
+
+#[test]
+fn repl_reports_a_real_syntax_error() {
+    // A failure at a real token (not end of input) is an error, not incompleteness.
+    assert!(matches!(repl("bark )\n"), ReplParse::Error(_)));
+    assert!(matches!(repl("such 1 = 2\n"), ReplParse::Error(_)));
+}
+
+#[test]
+fn repl_stops_at_a_top_level_wow() {
+    // A leading top-level wow ends the snippet; the statement before it completes.
+    match repl("bark 1\nwow\n") {
+        ReplParse::Complete(script) => assert_eq!(script.stmts.len(), 1),
+        other => panic!(
+            "expected complete, got a different outcome: {:?}",
+            matches!(other, ReplParse::Complete(_))
+        ),
+    }
+}

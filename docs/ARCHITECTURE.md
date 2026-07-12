@@ -35,6 +35,28 @@ identifier, so these never collide with the entry's names. A multi-file program
 also embeds a per-file source table so an uncaught runtime error reports the
 module and line it actually came from.
 
+## 1a. Interpreter path (`doge-interp`)
+
+The transpile-and-build pipeline is the way a `.doge` file becomes a binary. For
+`doge repl` — and any evaluation that should skip the rustc build — a second engine,
+`doge-interp`, walks the same checked AST and evaluates it directly:
+
+```
+tokens → AST → (Program) → doge-interp: tree-walk → doge-runtime
+```
+
+It reuses the whole front end (`parse_repl` for snippets, `check_snippet` for a
+REPL session's accumulated scope) and calls the exact `doge-runtime` functions
+codegen would emit — the same operators, builtins, `builtin_method`, error model,
+and `Rc`/`RefCell` cells. It mirrors codegen's static facts (program-wide function
+ids with per-closure capture names, and a flattened class table with `super`
+resolved up the ancestry) so closures, objects, and inheritance behave identically.
+Because behaviour lives entirely in `doge-runtime`, the two engines cannot diverge:
+every `examples/*.doge` with a `.out` is run through the interpreter as well and must
+produce the same bytes. The interpreter recurses on the native stack (one Doge call
+nests several Rust frames), so the CLI runs it on a large-stack thread; the catchable
+recursion limit, not a stack overflow, is what stops runaway recursion.
+
 ## 2. Crate layout
 
 ```
@@ -53,8 +75,11 @@ doge/
 │   │                     #   modules/ (mod, diag)  — the import loader
 │   │                     #   ast/ (mod, dump)      — nodes + shared AST walker
 │   │                     #   plus keywords, token, builtins, stdlib, diagnostics
-│   └── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
-│                         #   (list, dict), builtins, objects, stdlib/ (nerd, strings)
+│   ├── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
+│   │                     #   (list, dict), builtins, objects, stdlib/ (nerd, strings)
+│   └── doge-interp/      # tree-walking interpreter over the checked AST (doge repl):
+│                         #   analyze (fn ids + captures + class table), exec, expr,
+│                         #   call, natives — evaluates against doge-runtime directly
 ├── examples/             # .doge example programs (double as integration tests)
 └── docs/                 # this documentation
 ```
@@ -175,4 +200,17 @@ top-level function, closure, builtin, and module function has a numeric `fn_id`,
 and a `Value::Function` carries that id plus its captured cells. A call through a
 value routes through a generated `call_function(fn_id, …)` dispatcher, mirroring
 the method dispatcher; direct calls by name stay static and keep their
-compile-time arity check.
+compile-time arity check. A class name used as a value is the same machinery: each
+class gets one extra `call_function` arm that runs its constructor, and the name
+materializes as a `Value::Class` over that `fn_id` — a distinct value kind (prints
+`<class Name>`, type `Class`) that `callee_function` unwraps just like a function,
+so the whole indirect-call path is reused unchanged.
+
+A method read off a value (`such f = a.speak`) has no `fn_id` — dispatch is
+name-based — so it is a `Value::BoundMethod` carrying the receiver and the method
+name. A bare `obj.name` value read emits `attr_get_or_bind`, which returns a field
+if there is one and otherwise binds the method (a generated `class_has_method` gate
+for object receivers, the runtime's collection-method table for List/Dict). Indirect
+calls go through a `call_value` shim: a bound method routes straight back to
+`call_method`, everything else to `call_function`. Both engines share this, so a
+stored method behaves the same compiled or interpreted.

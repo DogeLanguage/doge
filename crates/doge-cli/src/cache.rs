@@ -12,7 +12,7 @@ const CODEGEN_REV: &str = "m6-params-defaults-kwargs-varargs";
 const NO_CACHE_HOME: &str = "\
 very homeless. much confuse.
 
-  doge could not find a place to cache builds — no DOGE_CACHE_DIR, XDG_CACHE_HOME, or HOME is set.
+  doge could not find a place to cache builds — no DOGE_CACHE_DIR, XDG_CACHE_HOME, HOME, or LOCALAPPDATA is set.
 
 such fix: set DOGE_CACHE_DIR to a writable directory";
 
@@ -52,21 +52,32 @@ fn cache_key_from(version: &str, codegen_rev: &str, runtime_hash: &str, source: 
 }
 
 /// Where the cache lives: `$DOGE_CACHE_DIR`, else `$XDG_CACHE_HOME/doge`, else
-/// `$HOME/.cache/doge`. Tests set `DOGE_CACHE_DIR` to stay out of the real cache.
+/// `$HOME/.cache/doge`, else `%LOCALAPPDATA%\doge` (the default Windows location).
+/// Tests set `DOGE_CACHE_DIR` to stay out of the real cache.
 fn cache_root() -> Result<PathBuf, String> {
+    cache_root_from(|var| std::env::var(var).ok().filter(|value| !value.is_empty()))
+}
+
+/// The cache root from an explicit variable lookup, so the resolution chain can be
+/// tested without mutating process-global env. `lookup` returns a variable's value,
+/// or `None` when it is unset or empty. `LOCALAPPDATA` is last so it is a pure
+/// fallback: a Unix shell on Windows that exports `HOME` still gets `$HOME/.cache/doge`.
+fn cache_root_from<F>(lookup: F) -> Result<PathBuf, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
     for (var, suffix) in [
         ("DOGE_CACHE_DIR", None),
         ("XDG_CACHE_HOME", Some("doge")),
         ("HOME", Some(".cache/doge")),
+        ("LOCALAPPDATA", Some("doge")),
     ] {
-        if let Ok(value) = std::env::var(var) {
-            if !value.is_empty() {
-                let mut root = PathBuf::from(value);
-                if let Some(suffix) = suffix {
-                    root.push(suffix);
-                }
-                return Ok(root);
+        if let Some(value) = lookup(var) {
+            let mut root = PathBuf::from(value);
+            if let Some(suffix) = suffix {
+                root.push(suffix);
             }
+            return Ok(root);
         }
     }
     Err(NO_CACHE_HOME.to_string())
@@ -142,5 +153,64 @@ mod tests {
         let key = cache_key("bark 1\nwow\n");
         assert_eq!(key.len(), 16);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    /// A lookup over a fixed `(var, value)` table, standing in for process env.
+    fn fake_lookup<'a>(vars: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |var| {
+            vars.iter()
+                .find(|(name, _)| *name == var)
+                .map(|(_, value)| value.to_string())
+                .filter(|value| !value.is_empty())
+        }
+    }
+
+    #[test]
+    fn cache_root_prefers_doge_cache_dir_with_no_suffix() {
+        let root = cache_root_from(fake_lookup(&[
+            ("DOGE_CACHE_DIR", "/explicit"),
+            ("XDG_CACHE_HOME", "/xdg"),
+            ("HOME", "/home/user"),
+            ("LOCALAPPDATA", "/local"),
+        ]));
+        assert_eq!(root, Ok(PathBuf::from("/explicit")));
+    }
+
+    #[test]
+    fn cache_root_falls_back_to_localappdata_on_default_windows() {
+        let root = cache_root_from(fake_lookup(&[(
+            "LOCALAPPDATA",
+            r"C:\Users\doge\AppData\Local",
+        )]));
+        assert_eq!(
+            root,
+            Ok(PathBuf::from(r"C:\Users\doge\AppData\Local").join("doge"))
+        );
+    }
+
+    #[test]
+    fn cache_root_home_beats_localappdata() {
+        let root = cache_root_from(fake_lookup(&[
+            ("HOME", "/home/user"),
+            ("LOCALAPPDATA", r"C:\Local"),
+        ]));
+        assert_eq!(root, Ok(PathBuf::from("/home/user").join(".cache/doge")));
+    }
+
+    #[test]
+    fn cache_root_skips_empty_values() {
+        let root = cache_root_from(fake_lookup(&[
+            ("DOGE_CACHE_DIR", ""),
+            ("XDG_CACHE_HOME", ""),
+            ("HOME", ""),
+            ("LOCALAPPDATA", "/local"),
+        ]));
+        assert_eq!(root, Ok(PathBuf::from("/local").join("doge")));
+    }
+
+    #[test]
+    fn cache_root_errors_when_nothing_is_set() {
+        let root = cache_root_from(fake_lookup(&[]));
+        assert_eq!(root, Err(NO_CACHE_HOME.to_string()));
     }
 }

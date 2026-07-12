@@ -5,6 +5,7 @@ mod builtins;
 mod check;
 mod codegen;
 mod diagnostics;
+mod fmt;
 mod keywords;
 mod lexer;
 mod modules;
@@ -12,9 +13,17 @@ mod parser;
 mod stdlib;
 mod token;
 
-pub use ast::{dump, Script};
+pub use ast::{
+    celled_locals, child_funcdefs, dump, free_names, hoisted_names, BinOp, Expr, InterpPart, Param,
+    Params, Script, Stmt, UnOp,
+};
+pub use builtins::{builtin, is_builtin, BuiltinFn, BuiltinShape, BUILTINS};
+pub use check::{check_snippet, ClassInfo, SessionScope};
 pub use diagnostics::Diagnostic;
-pub use modules::{Program, ProgramFile};
+pub use modules::{load_program, single_file_program, Program, ProgramFile};
+pub use parser::{parse_repl, ReplParse};
+pub use stdlib::{module as stdlib_module, Module, ModuleFn, MODULES};
+pub use token::Span;
 
 /// Lex and parse `source` (named `path` for diagnostics) into a [`Script`]
 pub fn parse(path: &str, source: &str) -> Result<Script, Diagnostic> {
@@ -24,6 +33,13 @@ pub fn parse(path: &str, source: &str) -> Result<Script, Diagnostic> {
 /// Run the semantic checks over an already-parsed [`Script`].
 pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
     check::check(path, source, script)
+}
+
+/// Format `source` (named `path` for diagnostics) to canonical Doge style, or a
+/// diagnostic if it does not parse. Comments are preserved; the token stream is
+/// never changed.
+pub fn format(path: &str, source: &str) -> Result<String, Diagnostic> {
+    fmt::format(path, source)
 }
 
 /// Generate a complete Rust source file from a checked [`Script`], or a

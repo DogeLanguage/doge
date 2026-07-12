@@ -11,11 +11,14 @@ mod value;
 
 pub use builtins::{bark, interp, len, range, to_float, to_int, to_str};
 pub use error::{
-    bonk_error, enter_call, error_field, error_value, exit_call, DogeError, DogeResult, ErrorKind,
+    assert_error, bonk_error, enter_call, error_field, error_value, exit_call, DogeError,
+    DogeResult, ErrorKind,
 };
 pub use functions::{callee_function, cell_get, cell_set, function_arity_error};
-pub use methods::builtin_method;
-pub use objects::{attr_get, attr_set, method_arity_error, no_such_method, object_class_id};
+pub use methods::{builtin_method, has_builtin_method};
+pub use objects::{
+    attr_get, attr_get_or_bind, attr_set, method_arity_error, no_such_method, object_class_id,
+};
 pub use ops::{
     add, bitand, bitnot, bitor, bitxor, div, eq, floordiv, ge, gt, in_, index_get, index_set,
     iter_value, le, lt, mul, ne, neg, not_, not_in, pow, rem, shl, shr, slice_get, sub,
@@ -29,7 +32,7 @@ pub use stdlib::strings::{
     strings_beeg, strings_contains, strings_join, strings_replace, strings_smoll, strings_split,
     strings_trim,
 };
-pub use value::{Cell, FunctionData, Value};
+pub use value::{BoundMethodData, Cell, FunctionData, Value};
 
 // Re-exported so the generated glue can build capture cells without importing
 // std directly — it only ever writes `use doge_runtime::*;`.
