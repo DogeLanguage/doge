@@ -574,3 +574,78 @@ fn a_bare_doge_starts_the_repl() {
         "a bare `doge` should start the repl, got:\n{stdout}"
     );
 }
+
+/// A scratch file under the target tmp dir, seeded with `content`. `doge fmt`
+/// rewrites in place, so tests must point it at throwaway files, never at a
+/// checked-in fixture.
+fn scratch_file(name: &str, content: &str) -> PathBuf {
+    let path = PathBuf::from(concat!(env!("CARGO_TARGET_TMPDIR"), "/fmt")).join(name);
+    std::fs::create_dir_all(path.parent().expect("scratch parent")).expect("mkdir scratch");
+    std::fs::write(&path, content).expect("seed scratch file");
+    path
+}
+
+const UNFORMATTED: &str = "such xs=[1,2 , 3]\nbark  xs[ 0 ]\nwow\n";
+const FORMATTED: &str = "such xs = [1, 2, 3]\nbark xs[0]\nwow\n";
+
+#[test]
+fn fmt_rewrites_a_file_in_place() {
+    let path = scratch_file("rewrite.doge", UNFORMATTED);
+    let output = doge()
+        .arg("fmt")
+        .arg(&path)
+        .output()
+        .expect("doge should run");
+    assert!(output.status.success(), "fmt should exit 0");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        FORMATTED
+    );
+}
+
+#[test]
+fn fmt_check_fails_on_unformatted_and_leaves_the_file() {
+    let path = scratch_file("check_bad.doge", UNFORMATTED);
+    let output = doge()
+        .arg("fmt")
+        .arg("--check")
+        .arg(&path)
+        .output()
+        .expect("doge should run");
+    assert_eq!(output.status.code(), Some(1), "expected exit 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("very"), "doge-flavored, got:\n{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        UNFORMATTED,
+        "--check must not write"
+    );
+}
+
+#[test]
+fn fmt_check_passes_on_a_formatted_file() {
+    let path = scratch_file("check_good.doge", FORMATTED);
+    let output = doge()
+        .arg("fmt")
+        .arg("--check")
+        .arg(&path)
+        .output()
+        .expect("doge should run");
+    assert!(output.status.success(), "already-formatted should exit 0");
+}
+
+#[test]
+fn fmt_on_unparseable_source_reports_a_diagnostic() {
+    let path = scratch_file("broken.doge", "such =\nwow\n");
+    let output = doge()
+        .arg("fmt")
+        .arg(&path)
+        .output()
+        .expect("doge should run");
+    assert_eq!(output.status.code(), Some(1), "expected exit 1");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("very"),
+        "doge-flavored diagnostic, got:\n{stderr}"
+    );
+}

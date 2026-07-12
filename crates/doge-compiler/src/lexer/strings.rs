@@ -143,7 +143,10 @@ impl Lexer {
     ) -> Result<Vec<Token>, Diagnostic> {
         let saved_tokens = std::mem::take(&mut self.tokens);
         let saved_brackets = std::mem::take(&mut self.bracket_stack);
-        self.lex_range(chars, ln, start, end)?;
+        let saved_in_hole = std::mem::replace(&mut self.in_hole, true);
+        let result = self.lex_range(chars, ln, start, end);
+        self.in_hole = saved_in_hole;
+        result?;
         if let Some(open) = self.bracket_stack.first() {
             let span = *open;
             return Err(self

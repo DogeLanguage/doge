@@ -10,6 +10,7 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 | `doge bark script.doge` | compile (cached) and run; exits with the script's own code |
 | `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
 | `doge check script.doge` | parse + checks only, no build |
+| `doge fmt script.doge` | format the file in place to canonical style; `--check` reports without writing |
 | `doge repl` (or bare `doge`) | start the interactive interpreter — evaluate Doge without a build |
 
 ## REPL
@@ -36,6 +37,34 @@ output through both engines (an enforced test).
   the usual doge-flavored form ([ERRORS.md](ERRORS.md)) and the prompt returns with
   state intact.
 - **Leaving.** Type `wow` on its own line, or press Ctrl-D (EOF).
+
+## Formatting
+
+`doge fmt script.doge` rewrites the file in canonical style; it prints
+`such format: <path>` when it changes something and stays silent when the file was
+already formatted. `doge fmt --check script.doge` never writes — it exits `0` if the
+file is already formatted and non-zero (with a doge-flavored message) if it is not,
+for use in CI.
+
+The formatter works on the token stream, not the AST, so it preserves every `#`
+comment (own-line and trailing). It only normalizes whitespace — it never adds or
+removes line breaks:
+
+- **Indentation** is four spaces per block.
+- **Spacing** is normalized: one space around binary operators, `=`, and augmented
+  assignments; a space after `,` and after a dict `:`; tight member access (`a.b`),
+  call/index parentheses (`f(x)`, `xs[0]`), unary operators (`-1`, `~x`), and slice
+  colons (`xs[1:3]`).
+- **Blank lines** are capped at one in a row, with leading and trailing blanks
+  trimmed and the file ending in a single newline.
+- A bracketed expression the author split across lines keeps its line breaks (only
+  re-indented); one written on a single line stays on one line.
+
+Formatting first requires the file to **parse** — `doge fmt` on a syntactically
+invalid script reports the parser's diagnostic and changes nothing. It never alters
+what a script means: the result always lexes to the same token stream, guaranteed by
+a check that reports a `very bug. much sorry.` compiler bug rather than emit anything
+that would differ.
 
 ## Build cache
 

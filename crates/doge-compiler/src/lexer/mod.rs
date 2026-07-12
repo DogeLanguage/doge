@@ -8,7 +8,28 @@ mod strings;
 mod tests;
 
 pub fn lex(path: &str, source: &str) -> Result<Vec<Token>, Diagnostic> {
+    Lexer::new(path, source).run().map(|(tokens, _)| tokens)
+}
+
+/// Lex like [`lex`], but also return the `#` comments the lexer skipped. Only the
+/// formatter needs these; the rest of the pipeline discards them via [`lex`].
+pub(crate) fn lex_with_comments(
+    path: &str,
+    source: &str,
+) -> Result<(Vec<Token>, Vec<Comment>), Diagnostic> {
     Lexer::new(path, source).run()
+}
+
+/// A `#` comment the lexer skipped over, kept only for the formatter (comments
+/// carry no meaning to the parser, checks, or codegen).
+#[derive(Debug, Clone)]
+pub(crate) struct Comment {
+    /// 1-based source line the `#` sits on.
+    pub(crate) line: u32,
+    /// 1-based column of the `#`.
+    pub(crate) col: u32,
+    /// The text after the `#`, trailing whitespace trimmed, `#` excluded.
+    pub(crate) text: String,
 }
 
 struct Lexer {
@@ -21,6 +42,11 @@ struct Lexer {
     /// Tracking spans (not just a count) lets EOF point at the unclosed opener.
     bracket_stack: Vec<Span>,
     tokens: Vec<Token>,
+    /// `#` comments, in source order, for the formatter.
+    comments: Vec<Comment>,
+    /// True while lexing the inside of a `{…}` interpolation hole, where a `#` is
+    /// not a comment (holes never contain comments) and must not be recorded.
+    in_hole: bool,
 }
 
 impl Lexer {
@@ -32,10 +58,12 @@ impl Lexer {
             indent_stack: vec![0],
             bracket_stack: Vec::new(),
             tokens: Vec::new(),
+            comments: Vec::new(),
+            in_hole: false,
         }
     }
 
-    fn run(mut self) -> Result<Vec<Token>, Diagnostic> {
+    fn run(mut self) -> Result<(Vec<Token>, Vec<Comment>), Diagnostic> {
         // Clone the line list up front so the borrow checker lets us read a line
         // while pushing tokens; lines never change during lexing.
         let lines = self.lines.clone();
@@ -55,7 +83,11 @@ impl Lexer {
                 while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
                     i += 1;
                 }
-                if i >= chars.len() || chars[i] == '#' {
+                if i >= chars.len() {
+                    continue;
+                }
+                if chars[i] == '#' {
+                    self.record_comment(ln, i, &chars);
                     continue;
                 }
                 i
@@ -88,7 +120,7 @@ impl Lexer {
             self.push(TokenKind::Dedent, last_line, 1);
         }
         self.push(TokenKind::Eof, last_line, 1);
-        Ok(self.tokens)
+        Ok((self.tokens, self.comments))
     }
 
     /// Handle the indentation of a fresh logical line (bracket depth 0). Returns
@@ -106,7 +138,11 @@ impl Lexer {
 
         // Blank or comment-only lines never affect indentation (and a tab on
         // such a line is harmless — it indents nothing).
-        if i >= chars.len() || chars[i] == '#' {
+        if i >= chars.len() {
+            return Ok(None);
+        }
+        if chars[i] == '#' {
+            self.record_comment(ln, i, chars);
             return Ok(None);
         }
 
@@ -180,6 +216,11 @@ impl Lexer {
                 continue;
             }
             if c == '#' {
+                // A `#` inside a `{…}` hole is not a comment; only top-level
+                // line scanning records comments.
+                if !self.in_hole {
+                    self.record_comment(ln, i, chars);
+                }
                 break; // comment runs to end of line
             }
 
@@ -205,6 +246,18 @@ impl Lexer {
         self.tokens.push(Token {
             kind,
             span: Span { line, col },
+        });
+    }
+
+    /// Record a `#` comment starting at `hash_index` (its text runs to the end of
+    /// the physical line). The text keeps its leading space but is trimmed of any
+    /// trailing whitespace, so the formatter can re-emit it verbatim.
+    fn record_comment(&mut self, ln: u32, hash_index: usize, chars: &[char]) {
+        let text: String = chars[hash_index + 1..].iter().collect();
+        self.comments.push(Comment {
+            line: ln,
+            col: (hash_index + 1) as u32,
+            text: text.trim_end().to_string(),
         });
     }
 

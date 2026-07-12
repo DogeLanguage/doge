@@ -5,6 +5,7 @@ mod builtins;
 mod check;
 mod codegen;
 mod diagnostics;
+mod fmt;
 mod keywords;
 mod lexer;
 mod modules;
@@ -32,6 +33,13 @@ pub fn parse(path: &str, source: &str) -> Result<Script, Diagnostic> {
 /// Run the semantic checks over an already-parsed [`Script`].
 pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic> {
     check::check(path, source, script)
+}
+
+/// Format `source` (named `path` for diagnostics) to canonical Doge style, or a
+/// diagnostic if it does not parse. Comments are preserved; the token stream is
+/// never changed.
+pub fn format(path: &str, source: &str) -> Result<String, Diagnostic> {
+    fmt::format(path, source)
 }
 
 /// Generate a complete Rust source file from a checked [`Script`], or a

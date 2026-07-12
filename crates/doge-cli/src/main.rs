@@ -1,6 +1,7 @@
-//! The `doge` command-line tool. It exposes three subcommands: `bark` (compile
-//! and run), `build` (compile to a standalone binary), and `check` (parse +
-//! check → AST dump).
+//! The `doge` command-line tool. Its subcommands: `bark` (compile and run),
+//! `build` (compile to a standalone binary), `check` (parse + check → AST dump),
+//! `fmt` (format in place, or `--check`), and `repl` (interactive interpreter,
+//! also the default when run with no arguments).
 
 mod build;
 mod cache;
@@ -15,8 +16,10 @@ const EXIT_OK: u8 = 0;
 const EXIT_FAILURE: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 
-const USAGE: &str = "such usage: doge <bark|build|check|repl> [script.doge]";
+const USAGE: &str = "such usage: doge <bark|build|check|fmt|repl> [script.doge]";
 const MISSING_FILE_HEADLINE: &str = "very missing. much file.";
+/// Headline for `doge fmt --check` when a file is not already formatted.
+const UNFORMATTED_HEADLINE: &str = "very messy. much unformatted.";
 /// The headline for an uncaught runtime error, shared with the compiled program.
 const RUNTIME_ERROR_HEADLINE: &str = "very error. much broken.";
 /// Fallback binary name when a script path has no usable stem (e.g. `.doge`).
@@ -33,6 +36,8 @@ fn main() -> ExitCode {
         [cmd, path] if cmd == "bark" => run_bark(path),
         [cmd, path] if cmd == "build" => run_build(path),
         [cmd, path] if cmd == "check" => run_check(path),
+        [cmd, path] if cmd == "fmt" => run_fmt(path, false),
+        [cmd, flag, path] if cmd == "fmt" && flag == "--check" => run_fmt(path, true),
         // `doge repl`, or a bare `doge`, starts the interactive interpreter.
         [cmd] if cmd == "repl" => on_big_stack(repl::run),
         [] => on_big_stack(repl::run),
@@ -124,6 +129,45 @@ fn run_check(path: &str) -> ExitCode {
 
     print!("{}", doge_compiler::dump(&program.files[0].script));
     ExitCode::from(EXIT_OK)
+}
+
+/// `doge fmt <path>`: rewrite the script in canonical style, writing only when
+/// it changes. With `--check`, write nothing and exit non-zero if the file is not
+/// already formatted (for CI).
+fn run_fmt(path: &str, check: bool) -> ExitCode {
+    let source = match read_source(path) {
+        Ok(source) => source,
+        Err(code) => return code,
+    };
+    let formatted = match doge_compiler::format(path, &source) {
+        Ok(formatted) => formatted,
+        Err(diag) => {
+            eprint!("{}", diag.render());
+            return ExitCode::from(EXIT_FAILURE);
+        }
+    };
+
+    if check {
+        if formatted == source {
+            return ExitCode::from(EXIT_OK);
+        }
+        eprintln!("{UNFORMATTED_HEADLINE}\n\n  {path} needs formatting: run doge fmt {path}");
+        return ExitCode::from(EXIT_FAILURE);
+    }
+
+    if formatted == source {
+        return ExitCode::from(EXIT_OK);
+    }
+    match std::fs::write(path, &formatted) {
+        Ok(()) => {
+            println!("such format: {path}");
+            ExitCode::from(EXIT_OK)
+        }
+        Err(err) => {
+            eprintln!("very disk. much sad.\n\n  doge could not write {path}: {err}");
+            ExitCode::from(EXIT_FAILURE)
+        }
+    }
 }
 
 /// Run a script through the tree-walking interpreter (the `DOGE_INTERP` path):
