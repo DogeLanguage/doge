@@ -6,7 +6,7 @@
 use doge_compiler as dc;
 use doge_runtime::{
     builtin_method, callee_function, enter_call, exit_call, function_arity_error, object_class_id,
-    DogeError, DogeResult, Value,
+    DogeError, DogeResult, ErrorKind, Value,
 };
 
 use crate::natives::call_native;
@@ -76,6 +76,20 @@ impl Interp {
                 self.call_value(value, args, kwargs)
             }
         }
+    }
+
+    /// Call a top-level function of the entry file by name with no arguments,
+    /// returning its value or the (catchable) error it raised. The test runner
+    /// drives each discovered `test`-prefixed function through this, after
+    /// [`Interp::prepare`](crate::Interp::prepare) has integrated the program.
+    pub fn call_entry_function(&mut self, name: &str) -> DogeResult<Value> {
+        let value = self
+            .lookup(&self.globals(0), 0, name)
+            .map(|cell| cell.borrow().clone())
+            .ok_or_else(|| {
+                DogeError::new(ErrorKind::ValueError, format!("no function named {name}"))
+            })?;
+        self.call_value(value, Vec::new(), Vec::new())
     }
 
     /// Evaluate positional arguments only.

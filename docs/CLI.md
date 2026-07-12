@@ -11,6 +11,7 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 | `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
 | `doge check script.doge` | parse + checks only, no build |
 | `doge fmt script.doge` | format the file in place to canonical style; `--check` reports without writing |
+| `doge test <file.doge>` \| `doge test <dir>` | discover and run test functions, reporting aggregate pass/fail |
 | `doge lsp` | start the language server (LSP over stdin/stdout) for editors — diagnostics and completion |
 | `doge repl` (or bare `doge`) | start the interactive interpreter — evaluate Doge without a build |
 
@@ -75,6 +76,33 @@ invalid script reports the parser's diagnostic and changes nothing. It never alt
 what a script means: the result always lexes to the same token stream, guaranteed by
 a check that reports a `very bug. much sorry.` compiler bug rather than emit anything
 that would differ.
+
+## Testing
+
+`doge test` runs a Doge test suite and reports aggregate pass/fail in doge-flavored
+output. A **test** is a top-level function that takes no arguments and whose name
+starts with `test`; its body asserts with `amaze` ([SYNTAX.md](SYNTAX.md) §7). A
+`test`-prefixed function that takes arguments is treated as an ordinary helper, not a
+test.
+
+```
+such test_addition:
+    amaze 1 + 1 == 2
+wow
+```
+
+- `doge test script.doge` runs every test function in that one file.
+- `doge test <dir>` discovers every `test_*.doge` file beneath the directory
+  (recursively, in path order) and runs each one's tests.
+
+Each test runs on the tree-walking interpreter ([ARCHITECTURE.md](ARCHITECTURE.md)),
+so there is no `rustc` build and one test's error never aborts the rest: a failing
+`amaze` (or any other catchable runtime error) fails just that test, printed with its
+type, message, and `path:line`. `doge test` exits `0` only when at least one test ran
+and all of them passed; it exits non-zero if any test fails, any file fails to compile,
+or no tests are found at all (`very empty. much untested.`), so CI catches a broken or
+empty suite. Tests in one file share that file's top-level state, in the order they are
+written.
 
 ## Editor integration (language server)
 

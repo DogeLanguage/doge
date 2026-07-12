@@ -336,3 +336,27 @@ fn stdlib_is_available() {
     assert_eq!(eval("so nerd\nnerd.sqrt(16.0)\n"), "4.0");
     assert_eq!(eval("so strings\nstrings.beeg(\"wow\")\n"), "WOW");
 }
+
+#[test]
+fn prepare_then_call_entry_function_drives_tests() {
+    let source =
+        "such test_ok:\n    amaze 1 + 1 == 2\nwow\nsuch test_bad:\n    amaze false\nwow\nwow\n"
+            .to_string();
+    on_big_stack(move || {
+        let program = dc::load_program("test.doge", &source).expect("parses and loads");
+        dc::check_program(&program).expect("checks");
+        let mut interp = Interp::new();
+        interp.prepare(&program).expect("integrates cleanly");
+        assert!(
+            interp.call_entry_function("test_ok").is_ok(),
+            "a passing test returns Ok"
+        );
+        assert_eq!(
+            interp
+                .call_entry_function("test_bad")
+                .expect_err("a failing amaze raises")
+                .kind,
+            ErrorKind::AssertError
+        );
+    });
+}

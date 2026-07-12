@@ -162,6 +162,18 @@ impl Interp {
         self.run_entry(program)
     }
 
+    /// Integrate a loaded program *without* running its entry body — the setup the
+    /// test runner needs before it drives individual `test`-prefixed functions with
+    /// [`call_entry_function`]. A module constant initializer that failed during
+    /// integration surfaces here, just as it would when the entry runs.
+    pub fn prepare(&mut self, program: &dc::Program) -> DogeResult<()> {
+        self.integrate_program(program);
+        match self.pending_module_error.take() {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
+
     /// The file id and line the interpreter last executed — the site of an uncaught
     /// error, for the caller to render a doge-flavored location.
     pub fn error_site(&self) -> (usize, u32) {

@@ -404,7 +404,10 @@ oh no err!
   false.`). The message is evaluated only on failure, so `amaze ok, expensive()`
   never calls `expensive()` while `ok` holds. `amaze x > 0, "x much wrong: {x}"` is
   the flavored equivalent of `if not (x > 0): bonk "x much wrong: {x}"`, but with the
-  distinct `AssertError` type so a caught assertion is recognizable.
+  distinct `AssertError` type so a caught assertion is recognizable. `amaze` is the
+  building block of the test runner: `doge test` discovers top-level, zero-argument
+  functions whose name starts with `test` and runs each, reporting pass/fail
+  ([CLI.md](CLI.md)).
 - Runtime errors (division by zero, missing key, wrong types for an operator),
   `bonk`s, and failed `amaze`s are catchable with `pls`/`oh no`; an uncaught error
   exits with a doge-flavored message and the source line it came from (see

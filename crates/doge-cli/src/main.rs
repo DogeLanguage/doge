@@ -1,11 +1,13 @@
 //! The `doge` command-line tool. Its subcommands: `bark` (compile and run),
 //! `build` (compile to a standalone binary), `check` (parse + check → AST dump),
-//! `fmt` (format in place, or `--check`), and `repl` (interactive interpreter,
-//! also the default when run with no arguments).
+//! `fmt` (format in place, or `--check`), `test` (discover and run `test`-prefixed
+//! functions), `lsp` (language server), and `repl` (interactive interpreter, also
+//! the default when run with no arguments).
 
 mod build;
 mod cache;
 mod repl;
+mod test;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -16,7 +18,7 @@ const EXIT_OK: u8 = 0;
 const EXIT_FAILURE: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 
-const USAGE: &str = "such usage: doge <bark|build|check|fmt|lsp|repl> [script.doge]";
+const USAGE: &str = "such usage: doge <bark|build|check|fmt|test|lsp|repl> [script.doge]";
 /// Headline when the language server's transport fails — an editor/protocol
 /// problem, never a Doge program error.
 const LSP_ERROR_HEADLINE: &str = "very server. much broken.";
@@ -41,6 +43,11 @@ fn main() -> ExitCode {
         [cmd, path] if cmd == "check" => run_check(path),
         [cmd, path] if cmd == "fmt" => run_fmt(path, false),
         [cmd, flag, path] if cmd == "fmt" && flag == "--check" => run_fmt(path, true),
+        // `doge test <file|dir>` discovers and runs test functions on the interpreter.
+        [cmd, path] if cmd == "test" => {
+            let path = path.to_string();
+            on_big_stack(move || test::run_test(&path))
+        }
         // `doge lsp` starts the language server, speaking LSP over stdin/stdout.
         [cmd] if cmd == "lsp" => run_lsp(),
         // `doge repl`, or a bare `doge`, starts the interactive interpreter.

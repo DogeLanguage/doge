@@ -696,3 +696,106 @@ fn fmt_on_unparseable_source_reports_a_diagnostic() {
         "doge-flavored diagnostic, got:\n{stderr}"
     );
 }
+
+#[test]
+fn test_runs_a_file_and_ignores_non_test_functions() {
+    let fixture = cli_fixtures_dir().join("tests_pass.doge");
+    let output = doge()
+        .arg("test")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(output.status.success(), "all tests pass, so exit 0");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_addition") && stdout.contains("✓ test_greeting"),
+        "should report each test as passing, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("greet") || stdout.contains("test_greeting"),
+        "the `greet` helper is not a test and must not run, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("2 passed"),
+        "should aggregate a pass count, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_reports_a_failing_assertion_with_location() {
+    let fixture = cli_fixtures_dir().join("tests_fail.doge");
+    let output = doge()
+        .arg("test")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a failing test exits 1");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_ok"),
+        "the passing test still runs, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("✗ test_broken") && stdout.contains("one is not two"),
+        "should name the failing test and its message, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("tests_fail.doge:6"),
+        "should carry the failing assertion's location, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("1 passed, 1 failed"),
+        "should aggregate pass/fail counts, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_discovers_test_files_recursively_in_a_directory() {
+    let dir = cli_fixtures_dir().join("test_suite");
+    let output = doge()
+        .arg("test")
+        .arg(&dir)
+        .output()
+        .expect("the doge binary should run");
+
+    assert!(
+        output.status.success(),
+        "every discovered test passes, exit 0"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("✓ test_a") && stdout.contains("✓ test_b") && stdout.contains("✓ test_c"),
+        "should discover test_*.doge at any depth, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("test_should_be_ignored"),
+        "helper.doge is not a test_*.doge file and must be skipped, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("3 passed"),
+        "should aggregate across files, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_with_no_test_functions_reports_an_empty_suite() {
+    let hello = examples_dir().join("hello.doge");
+    let output = doge()
+        .arg("test")
+        .arg(&hello)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an empty suite exits non-zero"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very empty. much untested."),
+        "should be a doge-flavored empty-suite message, got:\n{stderr}"
+    );
+}

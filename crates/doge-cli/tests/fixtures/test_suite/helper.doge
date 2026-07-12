@@ -1,0 +1,7 @@
+# Not a `test_*.doge` file, so directory discovery must skip it — even though it
+# defines a `test`-prefixed function that would fail if it were ever run.
+such test_should_be_ignored:
+    amaze false
+wow
+
+wow
