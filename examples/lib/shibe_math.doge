@@ -1,0 +1,15 @@
+so nerd
+so helpers
+
+such square much n:
+    return n * n
+wow
+
+such cube much n:
+    return helpers.times(n, helpers.times(n, n))
+wow
+
+such hypot much a, b:
+    return nerd.sqrt(a * a + b * b)
+wow
+wow

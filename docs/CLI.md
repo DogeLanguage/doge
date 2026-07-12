@@ -31,8 +31,8 @@ output through both engines (an enforced test).
 - **Session state.** Bindings persist across lines; a later line may use or redefine
   an earlier one (`such` variables, functions, and objects can be redefined, but a
   `so` constant still cannot be reassigned). `so nerd`/`so strings` make the stdlib
-  available. Importing your own `.doge` modules is not supported in the REPL yet —
-  run the file with `doge bark` to use them.
+  available. Importing your own `.doge` modules (by name or string path) is not
+  supported in the REPL yet — run the file with `doge bark` to use them.
 - **Errors don't end the session.** A syntax, check, or runtime error is reported in
   the usual doge-flavored form ([ERRORS.md](ERRORS.md)) and the prompt returns with
   state intact.

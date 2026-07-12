@@ -576,6 +576,33 @@ import — two files that import each other — is a compile error naming the cy
 A user file whose name collides with a built-in module (`nerd.doge`) is a compile
 error, since the built-in always wins.
 
+#### Importing from another directory
+
+A bare `so <name>` only reaches a sibling file. To import a module that lives
+elsewhere, give a **string path**:
+
+```doge
+so "lib/shibe_math.doge"
+
+bark shibe_math.square(4)   # 16
+wow
+```
+
+The path is a plain string (not interpolated), relative to the importing file's
+directory, written with `/` separators, and ending in `.doge`; `..` segments may
+climb to a parent directory. It binds the file's **stem** as the module name
+(`shibe_math` above), and everything else — member access, first-class functions,
+constants, classes, the definitions-only rule — works exactly as for a bare
+import. The stem must be a plain name (so it can bind), and a stem that collides
+with a built-in module (`so "lib/nerd.doge"`) is the same shadow error as a
+sibling `nerd.doge`.
+
+Imports are keyed by the file they resolve to, so importing the same file by two
+different paths loads it once, while two different files that happen to share a
+stem are distinct modules (though one file cannot bind the same name twice). The
+main script is not a module — an import that resolves back to it is a compile
+error.
+
 A module may also define objects (`many`). A module class is constructed by
 member, exactly like a function call — `utils.Shibe("doge")` — and its methods
 and fields work the same as a class defined in the main script. The class itself
