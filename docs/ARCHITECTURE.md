@@ -57,6 +57,25 @@ produce the same bytes. The interpreter recurses on the native stack (one Doge c
 nests several Rust frames), so the CLI runs it on a large-stack thread; the catchable
 recursion limit, not a stack overflow, is what stops runaway recursion.
 
+## 1b. Language server path (`doge-lsp`)
+
+`doge lsp` serves editors over LSP (stdin/stdout). Like `doge-interp`, it is a
+consumer of the front end, not a new copy of it:
+
+```
+editor ⇄ doge-lsp ⇄ doge-compiler (load + checks; complete)
+```
+
+Diagnostics run the exact `load` + `check_program` path `doge check` uses, so an
+editor squiggle and the CLI never disagree. Completion calls
+`doge_compiler::complete`, which reads the single-source keyword/builtin/module
+tables and computes in-scope names from the parsed AST — falling back to a token
+scan of declared names when a mid-edit buffer does not parse. `doge-lsp` itself
+holds no language knowledge: it tracks open buffers and maps `doge-compiler`
+results to `lsp-types`. It is the only crate with third-party dependencies
+(`lsp-server`, `lsp-types`), since hand-rolling the JSON-RPC protocol would be far
+more code than a focused, synchronous LSP library.
+
 ## 2. Crate layout
 
 ```
@@ -77,9 +96,11 @@ doge/
 │   │                     #   plus keywords, token, builtins, stdlib, diagnostics
 │   ├── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
 │   │                     #   (list, dict), builtins, objects, stdlib/ (nerd, strings, fetch, env)
-│   └── doge-interp/      # tree-walking interpreter over the checked AST (doge repl):
-│                         #   analyze (fn ids + captures + class table), exec, expr,
-│                         #   call, natives — evaluates against doge-runtime directly
+│   ├── doge-interp/      # tree-walking interpreter over the checked AST (doge repl):
+│   │                     #   analyze (fn ids + captures + class table), exec, expr,
+│   │                     #   call, natives — evaluates against doge-runtime directly
+│   └── doge-lsp/         # language server (doge lsp): thin LSP glue over the
+│                         #   doge-compiler front end + completion engine
 ├── examples/             # .doge example programs (double as integration tests)
 └── docs/                 # this documentation
 ```

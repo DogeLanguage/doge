@@ -11,6 +11,7 @@ The `doge` binary and its build cache. Internals of the compile pipeline it driv
 | `doge build script.doge` | compile (cached) and copy the binary to `./<script-stem>` (`.exe` on Windows) |
 | `doge check script.doge` | parse + checks only, no build |
 | `doge fmt script.doge` | format the file in place to canonical style; `--check` reports without writing |
+| `doge lsp` | start the language server (LSP over stdin/stdout) for editors — diagnostics and completion |
 | `doge repl` (or bare `doge`) | start the interactive interpreter — evaluate Doge without a build |
 
 ## Script arguments and input
@@ -74,6 +75,28 @@ invalid script reports the parser's diagnostic and changes nothing. It never alt
 what a script means: the result always lexes to the same token stream, guaranteed by
 a check that reports a `very bug. much sorry.` compiler bug rather than emit anything
 that would differ.
+
+## Editor integration (language server)
+
+`doge lsp` runs the Doge language server, speaking the Language Server Protocol
+over stdin/stdout. Editors spawn it to get:
+
+- **Diagnostics** — the same front end `doge check` runs (`load` + checks), so an
+  editor squiggle matches exactly what the CLI reports. The front end stops at the
+  first problem, so a file shows at most one diagnostic at a time, cleared as soon
+  as it compiles. Errors carry the meme headline and `such fix` hint.
+- **Completion** — Doge keywords, the always-in-scope builtins, `so`-imported
+  module members (after `nerd.`), module names (after `so `), and the names in
+  scope at the cursor (top-level bindings plus the enclosing function's
+  parameters and locals). Candidates come from the same tables the compiler uses,
+  so completion never drifts from what the language accepts.
+
+The server reads unsaved buffer text, so diagnostics and completion track edits
+live. It resolves imported modules from disk; an unsaved sibling module is not yet
+seen, and an error in an imported file is surfaced on the active file with the real
+`path:line` named in the message. The VS Code extension under `editors/vscode/`
+starts the server automatically; the `doge.serverPath` setting points it at the
+`doge` binary (default: `doge` on `PATH`).
 
 ## Build cache
 

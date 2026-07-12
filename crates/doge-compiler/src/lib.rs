@@ -4,6 +4,7 @@ mod ast;
 mod builtins;
 mod check;
 mod codegen;
+mod complete;
 mod diagnostics;
 mod fmt;
 mod keywords;
@@ -19,6 +20,7 @@ pub use ast::{
 };
 pub use builtins::{builtin, is_builtin, BuiltinFn, BuiltinShape, BUILTINS};
 pub use check::{check_snippet, ClassInfo, SessionScope};
+pub use complete::{complete, Completion, CompletionKind};
 pub use diagnostics::Diagnostic;
 pub use modules::{load_program, single_file_program, Program, ProgramFile};
 pub use parser::{parse_repl, ReplParse};

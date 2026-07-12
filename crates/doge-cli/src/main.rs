@@ -16,7 +16,10 @@ const EXIT_OK: u8 = 0;
 const EXIT_FAILURE: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 
-const USAGE: &str = "such usage: doge <bark|build|check|fmt|repl> [script.doge]";
+const USAGE: &str = "such usage: doge <bark|build|check|fmt|lsp|repl> [script.doge]";
+/// Headline when the language server's transport fails — an editor/protocol
+/// problem, never a Doge program error.
+const LSP_ERROR_HEADLINE: &str = "very server. much broken.";
 const MISSING_FILE_HEADLINE: &str = "very missing. much file.";
 /// Headline for `doge fmt --check` when a file is not already formatted.
 const UNFORMATTED_HEADLINE: &str = "very messy. much unformatted.";
@@ -38,6 +41,8 @@ fn main() -> ExitCode {
         [cmd, path] if cmd == "check" => run_check(path),
         [cmd, path] if cmd == "fmt" => run_fmt(path, false),
         [cmd, flag, path] if cmd == "fmt" && flag == "--check" => run_fmt(path, true),
+        // `doge lsp` starts the language server, speaking LSP over stdin/stdout.
+        [cmd] if cmd == "lsp" => run_lsp(),
         // `doge repl`, or a bare `doge`, starts the interactive interpreter.
         [cmd] if cmd == "repl" => on_big_stack(repl::run),
         [] => on_big_stack(repl::run),
@@ -166,6 +171,19 @@ fn run_fmt(path: &str, check: bool) -> ExitCode {
         }
         Err(err) => {
             eprintln!("very disk. much sad.\n\n  doge could not write {path}: {err}");
+            ExitCode::from(EXIT_FAILURE)
+        }
+    }
+}
+
+/// `doge lsp`: run the language server, serving diagnostics and completion to an
+/// editor over stdin/stdout. It runs until the client disconnects; a transport
+/// failure is reported in doge-flavored form (it is never a user program error).
+fn run_lsp() -> ExitCode {
+    match doge_lsp::run_stdio() {
+        Ok(()) => ExitCode::from(EXIT_OK),
+        Err(err) => {
+            eprintln!("{LSP_ERROR_HEADLINE}\n\n  the doge language server stopped: {err}");
             ExitCode::from(EXIT_FAILURE)
         }
     }
