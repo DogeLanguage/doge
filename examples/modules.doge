@@ -7,4 +7,12 @@ bark doge_utils.ANSWER
 
 such f = doge_utils.square
 bark f(9)
+
+such c = doge_utils.Counter(10)
+bark c.bump()
+bark c.bump()
+bark c.n
+
+such big = doge_utils.BigCounter(100)
+bark big.bump()
 wow

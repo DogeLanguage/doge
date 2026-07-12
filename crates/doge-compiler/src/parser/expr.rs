@@ -92,7 +92,7 @@ impl Parser {
                 self.advance();
             }
             let rhs = self.parse_bitor()?;
-            // Non-chaining: `1 < x < 10` is a friendly error (M2 decision 2).
+            // Non-chaining: `1 < x < 10` is a friendly error.
             if self.peek_comparison().is_some() {
                 let bad = self.current_span();
                 return Err(self
@@ -442,6 +442,35 @@ impl Parser {
         Ok(Expr::StrInterp { parts, span })
     }
 
+    /// `super.method(args)` — a call to a parent method, resolved statically. The
+    /// `super` token is already at the cursor. `super` on its own, or a bare
+    /// `super.field` with no call, is a friendly error: it exists only to call up.
+    fn parse_super(&mut self, span: Span) -> Result<Expr, Diagnostic> {
+        self.advance(); // super
+        self.eat(TokenKind::Dot).map_err(|_| {
+            self.diag(span, "super only calls a parent method")
+                .with_headline("very super. much confuse.")
+                .with_hint("call a parent method — super.init(…)")
+        })?;
+        let (method, _) = self.eat_ident("a parent method name after super.")?;
+        if !self.is(&TokenKind::LParen) {
+            return Err(self
+                .diag(self.current_span(), "super only calls a parent method")
+                .with_headline("very super. much confuse.")
+                .with_hint(format!("call it — super.{method}(…)")));
+        }
+        self.eat(TokenKind::LParen)?;
+        let (args, kwargs) = self.parse_call_args()?;
+        self.eat(TokenKind::RParen)?;
+        if !kwargs.is_empty() {
+            return Err(self
+                .diag(span, "super passes its arguments positionally")
+                .with_headline("very keyword. much dynamic.")
+                .with_hint(format!("drop the names — super.{method}(…)")));
+        }
+        Ok(Expr::SuperCall { method, args, span })
+    }
+
     pub(super) fn parse_primary(&mut self) -> Result<Expr, Diagnostic> {
         let span = self.current_span();
         match self.peek().clone() {
@@ -477,6 +506,7 @@ impl Parser {
                 self.advance();
                 Ok(Expr::Ident { name, span })
             }
+            TokenKind::Super => self.parse_super(span),
             TokenKind::LParen => {
                 self.advance();
                 let inner = self.parse_expr()?;

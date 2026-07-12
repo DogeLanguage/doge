@@ -178,8 +178,24 @@ impl Codegen {
         let class = emit
             .class(name)
             .expect("compiler bug: constructor for an unknown class");
-        let init_params = class.init_params();
-        let (prelude, parts) = self.resolve_args(name, init_params, args, kwargs, span, emit)?;
+        self.emit_constructor_call(name, class, args, kwargs, span, emit)
+    }
+
+    /// Emit a constructor call `n_<id>(args…, &mut *env)` for `class`, resolving
+    /// `args`/`kwargs` against its `init` header. `label` is the callee name shown
+    /// in arity/keyword diagnostics (`Shibe` locally, `utils.Shibe` cross-file).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_constructor_call(
+        &self,
+        label: &str,
+        class: &Class,
+        args: &[Expr],
+        kwargs: &[(String, Expr)],
+        span: Span,
+        emit: &Emit,
+    ) -> Result<String, Diagnostic> {
+        let init_params = init_params(emit.classes, class);
+        let (prelude, parts) = self.resolve_args(label, init_params, args, kwargs, span, emit)?;
         let target = format!("{CTOR_PREFIX}{}", class.id);
         Ok(self.finish_call(emit, &prelude, parts, &target))
     }
@@ -252,6 +268,11 @@ impl Codegen {
         span: Span,
         emit: &Emit,
     ) -> Result<String, Diagnostic> {
+        // `utils.Shibe(…)` — a constructor for one of the module's classes.
+        if let Some(class) = emit.class_in(fid, member) {
+            let label = format!("{module_name}.{member}");
+            return self.emit_constructor_call(&label, class, args, kwargs, span, emit);
+        }
         let table = &emit.tables[fid as usize];
         let params = match table.funcs.get(member) {
             Some(params) => params,
@@ -271,6 +292,60 @@ impl Codegen {
         let label = format!("{module_name}.{member}");
         let (prelude, parts) = self.resolve_args(&label, params, args, kwargs, span, emit)?;
         let target = func_wrapper(fid, member);
+        Ok(self.finish_call(emit, &prelude, parts, &target))
+    }
+
+    /// `super.method(args)` inside a method body: resolve `method` statically to
+    /// the nearest ancestor of the enclosing class that defines it, then call that
+    /// ancestor's `mf_` wrapper with the current `self` as the receiver. The
+    /// checker validates the context; the fallbacks here keep direct codegen (with
+    /// no prior check pass) non-panicking.
+    pub(super) fn super_call(
+        &self,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+        emit: &Emit,
+    ) -> Result<String, Diagnostic> {
+        let class = emit
+            .current_class
+            .and_then(|id| emit.classes.iter().find(|c| c.id == id))
+            .ok_or_else(|| {
+                self.diag(span, "super only works inside a method")
+                    .with_headline("very super. much lost.")
+                    .with_hint("use super inside a method of a class with a parent")
+            })?;
+        let parent = class
+            .parent
+            .and_then(|pid| emit.classes.iter().find(|c| c.id == pid))
+            .ok_or_else(|| {
+                self.diag(
+                    span,
+                    format!("{} has no parent to call super on", class.name),
+                )
+                .with_headline("very super. much orphan.")
+                .with_hint(format!(
+                    "give it a parent — many {} much Parent:",
+                    class.name
+                ))
+            })?;
+        let (def, params) = effective_methods(emit.classes, parent)
+            .into_iter()
+            .find(|(name, _, _)| *name == method)
+            .map(|(_, def, params)| (def, params))
+            .ok_or_else(|| {
+                self.diag(
+                    span,
+                    format!("no parent of {} has a method {method}", class.name),
+                )
+                .with_headline("very super. much unknown.")
+                .with_hint(format!("check the method name — super.{method}(…)"))
+            })?;
+
+        let label = format!("{}.{method}", def.name);
+        let (prelude, mut parts) = self.resolve_args(&label, params, args, &[], span, emit)?;
+        parts.insert(0, self.resolve_read(emit, "self"));
+        let target = format!("{METHOD_PREFIX}{}_{method}", def.id);
         Ok(self.finish_call(emit, &prelude, parts, &target))
     }
 

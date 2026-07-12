@@ -1,3 +1,4 @@
 so obj_mod
-bark 1
+such s = obj_mod.Shibe()
+bark s.woof()
 wow

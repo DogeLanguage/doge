@@ -19,6 +19,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("many", TokenKind::Many),
     ("so", TokenKind::So),
     ("very", TokenKind::Very),
+    ("super", TokenKind::Super),
     ("if", TokenKind::If),
     ("elif", TokenKind::Elif),
     ("else", TokenKind::Else),

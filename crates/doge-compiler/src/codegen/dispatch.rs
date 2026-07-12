@@ -25,7 +25,9 @@ impl Codegen {
         );
         out.push_str("    match (object_class_id(&recv)?, name) {\n");
         for class in classes {
-            for (method, params) in &class.methods {
+            // Every method callable on this class — its own and every one inherited
+            // — each dispatching to the ancestor `def` that actually defines it.
+            for (method, def, params) in effective_methods(classes, class) {
                 out.push_str(&format!(
                     "        ({}u32, \"{}\") => {{\n",
                     class.id,
@@ -47,7 +49,7 @@ impl Codegen {
                 call_args.push("env".to_string());
                 out.push_str(&format!(
                     "            {METHOD_PREFIX}{}_{method}({})\n",
-                    class.id,
+                    def.id,
                     call_args.join(", ")
                 ));
                 out.push_str("        }\n");

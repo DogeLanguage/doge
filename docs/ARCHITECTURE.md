@@ -74,7 +74,9 @@ salted with that version, a codegen-revision constant, and a hash of the
   one per member, named `{module}_{member}` (`nerd_sqrt`, `strings_beeg`).
 - Objects are `Rc<RefCell<ObjectData>>`: a class id, the class name, and a field
   map. `attr_get`/`attr_set` read and write fields, and a generated dispatcher
-  routes each method call to the right runtime call.
+  routes each method call to the right runtime call. Inheritance
+  (`many Child much Parent:`) is flattened at codegen — the runtime `ObjectData`
+  has no parent pointer; an instance carries only its own class id.
 - List and dict methods (`xs.append(1)`, `d.keys()`) are not modules: the
   generated `call_method` dispatcher forwards any non-`Object` receiver to
   `builtin_method` in the runtime (`methods/`), the collection counterpart of
@@ -147,7 +149,16 @@ rule, [ERRORS.md](ERRORS.md)):
   `mf_`/`mb_` wrapper+body pair with `self` as its first parameter (so it counts
   against the recursion limit like any call). A single `call_method(recv, name,
   args, env)` dispatcher matches `(class_id, method_name)`, checks the argument
-  count, and calls the right `mf_`. Field access is `attr_get`/`attr_set`.
+  count, and calls the right `mf_`. Field access is `attr_get`/`attr_set`. Class
+  ids are program-wide, so a module's objects import and construct by member
+  (`utils.Shibe(…)`) just like its functions.
+- Inheritance is compile-time flattening. `many Child much Parent:` gives `Child`
+  a dispatcher arm for every method up its ancestry — an inherited method's arm
+  targets the ancestor's `mf_`, an override targets the child's own. A child with
+  no `init` constructs through the nearest ancestor's, and `super.method(args)`
+  resolves statically to the ancestor `mf_`, called with the current `self`. The
+  parent must live in the same file; the checker rejects an unknown parent or a
+  cycle before codegen.
 - A stdlib member call emits its runtime function. `nerd.sqrt(16)` becomes
   `nerd_sqrt(&Value::Int(16i64))`; a constant like `nerd.pi` inlines as
   `Value::Float(std::f64::consts::PI)`. Arity and unknown-member errors are caught

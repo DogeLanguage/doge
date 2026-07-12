@@ -33,7 +33,7 @@ const KEYWORD_WITH_NAME = new Set(['so', 'such', 'many', 'very']);
 // were a bound name (highlighting stays sane on syntactically invalid input).
 const RESERVED = new Set([
   'pls', 'bork', 'bonk', 'bark', 'wow', 'such', 'much', 'many', 'so', 'very',
-  'oh', 'no',
+  'super', 'oh', 'no',
   'if', 'elif', 'else', 'for', 'while', 'in', 'return', 'continue',
   'and', 'or', 'not', 'true', 'false', 'none',
   'def', 'class', 'amaze',
@@ -185,6 +185,17 @@ function tokenize(text) {
       } else if (isName(flat[i])) {
         bind(i);
         i++;
+        // `many Child much Parent:` — `much` here introduces the parent class, not
+        // a parameter list. The parent is a *use* of an existing class name, so it
+        // joins the object group's `much` keyword but is left for the use pass to
+        // paint with that class's own colour (and never bound as a new name).
+        if (word === 'many' && flat[i] && flat[i].kind === 'word' && flat[i].text === 'much') {
+          emit(i);
+          i++;
+          if (isName(flat[i])) {
+            i++;
+          }
+        }
       }
       color++;
       continue;

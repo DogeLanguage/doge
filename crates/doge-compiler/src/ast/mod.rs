@@ -165,9 +165,11 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
-    /// `many Name: … wow` — a body of function definitions (methods).
+    /// `many Name [much Parent]: … wow` — a body of function definitions
+    /// (methods). `parent` names the class it inherits from, when one is given.
     ObjDef {
         name: String,
+        parent: Option<String>,
         methods: Vec<Stmt>,
         span: Span,
     },
@@ -268,6 +270,14 @@ pub enum Expr {
     Attr {
         obj: Box<Expr>,
         name: String,
+        span: Span,
+    },
+    /// `super.method(args)` — call a method inherited from the enclosing class's
+    /// parent, resolved statically. Only valid inside a method of a class that has
+    /// a parent (docs/SYNTAX.md §8).
+    SuperCall {
+        method: String,
+        args: Vec<Expr>,
         span: Span,
     },
     StrInterp {
@@ -401,6 +411,7 @@ impl Expr {
             | Expr::Slice { span, .. }
             | Expr::Ternary { span, .. }
             | Expr::Attr { span, .. }
+            | Expr::SuperCall { span, .. }
             | Expr::StrInterp { span, .. } => *span,
         }
     }

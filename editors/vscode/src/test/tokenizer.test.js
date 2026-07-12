@@ -157,3 +157,32 @@ test('scanLine skips comment tails', () => {
   const toks = scanLine('bark x # not scanned');
   assert.deepEqual(toks.map((t) => t.text), ['bark', 'x']);
 });
+
+test('super is not rainbow-coloured as a name', () => {
+  // `super` is a keyword (themed by the TextMate grammar), never a bound name, so
+  // the rainbow tokenizer leaves it — and the method after it — uncoloured.
+  const c = coloursByText(
+    'many Corgi much Shibe:\n    such go:\n        return super.speak()\n    wow\nwow\nwow'
+  );
+  assert.equal(c.get('super'), undefined, 'super gets no rainbow token');
+  assert.equal(c.get('speak'), undefined, 'the parent method name gets no token');
+});
+
+test('the parent much keyword joins the many-child group', () => {
+  const c = coloursByText('many Corgi much Shibe:\n    such go:\n        return 1\n    wow\nwow\nwow');
+  const manyColour = c.get('many')[0];
+  assert.equal(c.get('Corgi')[0], manyColour, 'the child name joins the many group');
+  assert.equal(c.get('much')[0], manyColour, 'the parent much keyword joins the same group');
+});
+
+test('a parent class reuses the parent definition colour', () => {
+  const c = coloursByText(
+    'many Shibe:\n    such go:\n        return 1\n    wow\nwow\nmany Corgi much Shibe:\n    such go:\n        return 2\n    wow\nwow\nwow'
+  );
+  const shibeDef = c.get('Shibe')[0];
+  // The `many Shibe` binding and the `much Shibe` parent use share one colour, so
+  // the class name reads consistently — it is never re-bound as a new name.
+  for (const colour of c.get('Shibe')) {
+    assert.equal(colour, shibeDef);
+  }
+});

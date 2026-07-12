@@ -36,7 +36,7 @@ fn fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
-/// This crate's own test fixtures (the M3 runtime-error script).
+/// This crate's own test fixtures (the runtime-error script).
 fn cli_fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -206,9 +206,9 @@ fn bark_prints_a_function_value() {
 }
 
 #[test]
-fn bark_on_m6_feature_says_soon() {
-    // class_value.doge uses an object definition as a value — objects as values
-    // still land in M6.
+fn bark_on_a_class_used_as_a_value_is_an_error() {
+    // class_value.doge uses an object definition as a value — a class is not a
+    // first-class value, you call it to build an instance.
     let fixture = cli_fixtures_dir().join("class_value.doge");
     let output = doge_cached()
         .arg("bark")
@@ -223,12 +223,8 @@ fn bark_on_m6_feature_says_soon() {
     );
     let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
     assert!(
-        stderr.contains("very soon. much roadmap."),
-        "should point at the roadmap, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("M6"),
-        "should name the milestone, got:\n{stderr}"
+        stderr.contains("very class. much value."),
+        "should say a class is not a value, got:\n{stderr}"
     );
 }
 
@@ -457,22 +453,19 @@ fn a_loose_statement_in_a_module_is_a_doge_diagnostic() {
 }
 
 #[test]
-fn an_object_in_a_module_is_a_doge_diagnostic() {
+fn an_object_defined_in_a_module_is_importable() {
     let entry = module_fixtures_dir().join("obj_entry.doge");
     let output = doge()
-        .arg("check")
+        .arg("bark")
         .arg(&entry)
         .output()
         .expect("the doge binary should run");
 
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "an object in a module exits 1"
-    );
-    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("very object. much soon."),
-        "should point at the milestone, got:\n{stderr}"
+        output.status.success(),
+        "a module object should construct and dispatch, got:\n{stderr}"
     );
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert_eq!(stdout, "1\n", "utils.Shibe().woof() should print 1");
 }

@@ -693,12 +693,14 @@ fn no_init_class_takes_no_args() {
 }
 
 #[test]
-fn class_as_value_lands_m6() {
+fn class_as_value_is_an_error() {
     let err = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
         .unwrap_err();
-    assert_eq!(err.headline, "very soon. much roadmap.");
-    assert!(err.message.contains("Shibe is an object definition"));
-    assert!(err.hint.as_deref().unwrap_or_default().contains("M6"));
+    assert_eq!(err.headline, "very class. much value.");
+    assert!(err
+        .message
+        .contains("Shibe is an object definition, not a value"));
+    assert!(err.hint.as_deref().unwrap_or_default().contains("Shibe(…)"));
 }
 
 #[test]
@@ -712,6 +714,74 @@ fn assign_to_class_name_is_an_error() {
 fn nested_objdef_is_an_error() {
     let err = gen("such f:\n    many Inner:\n        such g:\n            bark 1\n        wow\n    wow\nwow\nwow\n").unwrap_err();
     assert_eq!(err.headline, "very nested. much object.");
+}
+
+/// A child dispatches its inherited methods to the ancestor that defines them,
+/// while its own methods override. `B much A` inherits `foo` (defined by class 0)
+/// and overrides `bar`.
+#[test]
+fn inherited_methods_dispatch_to_the_defining_class() {
+    let src = "many A:\n    such foo:\n        return 1\n    wow\n    such bar:\n        return 2\n    wow\nwow\nmany B much A:\n    such bar:\n        return 3\n    wow\nwow\nsuch b = B()\nbark b.foo()\nbark b.bar()\nwow\n";
+    let out = gen(src).unwrap();
+    // B (class 1) inherits foo from A (class 0), overrides bar with its own mf_1_bar.
+    assert!(
+        out.contains("(1u32, \"foo\") => {"),
+        "B dispatches foo:\n{out}"
+    );
+    assert!(
+        out.contains("mf_0_foo(recv"),
+        "B's foo calls A's wrapper mf_0_foo:\n{out}"
+    );
+    assert!(
+        out.contains("(1u32, \"bar\") => {"),
+        "B dispatches bar:\n{out}"
+    );
+    assert!(
+        out.contains("mf_1_bar(recv"),
+        "B's bar overrides with mf_1_bar:\n{out}"
+    );
+}
+
+/// A child with no `init` of its own constructs through its parent's `init`.
+#[test]
+fn child_inherits_the_parent_init() {
+    let src = "many A:\n    such init much name:\n        self.name = name\n    wow\nwow\nmany B much A:\n    such greet:\n        return self.name\n    wow\nwow\nsuch b = B(\"kabosu\")\nwow\n";
+    let out = gen(src).unwrap();
+    // n_1 (B's constructor) runs A's init wrapper, mf_0_init, on the new object.
+    assert!(
+        out.contains("fn n_1(v_name: Value, env: &mut Env)"),
+        "B's constructor takes A's init parameters:\n{out}"
+    );
+    assert!(
+        out.contains("mf_0_init(obj.clone()"),
+        "B's constructor runs the inherited init:\n{out}"
+    );
+    // A wrong argument count is checked against the inherited init.
+    let err = gen("many A:\n    such init much name:\n        self.name = name\n    wow\nwow\nmany B much A:\n    such greet:\n        return self.name\n    wow\nwow\nsuch b = B()\nwow\n").unwrap_err();
+    assert_eq!(err.message, "B takes 1 argument, got 0");
+}
+
+/// `super.method(args)` resolves statically to the nearest ancestor that defines
+/// the method, called with the current `self` as the receiver.
+#[test]
+fn super_call_targets_the_parent_wrapper() {
+    let src = "many A:\n    such speak:\n        return 1\n    wow\nwow\nmany B much A:\n    such speak:\n        return super.speak()\n    wow\nwow\nsuch b = B()\nbark b.speak()\nwow\n";
+    let out = gen(src).unwrap();
+    assert!(
+        out.contains("mf_0_speak(v_self.clone(), &mut *env)"),
+        "super.speak() in B calls A's wrapper with self:\n{out}"
+    );
+}
+
+/// `super` outside a method (or in a class without a parent) is caught by the
+/// checker; codegen never reaches it in a checked program. Reaching codegen
+/// directly still errors rather than panicking.
+#[test]
+fn super_without_a_parent_class_is_a_codegen_error() {
+    let err =
+        gen("many A:\n    such go:\n        return super.foo()\n    wow\nwow\nsuch a = A()\nwow\n")
+            .unwrap_err();
+    assert_eq!(err.headline, "very super. much orphan.");
 }
 
 #[test]
@@ -819,5 +889,73 @@ fn try_in_multifile_reads_the_file_from_the_files_table() {
     assert!(
         out.contains("error_value(&e, FILES[env.cur_file as usize].0, env.cur_line)"),
         "multi-file catch reads the file from the FILES table:\n{out}"
+    );
+}
+
+/// Objects from every file share one program-wide class-id space, and a module's
+/// class is constructed by member. Two files may each define a `Shibe`: the
+/// entry's is class 0, the module's is class 1, and `m.Shibe()` builds the latter.
+#[test]
+fn module_objects_get_global_class_ids() {
+    use crate::modules::{Program, ProgramFile};
+    let e_src =
+        "so m\nmany Shibe:\n    such woof:\n        return 1\n    wow\nwow\nsuch a = Shibe()\nsuch b = m.Shibe()\nbark a.woof()\nbark b.bork_it()\nwow\n";
+    let m_src = "many Shibe:\n    such bork_it:\n        return 2\n    wow\nwow\nwow\n";
+    let e = parse("app.doge", e_src).unwrap();
+    let m = parse("m.doge", m_src).unwrap();
+    let program = Program {
+        files: vec![
+            ProgramFile {
+                file_id: 0,
+                is_entry: true,
+                name: "app".into(),
+                path: "app.doge".into(),
+                source: e_src.into(),
+                script: e,
+                stdlib_imports: vec![],
+                user_imports: vec![("m".into(), 1)],
+            },
+            ProgramFile {
+                file_id: 1,
+                is_entry: false,
+                name: "m".into(),
+                path: "m.doge".into(),
+                source: m_src.into(),
+                script: m,
+                stdlib_imports: vec![],
+                user_imports: vec![],
+            },
+        ],
+        init_order: vec![1],
+    };
+
+    let out = generate_program(&program).unwrap();
+    // The entry's Shibe is class 0, the module's is class 1 — distinct ids.
+    assert!(
+        out.contains("fn n_0("),
+        "entry Shibe constructs via n_0:\n{out}"
+    );
+    assert!(
+        out.contains("fn n_1("),
+        "module Shibe constructs via n_1:\n{out}"
+    );
+    assert!(
+        out.contains("fn mf_1_bork_it("),
+        "module method is mf_1_:\n{out}"
+    );
+    // Name resolution is per-file: `Shibe()` in the entry stays n_0, and the
+    // module-qualified `m.Shibe()` builds n_1.
+    assert!(
+        out.contains("Value::object(1u32, \"Shibe\")"),
+        "module Shibe tags instances with class id 1:\n{out}"
+    );
+    // The dispatcher carries an arm for each class's own method.
+    assert!(
+        out.contains("(0u32, \"woof\")"),
+        "class 0 dispatches woof:\n{out}"
+    );
+    assert!(
+        out.contains("(1u32, \"bork_it\")"),
+        "class 1 dispatches bork_it:\n{out}"
     );
 }

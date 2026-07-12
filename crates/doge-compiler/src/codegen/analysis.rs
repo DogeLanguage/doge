@@ -160,6 +160,11 @@ pub(super) fn expr_idents(expr: &Expr, out: &mut HashSet<String>) {
             expr_idents(otherwise, out);
         }
         Expr::Attr { obj, .. } => expr_idents(obj, out),
+        Expr::SuperCall { args, .. } => {
+            for arg in args {
+                expr_idents(arg, out);
+            }
+        }
         Expr::StrInterp { parts, .. } => {
             for part in parts {
                 if let InterpPart::Expr(hole) = part {
@@ -315,12 +320,16 @@ pub(super) fn file_table(file: &ProgramFile) -> FileTable {
     let mut funcs = HashMap::new();
     let mut consts = HashSet::new();
     let mut func_members = Vec::new();
+    let mut class_members = Vec::new();
     let mut const_members = Vec::new();
     for stmt in &file.script.stmts {
         match stmt {
             Stmt::FuncDef { name, params, .. } => {
                 funcs.insert(name.clone(), params.clone());
                 func_members.push(name.clone());
+            }
+            Stmt::ObjDef { name, .. } => {
+                class_members.push(name.clone());
             }
             Stmt::ConstDecl { name, .. } => {
                 consts.insert(name.clone());
@@ -329,7 +338,8 @@ pub(super) fn file_table(file: &ProgramFile) -> FileTable {
             _ => {}
         }
     }
-    // Functions first, then constants — the order module member hints show.
+    // Functions, then classes, then constants — the order module member hints show.
+    func_members.extend(class_members);
     func_members.extend(const_members);
     FileTable {
         funcs,

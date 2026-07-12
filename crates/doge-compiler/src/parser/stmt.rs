@@ -138,11 +138,19 @@ impl Parser {
         }
     }
 
-    /// `many NAME: … wow` — an object definition whose body is only functions.
+    /// `many NAME [much PARENT]: … wow` — an object definition whose body is only
+    /// functions. The optional `much PARENT` names the class it inherits from.
     pub(super) fn parse_many(&mut self) -> Result<Stmt, Diagnostic> {
         let span = self.current_span();
         self.eat(TokenKind::Many)?;
         let (name, _) = self.eat_ident("an object name after many")?;
+        let parent = if self.is(&TokenKind::Much) {
+            self.advance();
+            let (parent, _) = self.eat_ident("a parent object name after much")?;
+            Some(parent)
+        } else {
+            None
+        };
         self.eat(TokenKind::Colon)?;
         let body = self.parse_block()?;
         let mut methods = Vec::new();
@@ -165,6 +173,7 @@ impl Parser {
         self.eat(TokenKind::Newline)?;
         Ok(Stmt::ObjDef {
             name,
+            parent,
             methods,
             span,
         })
