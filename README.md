@@ -42,11 +42,10 @@ wow
 Doge needs a [Rust](https://rustup.rs) toolchain to install and to compile scripts.
 
 ```sh
-cargo install --git https://github.com/DogeLanguage/doge doge-cli
+cargo install dogelang
 ```
 
-The first run pays the Rust compile time (a few seconds); the binary is then
-cached in `~/.cache/doge/`, so an unchanged script runs instantly.
+The first run pays the Rust compile time (a few seconds); the binary is then cached in `~/.cache/doge/`, so an unchanged script runs instantly.
 
 ## Usage
 

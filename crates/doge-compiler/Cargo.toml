@@ -3,5 +3,12 @@ name = "doge-compiler"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Compiler for the Doge programming language — lexer, parser, semantic checks, and Rust codegen."
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["doge", "language", "compiler", "parser"]
+categories = ["compilers"]
 
 [dependencies]

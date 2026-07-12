@@ -1,0 +1,22 @@
+[package]
+name = "dogelang"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The Doge programming language — Python's ease, Rust's engine. Installs the `doge` CLI."
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["doge", "language", "scripting", "cli", "compiler"]
+categories = ["command-line-utilities", "compilers"]
+
+[[bin]]
+name = "doge"
+path = "src/main.rs"
+
+[dependencies]
+doge-compiler.workspace = true
+doge-interp.workspace = true
+doge-lsp.workspace = true
+doge-runtime.workspace = true

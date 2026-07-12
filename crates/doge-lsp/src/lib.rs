@@ -2,7 +2,7 @@
 //! LSP. It is thin glue — every language decision lives in `doge-compiler`
 //! ([`convert`]); this module speaks the protocol and tracks open buffers.
 //!
-//! `doge lsp` (in `doge-cli`) calls [`run_stdio`]; the VS Code extension spawns
+//! `doge lsp` (in `dogelang`) calls [`run_stdio`]; the VS Code extension spawns
 //! that and talks to it over stdin/stdout.
 
 use std::collections::HashMap;

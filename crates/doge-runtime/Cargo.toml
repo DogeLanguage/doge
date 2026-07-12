@@ -3,5 +3,12 @@ name = "doge-runtime"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Runtime for the Doge programming language — Value model, operators, builtins, and catchable errors."
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["doge", "language", "runtime", "scripting"]
+categories = ["compilers"]
 
 [dependencies]

@@ -47,6 +47,26 @@ jobs:
     needs: guard
     uses: ./.github/workflows/ci.yml
 
+  publish-crates:
+    name: publish to crates.io
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # Dependency order: a crate must be on the index before a crate that
+      # depends on it. `cargo publish` waits for the index to update, so the
+      # next publish sees the previous one. Re-running a tag whose version is
+      # already on crates.io fails by design — versions are immutable.
+      - name: Publish (runtime → compiler → interp → lsp → dogelang)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          for crate in doge-runtime doge-compiler doge-interp doge-lsp dogelang; do
+            cargo publish --locked -p "$crate"
+          done
+
   create-release:
     name: create draft release
     needs: verify
@@ -85,7 +105,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --locked -p doge-cli --target ${{ matrix.target }}
+        run: cargo build --release --locked -p dogelang --target ${{ matrix.target }}
       - name: Package (unix)
         if: runner.os != 'Windows'
         run: |

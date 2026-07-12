@@ -83,7 +83,7 @@ doge/
 ├── Cargo.toml            # workspace ([workspace.package] shares version/edition)
 ├── rust-toolchain.toml   # pinned stable toolchain (rustfmt + clippy)
 ├── crates/
-│   ├── doge-cli/         # `doge` binary: main + build + cache; build.rs salts the
+│   ├── dogelang/         # `doge` binary: main + build + cache; build.rs salts the
 │   │                     #   cache key with a hash of the doge-runtime source
 │   ├── doge-compiler/    # each pass is a directory module:
 │   │                     #   lexer/ (mod, scan, strings)

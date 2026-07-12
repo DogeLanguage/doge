@@ -29,7 +29,7 @@ Read `.claude/CLAUDE.md` in full. Note what the Project Structure section claims
 Glob only the folder layer — do not list individual files:
 
 ```
-crates/*/               (doge-cli, doge-compiler, doge-runtime, …)
+crates/*/               (dogelang, doge-compiler, doge-runtime, …)
 crates/*/src/*/         (submodule folders inside each crate)
 */                      (repo root: examples/, docs/, …)
 ```

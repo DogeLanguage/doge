@@ -3,7 +3,14 @@ name = "doge-interp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Tree-walking interpreter for the Doge programming language (powers `doge repl`)."
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["doge", "language", "interpreter", "repl"]
+categories = ["compilers"]
 
 [dependencies]
-doge-compiler = { path = "../doge-compiler" }
-doge-runtime = { path = "../doge-runtime" }
+doge-compiler.workspace = true
+doge-runtime.workspace = true
