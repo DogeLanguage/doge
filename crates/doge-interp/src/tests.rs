@@ -217,6 +217,81 @@ kind
 }
 
 #[test]
+fn method_read_as_a_value_is_a_bound_method() {
+    // A method read off an instance prints as a bound method and calls back to it.
+    let source = "\
+many Shibe:
+    such init much name:
+        self.name = name
+    wow
+    such speak:
+        return self.name + \" says bork\"
+    wow
+wow
+such a = Shibe(\"kabosu\")
+such say = a.speak
+[say(), a.speak]
+";
+    assert_eq!(eval(source), "[\"kabosu says bork\", <method Shibe.speak>]");
+}
+
+#[test]
+fn bound_collection_method_mutates_its_receiver() {
+    let source = "\
+such xs = [1, 2]
+such push = xs.append
+push(3)
+xs
+";
+    assert_eq!(eval(source), "[1, 2, 3]");
+}
+
+#[test]
+fn bound_methods_compare_by_receiver_and_name() {
+    let source = "\
+many Shibe:
+    such speak:
+        return 1
+    wow
+wow
+such a = Shibe()
+such b = Shibe()
+[a.speak == a.speak, a.speak == b.speak]
+";
+    assert_eq!(eval(source), "[true, false]");
+}
+
+#[test]
+fn a_field_shadows_a_method_of_the_same_name() {
+    let source = "\
+many Shibe:
+    such speak:
+        return 1
+    wow
+wow
+such a = Shibe()
+a.speak = \"field\"
+a.speak
+";
+    assert_eq!(eval(source), "field");
+}
+
+#[test]
+fn reading_a_missing_name_off_an_object_is_catchable() {
+    let source = "\
+many Shibe:
+    such speak:
+        return 1
+    wow
+wow
+such a = Shibe()
+a.fly
+wow
+";
+    assert_eq!(run_err(source), ErrorKind::AttrError);
+}
+
+#[test]
 fn try_catch_binds_a_structured_error() {
     let source = "\
 pls

@@ -40,7 +40,20 @@ pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult 
         | Value::None
         | Value::Function(_)
         | Value::Class(_)
+        | Value::BoundMethod(_)
         | Value::Error(_) => Err(crate::objects::no_methods_error(recv)),
+    }
+}
+
+/// Whether a List or Dict has a built-in method named `name` — the gate a bound
+/// method read (`such f = xs.append`) checks before capturing the receiver. The
+/// method-name sets live beside each collection's dispatch (`list::LIST_METHODS`,
+/// `dict::DICT_METHODS`), so binding and dispatch never disagree.
+pub fn has_builtin_method(recv: &Value, name: &str) -> bool {
+    match recv {
+        Value::List(_) => list::LIST_METHODS.contains(&name),
+        Value::Dict(_) => dict::DICT_METHODS.contains(&name),
+        _ => false,
     }
 }
 

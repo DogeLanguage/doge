@@ -204,6 +204,9 @@ struct Emit<'a> {
     /// Set once any indirect call is compiled, so the `call_function` dispatcher
     /// is emitted.
     uses_call_function: Cell<bool>,
+    /// Set once any bare `obj.name` value read is compiled, so `class_has_method`
+    /// (the bound-method gate) is emitted.
+    uses_attr_read: Cell<bool>,
     /// Every `fn_id` turned into a `Value::function` somewhere — the dispatcher
     /// arms it must carry.
     materialized: RefCell<HashSet<u32>>,

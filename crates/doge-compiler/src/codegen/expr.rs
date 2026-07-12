@@ -152,8 +152,12 @@ impl Codegen {
                         return Err(self.unknown_user_member(emit, base, fid, name, *span));
                     }
                 }
+                // A bare `obj.name` value read binds a method when there is no
+                // field of that name (`such f = a.speak`); `class_has_method` is
+                // the gate for object receivers, collections gate themselves.
+                emit.uses_attr_read.set(true);
                 let call = format!(
-                    "attr_get(&{}, \"{}\")",
+                    "attr_get_or_bind(&{}, \"{}\", &class_has_method)",
                     self.expr(obj, emit)?,
                     escape_str(name)
                 );

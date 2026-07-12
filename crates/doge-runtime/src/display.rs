@@ -2,6 +2,16 @@ use std::fmt;
 
 use crate::value::Value;
 
+/// The receiver's name in a bound method's display form: a `many` instance shows
+/// its class (`<method Shibe.speak>`), a collection its type (`<method
+/// List.append>`).
+fn receiver_label(v: &Value) -> String {
+    match v {
+        Value::Object(o) => o.borrow().class_name.to_string(),
+        other => other.type_name().to_string(),
+    }
+}
+
 /// String form of a value as it appears *nested* inside a container: strings
 /// gain quotes, everything else prints as it would on its own.
 fn repr(v: &Value) -> String {
@@ -44,6 +54,9 @@ impl fmt::Display for Value {
             Value::Object(o) => write!(f, "<{}>", o.borrow().class_name),
             Value::Function(func) => write!(f, "<function {}>", func.name),
             Value::Class(class) => write!(f, "<class {}>", class.name),
+            Value::BoundMethod(m) => {
+                write!(f, "<method {}.{}>", receiver_label(&m.receiver), m.method)
+            }
             Value::Error(e) => write!(f, "{}", e.message),
         }
     }
@@ -91,6 +104,20 @@ mod tests {
         assert_eq!(
             Value::function(0, "greet", vec![]).to_string(),
             "<function greet>"
+        );
+    }
+
+    #[test]
+    fn bound_method_prints_its_receiver_and_name() {
+        let obj = Value::object(0, "Shibe");
+        assert_eq!(
+            Value::bound_method(obj, "speak").to_string(),
+            "<method Shibe.speak>"
+        );
+        let list = Value::list(vec![]);
+        assert_eq!(
+            Value::bound_method(list, "append").to_string(),
+            "<method List.append>"
         );
     }
 

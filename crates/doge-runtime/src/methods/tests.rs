@@ -192,3 +192,27 @@ fn arity_unknown_method_and_non_collection() {
     assert_eq!(err.kind, ErrorKind::AttrError);
     assert_eq!(err.message, "an Int has no methods");
 }
+
+#[test]
+fn has_builtin_method_agrees_with_the_dispatch_tables() {
+    // Every name the gate reports must actually dispatch — a real method fails on
+    // arity or type, never with "has no method". This keeps `LIST_METHODS` /
+    // `DICT_METHODS` in step with the `match` arms binding relies on.
+    let xs = list(vec![]);
+    for name in list::LIST_METHODS {
+        assert!(has_builtin_method(&xs, name));
+        if let Err(e) = call(&xs, name, vec![]) {
+            assert_ne!(e.message, format!("a List has no method {name}"));
+        }
+    }
+    let d = dict(&[]);
+    for name in dict::DICT_METHODS {
+        assert!(has_builtin_method(&d, name));
+        if let Err(e) = call(&d, name, vec![]) {
+            assert_ne!(e.message, format!("a Dict has no method {name}"));
+        }
+    }
+    // A name in neither table does not bind and is not a method.
+    assert!(!has_builtin_method(&xs, "nope"));
+    assert!(!has_builtin_method(&Value::Int(1), "append"));
+}

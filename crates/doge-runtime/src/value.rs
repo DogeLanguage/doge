@@ -28,7 +28,23 @@ pub enum Value {
     /// call path works unchanged, but it keeps a distinct identity (prints
     /// `<class Name>`, type `Class`) rather than masquerading as a function.
     Class(Rc<FunctionData>),
+    /// A method bound to its receiver: `such f = a.speak` captures both the
+    /// object (or List/Dict) and the method name, so calling `f(...)` dispatches
+    /// exactly as `a.speak(...)` would. Name-based, like a direct method call — it
+    /// carries no `fn_id`, so both engines route it back through their method
+    /// dispatch. Prints `<method Class.name>`, type `Method`, equal only to the
+    /// same method bound to the very same receiver.
+    BoundMethod(Rc<BoundMethodData>),
     Error(Rc<ErrorData>),
+}
+
+/// A method captured together with the receiver it was read off. Two bound
+/// methods are equal only when they name the same method on the very same
+/// instance (`a.speak == a.speak`, but not `b.speak`).
+#[derive(Debug)]
+pub struct BoundMethodData {
+    pub receiver: Value,
+    pub method: Rc<str>,
 }
 
 /// A first-class function value: which compiled function it is (`fn_id`, matched
@@ -101,6 +117,16 @@ impl Value {
         }))
     }
 
+    /// Build a bound-method value capturing `receiver` and the `method` name. The
+    /// receiver is any value method dispatch accepts — a `many` instance, or a
+    /// List/Dict for its collection methods.
+    pub fn bound_method(receiver: Value, method: &str) -> Value {
+        Value::BoundMethod(Rc::new(BoundMethodData {
+            receiver,
+            method: Rc::from(method),
+        }))
+    }
+
     /// Build a class value from the constructor arm `fn_id` and the class `name`.
     /// A class captures nothing — calling it always builds a fresh instance — so
     /// its `captures` are empty and two values for the same class compare equal.
@@ -147,6 +173,7 @@ impl Value {
             Value::Object(_) => true,
             Value::Function(_) => true,
             Value::Class(_) => true,
+            Value::BoundMethod(_) => true,
             Value::Error(_) => true,
         }
     }
@@ -164,6 +191,7 @@ impl Value {
             Value::Object(_) => "Object",
             Value::Function(_) => "Function",
             Value::Class(_) => "Class",
+            Value::BoundMethod(_) => "Method",
             Value::Error(_) => "Error",
         }
     }

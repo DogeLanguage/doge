@@ -4,9 +4,9 @@
 
 use doge_compiler as dc;
 use doge_runtime::{
-    add, attr_get, bitand, bitnot, bitor, bitxor, div, eq, floordiv, ge, gt, in_, index_get,
-    interp, le, lt, mul, ne, neg, not_, not_in, pow, rem, shl, shr, slice_get, sub, DogeError,
-    DogeResult, Value,
+    add, attr_get_or_bind, bitand, bitnot, bitor, bitxor, div, eq, floordiv, ge, gt, in_,
+    index_get, interp, le, lt, mul, ne, neg, not_, not_in, pow, rem, shl, shr, slice_get, sub,
+    DogeError, DogeResult, Value,
 };
 
 use crate::Interp;
@@ -226,7 +226,9 @@ impl Interp {
             }
         }
         let recv = self.eval(obj, frame, fid)?;
-        attr_get(&recv, name)
+        // A bare `obj.name` read binds a method when there is no such field —
+        // the same rule the compiled `attr_get_or_bind` follows.
+        attr_get_or_bind(&recv, name, &|cid, n| self.resolve_method(cid, n).is_some())
     }
 
     /// A module member read as a value: a stdlib constant or function, or a user

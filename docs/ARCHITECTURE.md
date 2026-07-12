@@ -205,3 +205,12 @@ class gets one extra `call_function` arm that runs its constructor, and the name
 materializes as a `Value::Class` over that `fn_id` — a distinct value kind (prints
 `<class Name>`, type `Class`) that `callee_function` unwraps just like a function,
 so the whole indirect-call path is reused unchanged.
+
+A method read off a value (`such f = a.speak`) has no `fn_id` — dispatch is
+name-based — so it is a `Value::BoundMethod` carrying the receiver and the method
+name. A bare `obj.name` value read emits `attr_get_or_bind`, which returns a field
+if there is one and otherwise binds the method (a generated `class_has_method` gate
+for object receivers, the runtime's collection-method table for List/Dict). Indirect
+calls go through a `call_value` shim: a bound method routes straight back to
+`call_method`, everything else to `call_function`. Both engines share this, so a
+stored method behaves the same compiled or interpreted.

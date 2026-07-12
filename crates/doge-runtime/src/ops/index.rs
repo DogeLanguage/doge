@@ -53,6 +53,7 @@ pub fn index_get(container: &Value, index: &Value) -> DogeResult {
             | Value::Object(_)
             | Value::Function(_)
             | Value::Class(_)
+            | Value::BoundMethod(_)
             | Value::Error(_),
             _,
         ) => Err(DogeError::type_error(format!(
@@ -97,6 +98,7 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
             | Value::Object(_)
             | Value::Function(_)
             | Value::Class(_)
+            | Value::BoundMethod(_)
             | Value::Error(_),
             _,
         ) => Err(DogeError::type_error(format!(
@@ -214,6 +216,7 @@ pub fn slice_get(container: &Value, start: &Value, end: &Value, step: &Value) ->
         | Value::Object(_)
         | Value::Function(_)
         | Value::Class(_)
+        | Value::BoundMethod(_)
         | Value::Error(_) => Err(DogeError::type_error(format!(
             "cannot slice {}",
             container.describe()
@@ -243,6 +246,7 @@ pub fn iter_value(v: &Value) -> DogeResult<Vec<Value>> {
         | Value::Object(_)
         | Value::Function(_)
         | Value::Class(_)
+        | Value::BoundMethod(_)
         | Value::Error(_) => Err(DogeError::type_error(format!(
             "cannot loop over {}",
             v.describe()

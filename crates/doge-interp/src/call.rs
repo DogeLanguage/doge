@@ -116,6 +116,20 @@ impl Interp {
         args: Vec<Value>,
         kwargs: Vec<(String, Value)>,
     ) -> DogeResult<Value> {
+        // A bound method routes back through method dispatch, exactly as a direct
+        // `a.speak(...)` would. Indirect calls carry no keyword arguments (the
+        // checker rejects them), so the defensive guard here never fires in a
+        // checked program.
+        if let Value::BoundMethod(m) = &value {
+            if !kwargs.is_empty() {
+                return Err(DogeError::type_error(
+                    "cannot call a bound method with keyword arguments",
+                ));
+            }
+            let recv = m.receiver.clone();
+            let method = m.method.clone();
+            return self.call_method(recv, &method, args);
+        }
         let func = callee_function(&value)?;
         self.call_id(
             func.fn_id as usize,
@@ -333,7 +347,7 @@ impl Interp {
 
     /// The method named `name` callable on `class_id`: the nearest definition up
     /// its ancestry, returning its `fn_id` and the class that defines it.
-    fn resolve_method(&self, class_id: u32, name: &str) -> Option<(usize, u32)> {
+    pub(crate) fn resolve_method(&self, class_id: u32, name: &str) -> Option<(usize, u32)> {
         let mut current = Some(class_id);
         let mut guard = 0;
         while let Some(cid) = current {

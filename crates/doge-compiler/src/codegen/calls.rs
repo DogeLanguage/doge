@@ -141,8 +141,9 @@ impl Codegen {
             .with_hint(hint.to_string()))
     }
 
-    /// Call a function *value*: type-check the callee, then dispatch through
-    /// `call_function`. Both steps are fallible and routed through [`Codegen::fail`].
+    /// Call a value: dispatch through `call_value`, which routes a bound method
+    /// back through `call_method` and everything else through `call_function`. The
+    /// call is fallible and routed through [`Codegen::fail`].
     pub(super) fn indirect_call(
         &self,
         callee_val: &str,
@@ -154,11 +155,8 @@ impl Codegen {
         for arg in args {
             arg_parts.push(self.expr(arg, emit)?);
         }
-        // `&*` derefs the `Rc<FunctionData>` explicitly: relying on deref coercion
-        // through the `?` here trips rustc's expected-type propagation.
-        let func = self.fail(emit, format!("callee_function(&{callee_val})"));
         let call = format!(
-            "call_function(&*{func}, vec![{}], &mut *env)",
+            "call_value({callee_val}, vec![{}], &mut *env)",
             arg_parts.join(", ")
         );
         Ok(self.fail(emit, call))

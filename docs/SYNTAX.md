@@ -346,9 +346,12 @@ Functions are values:
   Builtins (`such f = len`) and module functions (`such s = nerd.sqrt`) become
   values the same way. A class name is also a value: `such c = Shibe` produces a
   callable that builds an instance when called (see §8), so classes can be stored,
-  passed, and put in collections — `such factories = [Shibe, Corgi]`. Collection
-  methods are not first-class: `such f = xs.append` is a catchable runtime error,
-  since `xs.append` reads a field before any call.
+  passed, and put in collections — `such factories = [Shibe, Corgi]`. A method
+  read off a value is also first-class: `such say = kabosu.speak` produces a bound
+  method — the method captured together with its receiver — that dispatches as
+  `kabosu.speak(...)` when called (see §8). This works for object methods and for
+  collection methods alike, so `such push = xs.append` binds `append` to `xs` and
+  `push(3)` mutates `xs`.
 - Calling by name is checked at compile time: the argument count must match the
   definition. Calling through a variable or expression is checked at run time — a
   wrong count, or calling something that is not a function, is a catchable error
@@ -443,6 +446,17 @@ Fields + methods, `self`, `init` constructor, and single inheritance. The rules:
   indirect call. `bark`ing a class prints `<class Shibe>`, and two class values
   are equal when they name the same class (`Shibe == Shibe`, but not `Shibe ==
   Corgi`). A class value is always truthy.
+- A method read as a value (`such f = kabosu.speak`) is a **bound method**: the
+  method captured together with the receiver it was read off, so `f(...)` dispatches
+  exactly as `kabosu.speak(...)` — checked at run time against the method's
+  parameters, a catchable error like any indirect call. This holds for object
+  methods and for List/Dict methods (`such push = xs.append`). A field always wins
+  over a method of the same name, since fields are read first: after `box.speak =
+  "x"`, `box.speak` is the field `"x"`. Reading a name that is neither a field nor a
+  method is a catchable error. `bark`ing a bound method prints `<method
+  Shibe.speak>` (or `<method List.append>`); two are equal only when they name the
+  same method on the very same instance (`kabosu.speak == kabosu.speak`, but not
+  `other.speak`). A bound method is always truthy.
 - Fields appear on assignment. `self.name = x` (or `kabosu.name = x` from
   outside) creates the field if it is new. Reading a field that was never set is a
   catchable error; so is reading or setting a field on a non-object.
