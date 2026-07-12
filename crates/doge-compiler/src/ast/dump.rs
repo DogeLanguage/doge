@@ -157,6 +157,13 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             line(level, "Bonk", out);
             dump_expr(expr, level + 1, out);
         }
+        Stmt::Amaze { cond, message, .. } => {
+            line(level, "Amaze", out);
+            dump_expr(cond, level + 1, out);
+            if let Some(message) = message {
+                dump_expr(message, level + 1, out);
+            }
+        }
         Stmt::Bork { .. } => line(level, "Bork", out),
         Stmt::Continue { .. } => line(level, "Continue", out),
         Stmt::ExprStmt { expr } => {

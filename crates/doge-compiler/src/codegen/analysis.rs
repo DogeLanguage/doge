@@ -237,6 +237,12 @@ pub(super) fn collect_used(stmts: &[Stmt], used: &mut HashSet<String>) {
                     expr_idents(expr, used);
                 }
             }
+            Stmt::Amaze { cond, message, .. } => {
+                expr_idents(cond, used);
+                if let Some(message) = message {
+                    expr_idents(message, used);
+                }
+            }
             Stmt::FuncDef { params, body, .. } => {
                 for name in free_names(&params.binding_names(), body) {
                     used.insert(name);

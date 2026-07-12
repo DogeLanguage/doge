@@ -7,7 +7,7 @@ prose description of each construct see [SYNTAX.md](SYNTAX.md).
 ```ebnf
 script      = { statement } , "wow" ;
 statement   = decl | const | assign | if | for | while
-            | func_def | obj_def | pls | return | bonk | bork | continue
+            | func_def | obj_def | pls | return | bonk | amaze | bork | continue
             | import | expr_stmt | bark ;
 
 decl        = "such" , names , "=" , rhs ;
@@ -23,6 +23,7 @@ rhs         = expr , { "," , expr } ;    (* >=2 exprs build an implicit list, on
                                             opposite >=2 targets — see SYNTAX §4.1 *)
 bark        = "bark" , expr ;
 bonk        = "bonk" , expr ;
+amaze       = "amaze" , expr , [ "," , expr ] ;   (* assert; optional failure message *)
 func_def    = "such" , IDENT , [ "much" , params ] , ":" , block , "wow" ;
 obj_def     = "many" , IDENT , [ "much" , IDENT ] , ":" , block , "wow" ;
                                                         (* block of func_defs; "much IDENT" names a parent class *)

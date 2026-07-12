@@ -184,6 +184,14 @@ pub enum Stmt {
     Return { expr: Option<Expr>, span: Span },
     /// `bonk e` — raise a catchable error whose message is `e`'s display form.
     Bonk { expr: Expr, span: Span },
+    /// `amaze cond [, message]` — assert: a no-op when `cond` is truthy, else a
+    /// catchable `AssertError` whose message is `message`'s display form (or a
+    /// default when omitted). The message is evaluated only on failure.
+    Amaze {
+        cond: Expr,
+        message: Option<Expr>,
+        span: Span,
+    },
     /// `bork`
     Bork { span: Span },
     /// `continue`
@@ -385,6 +393,7 @@ impl Stmt {
             | Stmt::Try { span, .. }
             | Stmt::Return { span, .. }
             | Stmt::Bonk { span, .. }
+            | Stmt::Amaze { span, .. }
             | Stmt::Bork { span }
             | Stmt::Continue { span } => *span,
             Stmt::ExprStmt { expr } => expr.span(),
@@ -452,6 +461,7 @@ pub(crate) fn for_each_child_block<'a>(stmt: &'a Stmt, f: &mut impl FnMut(&'a [S
         | Stmt::ObjDef { .. }
         | Stmt::Return { .. }
         | Stmt::Bonk { .. }
+        | Stmt::Amaze { .. }
         | Stmt::Bork { .. }
         | Stmt::Continue { .. }
         | Stmt::ExprStmt { .. } => {}

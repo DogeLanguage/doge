@@ -256,6 +256,33 @@ fn uncaught_bonk_reports_path_and_line() {
 }
 
 #[test]
+fn uncaught_amaze_reports_path_line_and_message() {
+    let fixture = cli_fixtures_dir().join("amaze_fail.doge");
+    let output = doge_cached()
+        .arg("bark")
+        .arg(&fixture)
+        .output()
+        .expect("the doge binary should run");
+
+    assert_eq!(output.status.code(), Some(1), "a failed amaze exits 1");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert_eq!(stdout, "before\n", "the bark before the amaze still runs");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("very error. much broken."),
+        "should be doge-flavored, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("amaze_fail.doge:3"),
+        "should carry the script path and line, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("age much wrong"),
+        "should show the amaze message, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn recursion_limit_is_a_catchable_doge_error() {
     let fixture = cli_fixtures_dir().join("deep_recursion.doge");
     let output = doge_cached()

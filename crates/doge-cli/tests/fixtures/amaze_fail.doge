@@ -1,0 +1,5 @@
+such age = -3
+bark "before"
+amaze age > 0, "age much wrong"
+bark "after"
+wow

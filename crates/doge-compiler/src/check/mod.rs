@@ -118,6 +118,7 @@ pub fn check(path: &str, source: &str, script: &Script) -> Result<(), Diagnostic
             | Stmt::Try { .. }
             | Stmt::Return { .. }
             | Stmt::Bonk { .. }
+            | Stmt::Amaze { .. }
             | Stmt::Bork { .. }
             | Stmt::Continue { .. }
             | Stmt::ExprStmt { .. } => {}

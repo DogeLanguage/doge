@@ -133,6 +133,12 @@ impl Checker {
                 }
             }
             Stmt::Bonk { expr, .. } => self.check_expr(expr, ctx)?,
+            Stmt::Amaze { cond, message, .. } => {
+                self.check_expr(cond, ctx)?;
+                if let Some(message) = message {
+                    self.check_expr(message, ctx)?;
+                }
+            }
             Stmt::Bork { span } => {
                 if ctx.loop_depth == 0 {
                     return Err(self

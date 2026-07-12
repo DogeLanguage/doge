@@ -11,7 +11,8 @@ mod value;
 
 pub use builtins::{bark, interp, len, range, to_float, to_int, to_str};
 pub use error::{
-    bonk_error, enter_call, error_field, error_value, exit_call, DogeError, DogeResult, ErrorKind,
+    assert_error, bonk_error, enter_call, error_field, error_value, exit_call, DogeError,
+    DogeResult, ErrorKind,
 };
 pub use functions::{callee_function, cell_get, cell_set, function_arity_error};
 pub use methods::builtin_method;

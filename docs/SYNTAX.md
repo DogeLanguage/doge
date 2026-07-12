@@ -13,6 +13,7 @@ grammar see [GRAMMAR.md](GRAMMAR.md); for builtins and modules see
 | `pls` | statement | `try` (opens its block bare, no `:`) | `pls` |
 | `oh no` | after `pls` block | `catch` (binds the error; header ends in `!`, not `:`) | `oh no error!` |
 | `bonk` | statement | `raise` (raises a catchable error whose message is the value) | `bonk "much fail"` |
+| `amaze` | statement | `assert` (a no-op when the condition holds, else a catchable `AssertError`) | `amaze age > 0` |
 | `bork` | inside a loop | `break` | `if done: bork` |
 | `bark` | statement | print/output/execute | `bark "much hello"` |
 | `wow` | after a definition body | closes a function or object definition | `wow` |
@@ -48,8 +49,8 @@ and, everywhere else, it is the membership operator (see §3).
 
 ### 1.3 Reserved for future use
 
-`amaze`, plus `def` and `class`, reserved so the compiler can greet Python muscle
-memory with a friendly hint (`"no def here. such greet much name: is the way"`).
+`def` and `class`, reserved so the compiler can greet Python muscle memory with a
+friendly hint (`"no def here. such greet much name: is the way"`).
 
 ## 2. General shape
 
@@ -371,7 +372,7 @@ oh no err!
 
   | Field | Type | Meaning |
   | --- | --- | --- |
-  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `AttrError`, `Bonk`, `RecursionLimit` |
+  | `err.type` | `Str` | the category, one of `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit` |
   | `err.message` | `Str` | the plain-English message |
   | `err.file` | `Str` | the script the error was raised in |
   | `err.line` | `Int` | the line it was raised at |
@@ -390,9 +391,18 @@ oh no err!
   Re-raising a caught error with `bonk err` preserves its original type, message,
   and raise location, so you can handle some errors and re-raise the rest:
   `if err.type == "KeyError": … else: bonk err`.
-- Runtime errors (division by zero, missing key, wrong types for an operator) and
-  `bonk`s are catchable with `pls`/`oh no`; an uncaught error exits with a
-  doge-flavored message and the source line it came from (see [ERRORS.md](ERRORS.md)).
+- `amaze <cond>` asserts that `<cond>` is truthy. When it holds, `amaze` does
+  nothing; when it is falsy it raises a catchable `AssertError`. An optional message
+  follows a comma — `amaze <cond>, <message>` — and its display form becomes
+  `err.message`; without one the message is a default doge line (`such amaze. much
+  false.`). The message is evaluated only on failure, so `amaze ok, expensive()`
+  never calls `expensive()` while `ok` holds. `amaze x > 0, "x much wrong: {x}"` is
+  the flavored equivalent of `if not (x > 0): bonk "x much wrong: {x}"`, but with the
+  distinct `AssertError` type so a caught assertion is recognizable.
+- Runtime errors (division by zero, missing key, wrong types for an operator),
+  `bonk`s, and failed `amaze`s are catchable with `pls`/`oh no`; an uncaught error
+  exits with a doge-flavored message and the source line it came from (see
+  [ERRORS.md](ERRORS.md)).
 
 ## 8. Objects
 
