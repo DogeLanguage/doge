@@ -14,11 +14,13 @@ pub fn cell_set(cell: &Cell, value: Value) {
     *cell.borrow_mut() = value;
 }
 
-/// Resolve a callee to the function it names. Calling anything that is not a
-/// function is a catchable `TypeError`, worded from the caller's point of view.
+/// Resolve a callee to the function it names. A class value calls the same way —
+/// its `fn_id` is a constructor arm — so both unwrap to their shared
+/// [`FunctionData`]. Calling anything else is a catchable `TypeError`, worded
+/// from the caller's point of view.
 pub fn callee_function(value: &Value) -> DogeResult<Rc<FunctionData>> {
     match value {
-        Value::Function(f) => Ok(Rc::clone(f)),
+        Value::Function(f) | Value::Class(f) => Ok(Rc::clone(f)),
         other => Err(DogeError::type_error(format!(
             "cannot call {} — it is not a function",
             other.describe()

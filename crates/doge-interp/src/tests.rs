@@ -135,6 +135,88 @@ d.speak()
 }
 
 #[test]
+fn class_name_is_a_first_class_value() {
+    // A bare class name evaluates to a callable class value that prints distinctly.
+    let source = "\
+many Shibe:
+    such speak:
+        return \"bork\"
+    wow
+wow
+such f = Shibe
+f
+";
+    assert_eq!(eval(source), "<class Shibe>");
+}
+
+#[test]
+fn class_values_compare_by_identity() {
+    let source = "\
+many Shibe:
+    such go:
+        return 1
+    wow
+wow
+many Corgi:
+    such go:
+        return 1
+    wow
+wow
+[Shibe == Shibe, Shibe == Corgi]
+";
+    assert_eq!(eval(source), "[true, false]");
+}
+
+#[test]
+fn a_class_value_in_a_collection_constructs_an_instance() {
+    // The factory pattern from the issue: store classes, call one to build an
+    // instance, and read the field its `init` set.
+    let source = "\
+many Shibe:
+    such init much name:
+        self.name = name
+    wow
+wow
+such factories = [Shibe]
+such pet = factories[0](\"kabosu\")
+pet.name
+";
+    assert_eq!(eval(source), "kabosu");
+}
+
+#[test]
+fn a_class_value_with_no_init_constructs_from_no_arguments() {
+    let source = "\
+many Empty:
+    such tag:
+        return \"t\"
+    wow
+wow
+such make = Empty
+make().tag()
+";
+    assert_eq!(eval(source), "t");
+}
+
+#[test]
+fn calling_a_class_value_with_wrong_arity_is_catchable() {
+    let source = "\
+many Shibe:
+    such init much name:
+        self.name = name
+    wow
+wow
+such f = Shibe
+pls
+    f()
+oh no err!
+    such kind = err.type
+kind
+";
+    assert_eq!(eval(source), "TypeError");
+}
+
+#[test]
 fn try_catch_binds_a_structured_error() {
     let source = "\
 pls

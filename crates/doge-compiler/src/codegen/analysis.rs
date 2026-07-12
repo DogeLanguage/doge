@@ -92,6 +92,9 @@ pub(super) enum ArmSpec {
         runtime_fn: &'static str,
         arity: usize,
     },
+    /// A class name used as a value: call the class's constructor. `name` resolves
+    /// to the class in `file_id`, whose `init` header drives the arm's arity check.
+    Ctor { file_id: u32, name: String },
 }
 
 /// The whole-script function analysis: per-definition capture info, the
@@ -102,6 +105,9 @@ pub(super) struct Analysis {
     pub(super) top_func_ids: HashMap<(u32, String), u32>,
     pub(super) builtin_ids: HashMap<&'static str, u32>,
     pub(super) module_fn_ids: HashMap<(String, String), u32>,
+    /// (file_id, class name) → the dispatcher id of that class's constructor arm,
+    /// for a class name materialized as a value.
+    pub(super) ctor_ids: HashMap<(u32, String), u32>,
 }
 
 /// Gather one file's top-level names and resolved imports into a [`FileTable`].
@@ -333,11 +339,30 @@ pub(super) fn analyze_program(program: &Program) -> Analysis {
         }
     }
 
+    // Class constructors as first-class values, one arm per class in file-then-
+    // source order (matching `collect_classes`). Their ids follow every function
+    // and module arm so all earlier ids stay stable.
+    let mut ctor_ids = HashMap::new();
+    for file in &program.files {
+        for stmt in &file.script.stmts {
+            if let Stmt::ObjDef { name, .. } = stmt {
+                let id = analyzer.next_id;
+                analyzer.next_id += 1;
+                analyzer.registry.push(ArmSpec::Ctor {
+                    file_id: file.file_id,
+                    name: name.clone(),
+                });
+                ctor_ids.insert((file.file_id, name.clone()), id);
+            }
+        }
+    }
+
     Analysis {
         fn_info: analyzer.fn_info,
         registry: analyzer.registry,
         top_func_ids: analyzer.top_func_ids,
         builtin_ids,
         module_fn_ids,
+        ctor_ids,
     }
 }

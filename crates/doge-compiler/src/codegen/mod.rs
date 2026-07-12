@@ -389,14 +389,6 @@ impl Codegen {
         }
     }
 
-    /// The diagnostic for using a class name as a value (`such f = Shibe`). A
-    /// class is not a first-class value; you call it to build an instance.
-    fn class_as_value(&self, span: Span, name: &str) -> Diagnostic {
-        self.diag(span, format!("{name} is an object definition, not a value"))
-            .with_headline(CLASS_VALUE_HEADLINE)
-            .with_hint(format!("call it to make one — {name}(…)"))
-    }
-
     fn diag(&self, span: Span, message: impl Into<String>) -> Diagnostic {
         let file = &self.files[self.cur.get() as usize];
         let source_line = file

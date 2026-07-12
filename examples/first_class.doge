@@ -36,4 +36,21 @@ pls
     d(1, 2)
 oh no err!
     bark err
+
+# A class name is a value too: a callable that builds an instance, so classes
+# can be stored, passed, and put in collections (the factory pattern).
+many Shibe:
+    such init much name:
+        self.name = name
+    wow
+    such speak:
+        return self.name + " says bork"
+    wow
+wow
+
+such factories = [Shibe]
+bark Shibe
+such pet = factories[0]("kabosu")
+bark pet.speak()
+bark Shibe == Shibe
 wow

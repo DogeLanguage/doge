@@ -88,6 +88,7 @@ Dynamic value types (all runtime-checked):
 | Dict | `{"name": "kabosu", "age": 18}` |
 | Function | `such name much params:` definitions |
 | Object | instances of `many Name:` definitions |
+| Class | a `many Name:` definition used as a value — a callable that builds an instance (see §8) |
 | Error | the value `oh no err!` binds; `err.type` / `err.message` / `err.file` / `err.line` (see §7) |
 
 Operators: `+ - * / // % ** == != < <= > >= in and or not`, the bitwise
@@ -343,10 +344,11 @@ Functions are values:
 - A function name used as a value produces a first-class function you can store,
   pass as an argument, return, and later call: `such g = greet` then `g("kabosu")`.
   Builtins (`such f = len`) and module functions (`such s = nerd.sqrt`) become
-  values the same way. An object definition is not a value: `such c = Shibe` is a
-  compile error — you call a class to build an instance, `Shibe(…)`. Collection
-  methods are not first-class either: `such f = xs.append` is a catchable runtime
-  error, since `xs.append` reads a field before any call.
+  values the same way. A class name is also a value: `such c = Shibe` produces a
+  callable that builds an instance when called (see §8), so classes can be stored,
+  passed, and put in collections — `such factories = [Shibe, Corgi]`. Collection
+  methods are not first-class: `such f = xs.append` is a catchable runtime error,
+  since `xs.append` reads a field before any call.
 - Calling by name is checked at compile time: the argument count must match the
   definition. Calling through a variable or expression is checked at run time — a
   wrong count, or calling something that is not a function, is a catchable error
@@ -434,6 +436,13 @@ Fields + methods, `self`, `init` constructor, and single inheritance. The rules:
   time against `init`'s parameters; a class without `init` takes no arguments.
   `init` runs on the new object and its return value is ignored, so `Shibe(...)`
   always evaluates to the object. Otherwise `init` is an ordinary method.
+- The bare class name `Shibe` is a first-class value: a callable that builds an
+  instance the same way `Shibe(...)` does, so a class can be stored, passed, and
+  put in a collection (the factory pattern). Called through a value the argument
+  count is checked at run time against `init`, a catchable error like any other
+  indirect call. `bark`ing a class prints `<class Shibe>`, and two class values
+  are equal when they name the same class (`Shibe == Shibe`, but not `Shibe ==
+  Corgi`). A class value is always truthy.
 - Fields appear on assignment. `self.name = x` (or `kabosu.name = x` from
   outside) creates the field if it is new. Reading a field that was never set is a
   catchable error; so is reading or setting a field on a non-object.
@@ -555,9 +564,9 @@ error, since the built-in always wins.
 
 A module may also define objects (`many`). A module class is constructed by
 member, exactly like a function call — `utils.Shibe("doge")` — and its methods
-and fields work the same as a class defined in the main script. Taking the class
-itself as a value (`such c = utils.Shibe`) is not supported; call it to build an
-instance.
+and fields work the same as a class defined in the main script. The class itself
+can also be taken as a value (`such c = utils.Shibe`); it is the same callable a
+bare class name yields, equal to the module's own `Shibe`.
 
 ## 10. Complete example
 

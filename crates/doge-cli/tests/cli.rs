@@ -212,9 +212,9 @@ fn bark_prints_a_function_value() {
 }
 
 #[test]
-fn bark_on_a_class_used_as_a_value_is_an_error() {
-    // class_value.doge uses an object definition as a value — a class is not a
-    // first-class value, you call it to build an instance.
+fn bark_prints_a_class_value_and_it_constructs() {
+    // class_value.doge uses a bare class name as a value — a callable that `bark`
+    // prints as `<class Name>` and that builds an instance when called.
     let fixture = cli_fixtures_dir().join("class_value.doge");
     let output = doge_cached()
         .arg("bark")
@@ -222,16 +222,9 @@ fn bark_on_a_class_used_as_a_value_is_an_error() {
         .output()
         .expect("the doge binary should run");
 
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "an unsupported feature exits 1"
-    );
-    let stderr = String::from_utf8(output.stderr).expect("utf-8 stderr");
-    assert!(
-        stderr.contains("very class. much value."),
-        "should say a class is not a value, got:\n{stderr}"
-    );
+    assert!(output.status.success(), "a class value runs cleanly");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert_eq!(stdout, "<class Shibe>\nbork\n");
 }
 
 #[test]

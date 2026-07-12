@@ -200,4 +200,8 @@ top-level function, closure, builtin, and module function has a numeric `fn_id`,
 and a `Value::Function` carries that id plus its captured cells. A call through a
 value routes through a generated `call_function(fn_id, …)` dispatcher, mirroring
 the method dispatcher; direct calls by name stay static and keep their
-compile-time arity check.
+compile-time arity check. A class name used as a value is the same machinery: each
+class gets one extra `call_function` arm that runs its constructor, and the name
+materializes as a `Value::Class` over that `fn_id` — a distinct value kind (prints
+`<class Name>`, type `Class`) that `callee_function` unwraps just like a function,
+so the whole indirect-call path is reused unchanged.

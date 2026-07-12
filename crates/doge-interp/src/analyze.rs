@@ -47,6 +47,7 @@ impl Interp {
                     file_id: fid,
                     parent: None,
                     methods: std::collections::HashMap::new(),
+                    ctor_fn_id: 0,
                 }));
                 self.file_class_ids[fid as usize].insert(name.clone(), class_id);
                 new_classes.push((class_id, parent.clone(), methods));
@@ -64,11 +65,16 @@ impl Interp {
                     method_ids.insert(name.clone(), id);
                 }
             }
+            // Register the constructor as a callable so a class name used as a
+            // value dispatches here to build an instance.
+            let ctor_fn_id = self.callables.len();
+            self.callables.push(Rc::new(Callable::Ctor(class_id)));
             self.classes[class_id as usize] = Rc::new(ClassData {
                 name: self.classes[class_id as usize].name.clone(),
                 file_id: fid,
                 parent: parent_id,
                 methods: method_ids,
+                ctor_fn_id,
             });
         }
 

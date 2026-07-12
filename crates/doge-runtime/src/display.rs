@@ -43,6 +43,7 @@ impl fmt::Display for Value {
             }
             Value::Object(o) => write!(f, "<{}>", o.borrow().class_name),
             Value::Function(func) => write!(f, "<function {}>", func.name),
+            Value::Class(class) => write!(f, "<class {}>", class.name),
             Value::Error(e) => write!(f, "{}", e.message),
         }
     }

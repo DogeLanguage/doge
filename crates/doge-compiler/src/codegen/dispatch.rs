@@ -161,6 +161,30 @@ impl Codegen {
                     call_args.join(", ")
                 ));
             }
+            ArmSpec::Ctor { file_id, name } => {
+                // Constructing through a value: check arity against the effective
+                // `init`, fill defaults / pack the variadic, then call `n_<id>`.
+                let class = emit
+                    .class_in(*file_id, name)
+                    .expect("compiler bug: ctor arm for an unknown class");
+                let params = init_params(emit.classes, class);
+                let err = format!(
+                    "function_arity_error(\"{}\", {}usize, {}, args.len())",
+                    escape_str(name),
+                    params.required(),
+                    max_repr(params),
+                );
+                out.push_str(&self.dispatch_arg_setup(params, &err, emit)?);
+                let count = params.params.len() + params.has_vararg() as usize;
+                let mut call_args: Vec<String> =
+                    (0..count).map(|_| "args.remove(0)".into()).collect();
+                call_args.push("&mut *env".into());
+                out.push_str(&format!(
+                    "            {CTOR_PREFIX}{}({})\n",
+                    class.id,
+                    call_args.join(", ")
+                ));
+            }
         }
         out.push_str("        }\n");
         Ok(out)

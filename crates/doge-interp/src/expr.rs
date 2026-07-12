@@ -123,8 +123,14 @@ impl Interp {
         if let Some(id) = self.builtin_ids.get(name) {
             return Ok(Value::function(*id as u32, name, Vec::new()));
         }
-        // A class or module name used as a value is rejected by the compiler, so a
-        // checked, runnable program never reaches here; report it without panicking.
+        // A class name as a value: a callable that builds an instance, carrying its
+        // constructor's `fn_id` so a call dispatches to `construct`.
+        if let Some(cid) = self.class_id_in(fid, name) {
+            let ctor = self.classes[cid as usize].ctor_fn_id;
+            return Ok(Value::class(ctor as u32, name));
+        }
+        // A module name used as a value is rejected by the compiler, so a checked,
+        // runnable program never reaches here; report it without panicking.
         Err(DogeError::type_error(format!(
             "cannot use {name} as a value"
         )))
@@ -245,10 +251,17 @@ impl Interp {
                     "{base} has no member {member}"
                 )))
             }
-            ModuleRef::User(mfid) => self
-                .lookup(&self.globals(mfid), mfid, member)
-                .map(|c| c.borrow().clone())
-                .ok_or_else(|| DogeError::attr_error(format!("{base} has no member {member}"))),
+            ModuleRef::User(mfid) => {
+                // `utils.Shibe` as a value: the module's class as a callable, named
+                // for the qualified path but sharing the class's constructor id.
+                if let Some(cid) = self.class_id_in(mfid, member) {
+                    let ctor = self.classes[cid as usize].ctor_fn_id;
+                    return Ok(Value::class(ctor as u32, &format!("{base}.{member}")));
+                }
+                self.lookup(&self.globals(mfid), mfid, member)
+                    .map(|c| c.borrow().clone())
+                    .ok_or_else(|| DogeError::attr_error(format!("{base} has no member {member}")))
+            }
         }
     }
 }

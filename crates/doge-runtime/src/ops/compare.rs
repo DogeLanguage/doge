@@ -40,6 +40,9 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
                     .zip(y.captures.iter())
                     .all(|(p, q)| Rc::ptr_eq(p, q))
         }
+        // Classes are equal when they name the same constructor: a class captures
+        // nothing, so `Shibe == Shibe` holds and `Shibe == Corgi` does not.
+        (Value::Class(x), Value::Class(y)) => x.fn_id == y.fn_id,
         // Errors are equal when their type, message, and raise site all match.
         (Value::Error(x), Value::Error(y)) => {
             x.kind == y.kind && x.message == y.message && x.file == y.file && x.line == y.line
@@ -56,6 +59,7 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         | (Value::Dict(_), _)
         | (Value::Object(_), _)
         | (Value::Function(_), _)
+        | (Value::Class(_), _)
         | (Value::Error(_), _) => false,
     }
 }
@@ -104,6 +108,7 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
         | Value::None
         | Value::Object(_)
         | Value::Function(_)
+        | Value::Class(_)
         | Value::Error(_) => {
             return Err(DogeError::type_error(format!(
                 "in wants a List, Dict, or Str on the right, not {}",

@@ -81,19 +81,24 @@ enum Arity {
     OneOrTwo,
 }
 
-/// Anything callable through a `fn_id`: a user definition or a runtime native.
+/// Anything callable through a `fn_id`: a user definition, a runtime native, or a
+/// class constructor (a class name used as a value calls this to build an
+/// instance, carrying the class's `class_id`).
 enum Callable {
     User(Template),
     Native(Native),
+    Ctor(u32),
 }
 
 /// One class, keyed by a program-wide `class_id`: its name, defining file, parent
-/// (for inheritance and `super`), and own methods (method name → `fn_id`).
+/// (for inheritance and `super`), own methods (method name → `fn_id`), and the
+/// `fn_id` of its constructor callable (for materializing the class as a value).
 struct ClassData {
     name: String,
     file_id: u32,
     parent: Option<u32>,
     methods: HashMap<String, usize>,
+    ctor_fn_id: usize,
 }
 
 /// Non-local control flow bubbling out of statement execution.

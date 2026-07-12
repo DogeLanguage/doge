@@ -142,6 +142,8 @@ impl Interp {
             Callable::User(template) => {
                 self.call_user(template, &captures, args, kwargs, None, label)
             }
+            // A class value called: build an instance through its constructor.
+            Callable::Ctor(class_id) => self.construct(*class_id, args, kwargs, label),
         }
     }
 
