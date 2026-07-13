@@ -60,25 +60,6 @@ The first run pays the Rust compile time (a few seconds); the binary is then cac
 The `examples/` folder tours the language; start with `examples/tour.doge`. For a
 quick play, `doge repl` drops you into an interactive prompt.
 
-## Projects and dependencies
-
-`doge new my_app` scaffolds a project — a directory with a `doge.toml` manifest.
-A project declares dependencies by local path or git, imported with `so <alias>`:
-
-```toml
-[package]
-name = "my_app"
-entry = "main.doge"
-
-[dependencies]
-greet = { path = "lib/greet" }
-cool  = { git = "https://github.com/u/cool", tag = "v1.0.0" }
-```
-
-Inside a project, `doge bark`/`build`/`check` need no script path. See
-[PACKAGING.md](docs/PACKAGING.md) for the full manifest, dependency, and sharing
-story.
-
 ## Documentation
 
 | Document | Contents |
