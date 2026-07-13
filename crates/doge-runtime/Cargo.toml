@@ -12,3 +12,7 @@ keywords = ["doge", "language", "runtime", "scripting"]
 categories = ["compilers"]
 
 [dependencies]
+# HTTP(S) client for the `howl` module. TLS cannot be hand-rolled, so `howl.get`/
+# `howl.post` need a real HTTP stack; ureq is blocking/synchronous, matching the
+# runtime's no-async design, and rustls keeps it pure-Rust with bundled roots.
+ureq = { version = "2", default-features = false, features = ["tls"] }

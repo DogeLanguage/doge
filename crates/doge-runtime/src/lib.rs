@@ -27,6 +27,10 @@ pub use ops::{
 pub use ordered_map::OrderedMap;
 pub use stdlib::env::{env_args, env_get, set_script_args};
 pub use stdlib::fetch::{fetch_append, fetch_delete, fetch_exists, fetch_read, fetch_write};
+pub use stdlib::howl::{
+    howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_port, howl_post, howl_recv,
+    howl_recv_line, howl_send,
+};
 pub use stdlib::nerd::{
     nerd_abs, nerd_ceil, nerd_floor, nerd_max, nerd_min, nerd_pow, nerd_round, nerd_sqrt,
 };

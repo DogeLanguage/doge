@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
 
 use crate::error::{ErrorData, ErrorKind};
@@ -36,6 +37,30 @@ pub enum Value {
     /// same method bound to the very same receiver.
     BoundMethod(Rc<BoundMethodData>),
     Error(Rc<ErrorData>),
+    /// A network socket opened by the `howl` module: a TCP listener or an open
+    /// connection, or a closed handle once `howl.close` has run. Sockets are
+    /// opaque — they have no methods or fields, compare by identity, and close
+    /// automatically when the last reference is dropped. Two socket values are
+    /// the same socket only when they share this `Rc`.
+    Socket(Rc<SocketData>),
+}
+
+/// The innards of a [`Value::Socket`]: the live OS handle behind a `RefCell`, so
+/// `howl.recv`/`howl.close` can read and mutate it through a shared value.
+#[derive(Debug)]
+pub struct SocketData {
+    pub state: RefCell<SocketState>,
+}
+
+/// What a socket currently is: a listener waiting for connections, an open
+/// connection (with any bytes read past a line boundary held for the next read),
+/// or a closed handle. Every `howl` operation on a `Closed` socket is a catchable
+/// IOError rather than a panic.
+#[derive(Debug)]
+pub enum SocketState {
+    Listener(TcpListener),
+    Conn { stream: TcpStream, buf: Vec<u8> },
+    Closed,
 }
 
 /// A method captured together with the receiver it was read off. Two bound
@@ -127,6 +152,14 @@ impl Value {
         }))
     }
 
+    /// Build a socket value wrapping an initial [`SocketState`] — a fresh
+    /// listener or connection from the `howl` module.
+    pub fn socket(state: SocketState) -> Value {
+        Value::Socket(Rc::new(SocketData {
+            state: RefCell::new(state),
+        }))
+    }
+
     /// Build a class value from the constructor arm `fn_id` and the class `name`.
     /// A class captures nothing — calling it always builds a fresh instance — so
     /// its `captures` are empty and two values for the same class compare equal.
@@ -175,6 +208,7 @@ impl Value {
             Value::Class(_) => true,
             Value::BoundMethod(_) => true,
             Value::Error(_) => true,
+            Value::Socket(_) => true,
         }
     }
 
@@ -193,6 +227,7 @@ impl Value {
             Value::Class(_) => "Class",
             Value::BoundMethod(_) => "Method",
             Value::Error(_) => "Error",
+            Value::Socket(_) => "Socket",
         }
     }
 

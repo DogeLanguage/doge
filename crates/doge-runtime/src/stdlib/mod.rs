@@ -1,5 +1,6 @@
 pub mod env;
 pub mod fetch;
+pub mod howl;
 pub mod nerd;
 pub mod strings;
 
@@ -13,6 +14,18 @@ pub(crate) fn str_arg<'a>(module: &str, fname: &str, v: &'a Value) -> DogeResult
         Value::Str(s) => Ok(s),
         _ => Err(DogeError::type_error(format!(
             "{module}.{fname} needs a Str, got {}",
+            v.describe()
+        ))),
+    }
+}
+
+/// An Int argument as `i64`, or a catchable type error naming the module member.
+/// Shared by every stdlib module that takes an Int argument.
+pub(crate) fn int_arg(module: &str, fname: &str, v: &Value) -> DogeResult<i64> {
+    match v {
+        Value::Int(n) => Ok(*n),
+        _ => Err(DogeError::type_error(format!(
+            "{module}.{fname} needs an Int, got {}",
             v.describe()
         ))),
     }

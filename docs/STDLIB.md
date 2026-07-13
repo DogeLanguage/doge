@@ -79,7 +79,7 @@ error, since `xs.append` reads a (non-existent) field before the call.
 
 ## Modules
 
-v1 ships four stdlib modules. There is no `math` module; the math module is
+v1 ships five stdlib modules. There is no `math` module; the math module is
 `nerd`.
 
 | Module | Members |
@@ -88,6 +88,7 @@ v1 ships four stdlib modules. There is no `math` module; the math module is
 | `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `replace` |
 | `fetch` | `read`, `write`, `append`, `exists`, `delete` — file I/O |
 | `env` | `args`, `get` — command-line arguments and environment variables |
+| `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -126,6 +127,61 @@ bark fetch.read("notes.txt")
 `doge bark script.doge alpha beta` (`["alpha", "beta"]`), or the arguments to a
 standalone `doge build` binary. `env.get(name)` needs a Str name; a missing or
 non-text variable reads back as `none`.
+
+### `howl` — TCP sockets and HTTP
+
+Networking. Raw TCP for building servers and clients, plus a minimal HTTP(S)
+client. Every network failure — a refused connection, an unknown host, a broken
+pipe, a TLS or timeout error, or any operation on a closed socket — is a catchable
+`IOError` (`err.type == "IOError"`), never a crash. A wrong argument type (a
+non-Str host, a non-Socket where one belongs) is a catchable `TypeError`, and a
+port outside `0…65535` or a non-positive `recv` size is a catchable `ValueError`.
+
+A **Socket** is a value like any other: it can be stored, passed to a function, or
+returned. Sockets are opaque — they have no fields or methods, compare equal only
+to the very same socket, and close automatically when the last reference is
+dropped. `howl.listen` and `howl.accept` are for servers; `howl.connect` is for
+clients; both ends read and write with `send`/`recv`/`recv_line`.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `listen(host, port)` | `Socket` | bind a TCP listener on `host:port`; port `0` lets the OS choose a free one |
+| `connect(host, port)` | `Socket` | open a TCP connection to `host:port` |
+| `accept(listener)` | `Socket` | block until a client connects, then give back the new connection |
+| `port(sock)` | `Int` | the local port a listener or connection is bound to (read a port-`0` listener's real port back) |
+| `send(conn, text)` | `none` | write `text` to a connection as UTF-8 |
+| `recv(conn, max_bytes)` | `Str` or `none` | read up to `max_bytes` bytes as text, or `none` at end of input |
+| `recv_line(conn)` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input |
+| `close(sock)` | `none` | close a listener or connection now (idempotent) |
+| `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str}` |
+| `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str}` |
+
+`recv` carries one `Str` type: it never splits a multi-byte character across two
+reads (an incomplete trailing sequence is held for the next call, so every read
+returns at least one whole character or `none`), and bytes that are not valid text
+are an `IOError`. Raw TCP calls block with no timeout; `howl.get`/`howl.post` time
+out after 30 seconds (a catchable `IOError`). For HTTP, only a transport, TLS, or
+timeout failure is an error — a non-2xx response (a `404`, say) comes back as an
+ordinary `{"status", "body"}` Dict, so the script decides what a status means.
+
+```doge
+so howl
+
+# A tiny echo server and its client in one script — on loopback, connect() lands
+# in the backlog immediately, so one script can drive both ends.
+such server = howl.listen("127.0.0.1", 0)
+such client = howl.connect("127.0.0.1", howl.port(server))
+howl.send(client, "much ping\n")
+
+such conn = howl.accept(server)
+bark howl.recv_line(conn)          # much ping
+howl.send(conn, "wow pong\n")
+bark howl.recv_line(client)        # wow pong
+
+# An HTTP GET returns a status and body Dict.
+such page = howl.get("https://example.com")
+bark page["status"]                # 200
+```
 
 A `so <name>` import that is not a stdlib module resolves to the user file
 `<name>.doge` next to the importer; see [SYNTAX.md](SYNTAX.md) §9.

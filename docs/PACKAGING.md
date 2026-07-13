@@ -65,7 +65,7 @@ Two sources are supported (there is no central registry):
 
 A bare `so <name>` resolves in this order:
 
-1. a built-in stdlib module (`nerd`, `strings`, `fetch`, `env`);
+1. a built-in stdlib module (`nerd`, `strings`, `fetch`, `env`, `howl`);
 2. a **declared dependency** of the package that owns the importing file;
 3. a sibling `<name>.doge` next to the importing file.
 

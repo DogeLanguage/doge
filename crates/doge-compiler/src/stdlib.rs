@@ -226,4 +226,70 @@ pub const MODULES: &[Module] = &[
         ],
         consts: &[],
     },
+    Module {
+        name: "howl",
+        funcs: &[
+            ModuleFn {
+                name: "listen",
+                arity: 2,
+                runtime_fn: "howl_listen",
+                hint: "howl.listen(host, port)",
+            },
+            ModuleFn {
+                name: "connect",
+                arity: 2,
+                runtime_fn: "howl_connect",
+                hint: "howl.connect(host, port)",
+            },
+            ModuleFn {
+                name: "accept",
+                arity: 1,
+                runtime_fn: "howl_accept",
+                hint: "howl.accept(listener)",
+            },
+            ModuleFn {
+                name: "port",
+                arity: 1,
+                runtime_fn: "howl_port",
+                hint: "howl.port(sock)",
+            },
+            ModuleFn {
+                name: "send",
+                arity: 2,
+                runtime_fn: "howl_send",
+                hint: "howl.send(conn, text)",
+            },
+            ModuleFn {
+                name: "recv",
+                arity: 2,
+                runtime_fn: "howl_recv",
+                hint: "howl.recv(conn, max_bytes)",
+            },
+            ModuleFn {
+                name: "recv_line",
+                arity: 1,
+                runtime_fn: "howl_recv_line",
+                hint: "howl.recv_line(conn)",
+            },
+            ModuleFn {
+                name: "close",
+                arity: 1,
+                runtime_fn: "howl_close",
+                hint: "howl.close(sock)",
+            },
+            ModuleFn {
+                name: "get",
+                arity: 1,
+                runtime_fn: "howl_get",
+                hint: "howl.get(url)",
+            },
+            ModuleFn {
+                name: "post",
+                arity: 2,
+                runtime_fn: "howl_post",
+                hint: "howl.post(url, body)",
+            },
+        ],
+        consts: &[],
+    },
 ];

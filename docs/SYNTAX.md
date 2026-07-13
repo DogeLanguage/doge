@@ -90,6 +90,7 @@ Dynamic value types (all runtime-checked):
 | Object | instances of `many Name:` definitions |
 | Class | a `many Name:` definition used as a value — a callable that builds an instance (see §8) |
 | Error | the value `oh no err!` binds; `err.type` / `err.message` / `err.file` / `err.line` (see §7) |
+| Socket | a network handle from the `howl` module — a TCP listener or connection; opaque, closes when dropped (see [STDLIB.md](STDLIB.md)) |
 
 Operators: `+ - * / // % ** == != < <= > >= in and or not`, the bitwise
 operators `& | ^ ~ << >>`, membership `x in xs` and `x not in xs`, indexing
@@ -541,8 +542,9 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available built-in modules (`nerd`, `strings`, `fetch`, `env`) are documented
-in [STDLIB.md](STDLIB.md). There is no `math` module; the math module is `nerd`.
+The available built-in modules (`nerd`, `strings`, `fetch`, `env`, `howl`) are
+documented in [STDLIB.md](STDLIB.md). There is no `math` module; the math module
+is `nerd`.
 List and dict operations are methods on the value (`xs.append(1)`), not a module.
 
 ### Importing other `.doge` files

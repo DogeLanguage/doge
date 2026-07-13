@@ -100,6 +100,16 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "fetch_delete" => rt::fetch_delete(&a[0]),
         "env_args" => rt::env_args(),
         "env_get" => rt::env_get(&a[0]),
+        "howl_listen" => rt::howl_listen(&a[0], &a[1]),
+        "howl_connect" => rt::howl_connect(&a[0], &a[1]),
+        "howl_accept" => rt::howl_accept(&a[0]),
+        "howl_port" => rt::howl_port(&a[0]),
+        "howl_send" => rt::howl_send(&a[0], &a[1]),
+        "howl_recv" => rt::howl_recv(&a[0], &a[1]),
+        "howl_recv_line" => rt::howl_recv_line(&a[0]),
+        "howl_close" => rt::howl_close(&a[0]),
+        "howl_get" => rt::howl_get(&a[0]),
+        "howl_post" => rt::howl_post(&a[0], &a[1]),
         other => Err(DogeError::type_error(format!(
             "interp bug: no runtime function {other}"
         ))),
