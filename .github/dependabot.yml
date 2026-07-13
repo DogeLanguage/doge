@@ -4,3 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # The @<version> ref here is the MSRV pin, not an action version — it must
+      # stay equal to `rust-version` in Cargo.toml. Bumping it defeats the msrv
+      # job and pins a Rust toolchain that may not exist yet.
+      - dependency-name: dtolnay/rust-toolchain
