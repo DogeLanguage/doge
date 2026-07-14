@@ -1,0 +1,33 @@
+so roll
+
+# Seeding makes every draw below reproducible: this script prints the same
+# numbers on every run, on both the compiler and the interpreter.
+roll.seed(42)
+
+bark "a d6 roll:"
+bark roll.int(1, 6)
+
+bark "a coin flip:"
+bark roll.choice(["heads", "tails"])
+
+bark "float is always in [0, 1):"
+bark roll.float() < 1.0
+
+bark "a shuffled deck:"
+bark roll.shuffle([1, 2, 3, 4, 5])
+
+bark "two distinct picks:"
+such picks = roll.sample([10, 20, 30, 40, 50], 2)
+bark len(picks)
+
+# Every bad draw is catchable, never a crash.
+pls
+    roll.choice([])
+oh no err!
+    bark err.type
+
+pls
+    roll.int(6, 1)
+oh no err!
+    bark err.type
+wow

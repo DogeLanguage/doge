@@ -52,6 +52,12 @@ impl Module {
     }
 }
 
+/// The runtime function `pack.zoom` maps to. Both engines special-case it: the
+/// compiler hands it the pup trampoline plus a globals snapshot, and the
+/// interpreter routes it to its own thread-spawning path instead of the generic
+/// native dispatch. Kept in step with the `pack` module's `zoom` entry below.
+pub const PACK_ZOOM_RUNTIME_FN: &str = "pack_zoom";
+
 /// The module named `name`, if it exists.
 pub fn module(name: &str) -> Option<&'static Module> {
     MODULES.iter().find(|m| m.name == name)
@@ -222,6 +228,225 @@ pub const MODULES: &[Module] = &[
                 arity: 1,
                 runtime_fn: "env_get",
                 hint: "env.get(name)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "howl",
+        funcs: &[
+            ModuleFn {
+                name: "listen",
+                arity: 2,
+                runtime_fn: "howl_listen",
+                hint: "howl.listen(host, port)",
+            },
+            ModuleFn {
+                name: "connect",
+                arity: 2,
+                runtime_fn: "howl_connect",
+                hint: "howl.connect(host, port)",
+            },
+            ModuleFn {
+                name: "accept",
+                arity: 1,
+                runtime_fn: "howl_accept",
+                hint: "howl.accept(listener)",
+            },
+            ModuleFn {
+                name: "port",
+                arity: 1,
+                runtime_fn: "howl_port",
+                hint: "howl.port(sock)",
+            },
+            ModuleFn {
+                name: "send",
+                arity: 2,
+                runtime_fn: "howl_send",
+                hint: "howl.send(conn, text)",
+            },
+            ModuleFn {
+                name: "recv",
+                arity: 2,
+                runtime_fn: "howl_recv",
+                hint: "howl.recv(conn, max_bytes)",
+            },
+            ModuleFn {
+                name: "recv_line",
+                arity: 1,
+                runtime_fn: "howl_recv_line",
+                hint: "howl.recv_line(conn)",
+            },
+            ModuleFn {
+                name: "close",
+                arity: 1,
+                runtime_fn: "howl_close",
+                hint: "howl.close(sock)",
+            },
+            ModuleFn {
+                name: "get",
+                arity: 1,
+                runtime_fn: "howl_get",
+                hint: "howl.get(url)",
+            },
+            ModuleFn {
+                name: "post",
+                arity: 2,
+                runtime_fn: "howl_post",
+                hint: "howl.post(url, body)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "json",
+        funcs: &[
+            ModuleFn {
+                name: "parse",
+                arity: 1,
+                runtime_fn: "json_parse",
+                hint: "json.parse(text)",
+            },
+            ModuleFn {
+                name: "emit",
+                arity: 1,
+                runtime_fn: "json_emit",
+                hint: "json.emit(value)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "dson",
+        funcs: &[
+            ModuleFn {
+                name: "parse",
+                arity: 1,
+                runtime_fn: "dson_parse",
+                hint: "dson.parse(text)",
+            },
+            ModuleFn {
+                name: "emit",
+                arity: 1,
+                runtime_fn: "dson_emit",
+                hint: "dson.emit(value)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "nap",
+        funcs: &[
+            ModuleFn {
+                name: "now",
+                arity: 0,
+                runtime_fn: "nap_now",
+                hint: "nap.now()",
+            },
+            ModuleFn {
+                name: "mono",
+                arity: 0,
+                runtime_fn: "nap_mono",
+                hint: "nap.mono()",
+            },
+            ModuleFn {
+                name: "rest",
+                arity: 1,
+                runtime_fn: "nap_rest",
+                hint: "nap.rest(seconds)",
+            },
+            ModuleFn {
+                name: "stamp",
+                arity: 1,
+                runtime_fn: "nap_stamp",
+                hint: "nap.stamp(secs)",
+            },
+            ModuleFn {
+                name: "parse",
+                arity: 1,
+                runtime_fn: "nap_parse",
+                hint: "nap.parse(text)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "pack",
+        funcs: &[
+            // `zoom` is special in codegen: it also receives the generated pup
+            // trampoline and a snapshot of the globals (see `PACK_ZOOM_RUNTIME_FN`),
+            // so its two members here are the two the user actually writes.
+            ModuleFn {
+                name: "zoom",
+                arity: 2,
+                runtime_fn: PACK_ZOOM_RUNTIME_FN,
+                hint: "pack.zoom(f, [args])",
+            },
+            ModuleFn {
+                name: "fetch",
+                arity: 1,
+                runtime_fn: "pack_fetch",
+                hint: "pack.fetch(pup)",
+            },
+            ModuleFn {
+                name: "bowl",
+                arity: 0,
+                runtime_fn: "pack_bowl",
+                hint: "pack.bowl()",
+            },
+            ModuleFn {
+                name: "drop",
+                arity: 2,
+                runtime_fn: "pack_drop",
+                hint: "pack.drop(bowl, value)",
+            },
+            ModuleFn {
+                name: "sniff",
+                arity: 1,
+                runtime_fn: "pack_sniff",
+                hint: "pack.sniff(bowl)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "roll",
+        funcs: &[
+            ModuleFn {
+                name: "seed",
+                arity: 1,
+                runtime_fn: "roll_seed",
+                hint: "roll.seed(n)",
+            },
+            ModuleFn {
+                name: "int",
+                arity: 2,
+                runtime_fn: "roll_int",
+                hint: "roll.int(low, high)",
+            },
+            ModuleFn {
+                name: "float",
+                arity: 0,
+                runtime_fn: "roll_float",
+                hint: "roll.float()",
+            },
+            ModuleFn {
+                name: "choice",
+                arity: 1,
+                runtime_fn: "roll_choice",
+                hint: "roll.choice(list)",
+            },
+            ModuleFn {
+                name: "shuffle",
+                arity: 1,
+                runtime_fn: "roll_shuffle",
+                hint: "roll.shuffle(list)",
+            },
+            ModuleFn {
+                name: "sample",
+                arity: 2,
+                runtime_fn: "roll_sample",
+                hint: "roll.sample(list, k)",
             },
         ],
         consts: &[],

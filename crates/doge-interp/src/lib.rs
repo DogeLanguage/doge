@@ -8,6 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use doge_compiler as dc;
 use doge_runtime::{DogeError, DogeResult, ErrorKind, Value};
@@ -17,6 +18,7 @@ mod call;
 mod exec;
 mod expr;
 mod natives;
+mod pack;
 #[cfg(test)]
 mod tests;
 
@@ -139,12 +141,17 @@ pub struct Interp {
     /// Names declared with `so … =` in the entry scope, so the REPL's checker keeps
     /// rejecting reassignment to them across snippets.
     session_consts: Vec<String>,
+    /// The loaded program, shared so a `pack.zoom` pup can rebuild a fresh
+    /// interpreter over the same files on its own thread. `None` in a REPL session
+    /// (which has no whole-program handle), where `pack.zoom` is not yet available.
+    program: Option<Arc<dc::Program>>,
 }
 
 /// Run a whole loaded program to completion: initialize every module, then
 /// execute the entry file's top-level statements. Used to run a `.doge` file
-/// through the interpreter (the parity path beside `doge build`).
-pub fn run_program(program: &dc::Program) -> DogeResult<()> {
+/// through the interpreter (the parity path beside `doge build`). Takes the
+/// program by `Arc` so a `pack.zoom` pup can rebuild an interpreter over it.
+pub fn run_program(program: Arc<dc::Program>) -> DogeResult<()> {
     let mut interp = Interp::new();
     interp.run(program)
 }
@@ -157,17 +164,19 @@ impl Default for Interp {
 
 impl Interp {
     /// Integrate a loaded program and run its entry file to completion.
-    pub fn run(&mut self, program: &dc::Program) -> DogeResult<()> {
-        self.integrate_program(program);
-        self.run_entry(program)
+    pub fn run(&mut self, program: Arc<dc::Program>) -> DogeResult<()> {
+        self.program = Some(program.clone());
+        self.integrate_program(&program);
+        self.run_entry(&program)
     }
 
     /// Integrate a loaded program *without* running its entry body — the setup the
     /// test runner needs before it drives individual `test`-prefixed functions with
     /// [`call_entry_function`]. A module constant initializer that failed during
     /// integration surfaces here, just as it would when the entry runs.
-    pub fn prepare(&mut self, program: &dc::Program) -> DogeResult<()> {
-        self.integrate_program(program);
+    pub fn prepare(&mut self, program: Arc<dc::Program>) -> DogeResult<()> {
+        self.program = Some(program.clone());
+        self.integrate_program(&program);
         match self.pending_module_error.take() {
             Some(err) => Err(err),
             None => Ok(()),
@@ -200,6 +209,7 @@ impl Interp {
             current_method_class: None,
             pending_module_error: None,
             session_consts: Vec::new(),
+            program: None,
         };
         interp.register_natives();
         interp

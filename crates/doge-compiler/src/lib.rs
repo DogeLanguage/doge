@@ -30,7 +30,7 @@ pub use modules::{
 };
 pub use parser::{parse_repl, ReplParse};
 pub use project::{discover_root, read_manifest, resolve_project, DependencyMap};
-pub use stdlib::{module as stdlib_module, Module, ModuleFn, MODULES};
+pub use stdlib::{module as stdlib_module, Module, ModuleFn, MODULES, PACK_ZOOM_RUNTIME_FN};
 pub use token::Span;
 
 /// Lex and parse `source` (named `path` for diagnostics) into a [`Script`]

@@ -58,6 +58,9 @@ impl fmt::Display for Value {
                 write!(f, "<method {}.{}>", receiver_label(&m.receiver), m.method)
             }
             Value::Error(e) => write!(f, "{}", e.message),
+            Value::Socket(_) => write!(f, "<socket>"),
+            Value::Pup(_) => write!(f, "<pup>"),
+            Value::Bowl(_) => write!(f, "<bowl>"),
         }
     }
 }

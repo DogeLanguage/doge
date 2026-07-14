@@ -25,7 +25,7 @@ generated .rs  ──rustc/cargo──►  native binary  ──►  cached & ex
 ```
 
 A `so <name>` import resolves in order to a built-in module
-(`nerd`/`strings`/`fetch`/`env`), a declared **dependency** of the importing file's
+(`nerd`/`strings`/`fetch`/`env`/`howl`/`pack`/`json`/`dson`/`nap`), a declared **dependency** of the importing file's
 project, or the user file `<name>.doge` next to the importer. When the entry lives
 in a project (a directory with a `doge.toml`), the CLI first resolves the manifest's
 dependency graph into a map of package-root → alias → entry file and hands it to the
@@ -115,7 +115,9 @@ doge/
 │   │                     #   manifest, project     — doge.toml + dependency graph
 │   │                     #   plus keywords, token, builtins, stdlib, diagnostics
 │   ├── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
-│   │                     #   (list, dict), builtins, objects, stdlib/ (nerd, strings, fetch, env)
+│   │                     #   (list, dict), builtins, objects, pack (Send boundary),
+│   │                     #   stdlib/ (nerd, strings, fetch, env, howl, pack,
+│   │                     #   json, dson, nap)
 │   ├── doge-interp/      # tree-walking interpreter over the checked AST (doge repl):
 │   │                     #   analyze (fn ids + captures + class table), exec, expr,
 │   │                     #   call, natives — evaluates against doge-runtime directly
@@ -139,8 +141,9 @@ by the compiler's own published version once `doge` is installed — so a
   `?` through, and `pls`/`oh no` compiles to a `match` on the block's `Result`.
   No panics in the happy path; no `unsafe` anywhere.
 - `bark` is a runtime print with doge-friendly `Display` formatting of values.
-- Stdlib modules (`nerd`, `strings`, `fetch`, `env`) are Rust functions in the
-  runtime, one per member, named `{module}_{member}` (`nerd_sqrt`, `fetch_read`).
+- Stdlib modules (`nerd`, `strings`, `fetch`, `env`, `howl`, `pack`, `json`, `dson`, `nap`) are Rust
+  functions in the runtime, one per member, named `{module}_{member}` (`nerd_sqrt`,
+  `fetch_read`).
 - Objects are `Rc<RefCell<ObjectData>>`: a class id, the class name, and a field
   map. `attr_get`/`attr_set` read and write fields, and a generated dispatcher
   routes each method call to the right runtime call. Inheritance
@@ -150,6 +153,19 @@ by the compiler's own published version once `doge` is installed — so a
   generated `call_method` dispatcher forwards any non-`Object` receiver to
   `builtin_method` in the runtime (`methods/`), the collection counterpart of
   the object dispatcher.
+- Concurrency (`pack` module) keeps the single-threaded `Rc`/`RefCell` model by
+  copying at the thread boundary rather than sharing. A `Value` is `!Send`, so
+  `pack.rs` defines `Packed` — an owned, `Rc`-free mirror that *is* `Send` —
+  plus `pack_value`/`unpack_packed` to deep-copy across. A pup (thread) gets its
+  own single-threaded world: `pack.zoom` snapshots the callee, arguments, and
+  globals into `Packed`, spawns a thread, and the pup rebuilds fresh `Value`s and
+  runs. `Value::Pup`/`Value::Bowl` are opaque handles like `Value::Socket`; a bowl
+  (channel) carries `Packed` over `std::sync::mpsc` and is shared (not copied)
+  across the boundary, a socket transfers. No locks on the value hot path, no
+  `unsafe`, and every misuse is a catchable error. Codegen emits a `pup_entry`
+  trampoline + `snapshot_env` for the compiled path; `doge-interp` rebuilds a fresh
+  interpreter over the same `Arc<Program>` on the pup's thread, so both engines
+  behave identically (the examples parity suite covers `pack_*.doge`).
 
 ## 4. Codegen
 

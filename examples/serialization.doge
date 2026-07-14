@@ -1,0 +1,30 @@
+# such data. much interchange. — JSON and DSON parse/emit.
+so json
+so dson
+
+# Build a value in Doge, then emit it as compact JSON.
+such config = {"name": "kabosu", "age": 7, "good": true, "tags": ["doge", "shibe"]}
+bark json.emit(config)
+
+# Parse it back and read fields — objects become dicts, arrays become lists.
+such parsed = json.parse(json.emit(config))
+bark parsed["name"]
+bark parsed["tags"][1]
+
+# JSON scalars map to Doge values: numbers, null, booleans.
+bark json.parse("[1, 2.5, null, false]")
+
+# Round-trip the same value through DSON — doge-speak surface, octal numbers.
+such doc = dson.emit(config)
+bark doc
+bark dson.parse(doc)["age"]
+
+# yes / no / empty are DSON's true / false / null.
+bark dson.parse("so yes and no and empty many")
+
+# A malformed document is catchable, never a crash.
+pls
+    json.parse("[1, 2,")
+oh no err!
+    bark "caught {err.type}"
+wow

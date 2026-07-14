@@ -1,0 +1,34 @@
+# such time. much nap. very clock.
+so nap
+
+# The wall clock reads seconds since the Unix epoch — well past zero by now.
+bark nap.now() > 0
+
+# The monotonic clock measures elapsed time: rest a little, then check that at
+# least that much time went by. Only differences between readings are meaningful.
+such start = nap.mono()
+nap.rest(0.01)
+bark nap.mono() - start >= 0.01
+
+# Format unix timestamps as ISO-8601 UTC strings.
+bark nap.stamp(0)
+bark nap.stamp(946684800)
+
+# Parse one back — numbers mix freely, so compare against an Int of seconds.
+bark nap.parse("2000-01-01T00:00:00Z") == 946684800
+
+# Round-trip the other way: parse a string, then stamp it again.
+bark nap.stamp(nap.parse("2000-01-01T00:00:00Z"))
+
+# A malformed timestamp is a catchable ValueError, never a crash.
+pls
+    nap.parse("not a date")
+oh no err!
+    bark err.type
+
+# So is a negative sleep — the duration must be finite and not negative.
+pls
+    nap.rest(-1)
+oh no err!
+    bark err.type
+wow

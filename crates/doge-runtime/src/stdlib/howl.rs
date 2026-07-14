@@ -1,0 +1,466 @@
+//! `howl` — the networking stdlib module. Raw TCP (`listen`/`accept`/`connect`/
+//! `send`/`recv`/`recv_line`/`close`) plus a minimal HTTP(S) client
+//! (`get`/`post`). Every network failure — a refused connection, a broken pipe, a
+//! TLS or timeout error, an operation on a closed socket — is a catchable IOError
+//! rather than a panic, and every socket carries text as one `Str` type: `recv`
+//! never splits a multi-byte character, and genuinely invalid bytes are an
+//! IOError, never a Rust panic.
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::rc::Rc;
+use std::time::Duration;
+
+use crate::error::{DogeError, DogeResult};
+use crate::ordered_map::OrderedMap;
+use crate::stdlib::{int_arg, str_arg};
+use crate::value::{SocketData, SocketState, Value};
+
+/// How long an HTTP(S) request may run before it is a catchable IOError, so a
+/// script can never hang forever on a stalled server. Raw TCP has no timeout.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The chunk size `recv_line` reads with while scanning for a newline.
+const LINE_CHUNK: usize = 1024;
+
+/// A Socket argument as its shared handle, or a catchable type error. Every raw
+/// TCP member takes a socket as its first argument.
+fn socket_arg<'a>(fname: &str, v: &'a Value) -> DogeResult<&'a Rc<SocketData>> {
+    match v {
+        Value::Socket(s) => Ok(s),
+        _ => Err(DogeError::type_error(format!(
+            "howl.{fname} needs a Socket, got {}",
+            v.describe()
+        ))),
+    }
+}
+
+/// A host/port pair from a Str host and an Int port, or a catchable error. A port
+/// outside `0..=65535` is a `ValueError`.
+fn host_port<'a>(fname: &str, host: &'a Value, port: &Value) -> DogeResult<(&'a str, u16)> {
+    let host = str_arg("howl", fname, host)?;
+    let port = int_arg("howl", fname, port)?;
+    let port = u16::try_from(port).map_err(|_| {
+        DogeError::value_error(format!("a port must be between 0 and 65535, got {port}"))
+    })?;
+    Ok((host, port))
+}
+
+/// `howl.listen(host, port)` — bind a TCP listener on `host:port` (port `0` lets
+/// the OS choose a free one, readable back with `howl.port`). A bind failure is a
+/// catchable IOError.
+pub fn howl_listen(host: &Value, port: &Value) -> DogeResult {
+    let (host, port) = host_port("listen", host, port)?;
+    match TcpListener::bind((host, port)) {
+        Ok(listener) => Ok(Value::socket(SocketState::Listener(listener))),
+        Err(err) => Err(DogeError::io_error(format!(
+            "cannot listen on {host}:{port}: {err}"
+        ))),
+    }
+}
+
+/// `howl.connect(host, port)` — open a TCP connection to `host:port`. A refused
+/// connection or unknown host is a catchable IOError.
+pub fn howl_connect(host: &Value, port: &Value) -> DogeResult {
+    let (host, port) = host_port("connect", host, port)?;
+    match TcpStream::connect((host, port)) {
+        Ok(stream) => Ok(Value::socket(SocketState::Conn {
+            stream,
+            buf: Vec::new(),
+        })),
+        Err(err) => Err(DogeError::io_error(format!(
+            "cannot connect to {host}:{port}: {err}"
+        ))),
+    }
+}
+
+/// `howl.accept(listener)` — block until a client connects, then return the new
+/// connection. A non-listener socket is a catchable TypeError; a closed one is an
+/// IOError.
+pub fn howl_accept(listener: &Value) -> DogeResult {
+    let sock = socket_arg("accept", listener)?;
+    let state = sock.state.borrow();
+    match &*state {
+        SocketState::Listener(l) => match l.accept() {
+            Ok((stream, _)) => Ok(Value::socket(SocketState::Conn {
+                stream,
+                buf: Vec::new(),
+            })),
+            Err(err) => Err(DogeError::io_error(format!("cannot accept: {err}"))),
+        },
+        SocketState::Conn { .. } => Err(DogeError::type_error(
+            "howl.accept needs a listening socket, not a connection",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
+/// `howl.port(sock)` — the local port a listener or connection is bound to. A
+/// closed socket is a catchable IOError.
+pub fn howl_port(sock: &Value) -> DogeResult {
+    let sock = socket_arg("port", sock)?;
+    let state = sock.state.borrow();
+    let addr = match &*state {
+        SocketState::Listener(l) => l.local_addr(),
+        SocketState::Conn { stream, .. } => stream.local_addr(),
+        SocketState::Closed => return Err(closed()),
+    };
+    match addr {
+        Ok(addr) => Ok(Value::Int(addr.port() as i64)),
+        Err(err) => Err(DogeError::io_error(format!("cannot read the port: {err}"))),
+    }
+}
+
+/// `howl.send(conn, text)` — write `text` as UTF-8 to a connection. Returns
+/// `none`. A broken pipe or a non-connection socket is a catchable error.
+pub fn howl_send(conn: &Value, text: &Value) -> DogeResult {
+    let sock = socket_arg("send", conn)?;
+    let text = str_arg("howl", "send", text)?;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, .. } => match stream.write_all(text.as_bytes()) {
+            Ok(()) => Ok(Value::None),
+            Err(err) => Err(DogeError::io_error(format!("cannot send: {err}"))),
+        },
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.send needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
+/// `howl.recv(conn, max_bytes)` — read up to `max_bytes` bytes from a connection
+/// and return them as text, or `none` at end of input. Never splits a multi-byte
+/// character: an incomplete trailing sequence is held for the next read, and a
+/// call always yields at least one whole character (or `none`). `max_bytes` must
+/// be a positive Int. Genuinely invalid bytes are a catchable IOError.
+pub fn howl_recv(conn: &Value, max_bytes: &Value) -> DogeResult {
+    let sock = socket_arg("recv", conn)?;
+    let max = int_arg("howl", "recv", max_bytes)?;
+    if max <= 0 {
+        return Err(DogeError::value_error(format!(
+            "howl.recv needs a positive byte count, got {max}"
+        )));
+    }
+    let max = max as usize;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, buf } => {
+            // Read until at least one whole character is buffered, or EOF. Only a
+            // partial multi-byte sequence at the tail keeps the loop going, so it
+            // runs at most a few times (a character is 4 bytes at most).
+            loop {
+                let valid_len = match std::str::from_utf8(buf) {
+                    Ok(_) => buf.len(),
+                    Err(e) => {
+                        if e.error_len().is_some() {
+                            return Err(DogeError::io_error("received bytes were not valid text"));
+                        }
+                        e.valid_up_to()
+                    }
+                };
+                if valid_len > 0 {
+                    let bytes: Vec<u8> = buf.drain(..valid_len).collect();
+                    let text = String::from_utf8(bytes)
+                        .expect("compiler bug: valid_up_to bytes are valid UTF-8");
+                    return Ok(Value::str(text));
+                }
+                let mut chunk = vec![0u8; max];
+                match stream.read(&mut chunk) {
+                    Ok(0) => {
+                        if buf.is_empty() {
+                            return Ok(Value::None);
+                        }
+                        return Err(DogeError::io_error(
+                            "connection closed in the middle of a character",
+                        ));
+                    }
+                    Ok(got) => buf.extend_from_slice(&chunk[..got]),
+                    Err(err) => return Err(DogeError::io_error(format!("cannot recv: {err}"))),
+                }
+            }
+        }
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.recv needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
+/// `howl.recv_line(conn)` — read one line from a connection, without the trailing
+/// newline (a `\r\n` is trimmed too), or `none` at end of input. Invalid bytes
+/// are a catchable IOError.
+pub fn howl_recv_line(conn: &Value) -> DogeResult {
+    let sock = socket_arg("recv_line", conn)?;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, buf } => loop {
+            if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                let mut line: Vec<u8> = buf.drain(..=pos).collect();
+                line.pop(); // the '\n'
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                return line_to_value(line);
+            }
+            let mut chunk = [0u8; LINE_CHUNK];
+            match stream.read(&mut chunk) {
+                Ok(0) => {
+                    if buf.is_empty() {
+                        return Ok(Value::None);
+                    }
+                    return line_to_value(std::mem::take(buf));
+                }
+                Ok(got) => buf.extend_from_slice(&chunk[..got]),
+                Err(err) => return Err(DogeError::io_error(format!("cannot recv: {err}"))),
+            }
+        },
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.recv_line needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
+/// `howl.close(sock)` — close a listener or connection now. Idempotent: closing an
+/// already-closed socket is fine. Returns `none`. Any later operation on it is a
+/// catchable IOError.
+pub fn howl_close(sock: &Value) -> DogeResult {
+    let sock = socket_arg("close", sock)?;
+    *sock.state.borrow_mut() = SocketState::Closed;
+    Ok(Value::None)
+}
+
+/// `howl.get(url)` — HTTP(S) GET. Returns a Dict `{"status": Int, "body": Str}`.
+/// A non-2xx response is returned like any other (its status and body); only a
+/// transport, TLS, or timeout failure is a catchable IOError.
+pub fn howl_get(url: &Value) -> DogeResult {
+    let url = str_arg("howl", "get", url)?;
+    request_result(url, agent().get(url).call())
+}
+
+/// `howl.post(url, body)` — HTTP(S) POST of `body` as `text/plain; charset=utf-8`.
+/// Same return shape and error rule as [`howl_get`].
+pub fn howl_post(url: &Value, body: &Value) -> DogeResult {
+    let url = str_arg("howl", "post", url)?;
+    let body = str_arg("howl", "post", body)?;
+    request_result(
+        url,
+        agent()
+            .post(url)
+            .set("Content-Type", "text/plain; charset=utf-8")
+            .send_string(body),
+    )
+}
+
+/// The shared HTTP agent: rustls TLS with a fixed request timeout.
+fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build()
+}
+
+/// Turn a ureq call result into the `{"status", "body"}` Dict. A non-2xx status
+/// (`Error::Status`) is a normal result, not an error; every other ureq error is a
+/// catchable IOError worded without any Rust type names leaking through.
+fn request_result(url: &str, result: Result<ureq::Response, ureq::Error>) -> DogeResult {
+    match result {
+        Ok(response) => response_dict(response),
+        Err(ureq::Error::Status(_, response)) => response_dict(response),
+        Err(ureq::Error::Transport(transport)) => Err(DogeError::io_error(format!(
+            "cannot fetch {url}: {}",
+            transport.message().unwrap_or("the request failed")
+        ))),
+    }
+}
+
+/// Build the response Dict, reading the body as text. A body that is not valid
+/// text is a catchable IOError.
+fn response_dict(response: ureq::Response) -> DogeResult {
+    let status = response.status() as i64;
+    let body = response
+        .into_string()
+        .map_err(|err| DogeError::io_error(format!("cannot read the response: {err}")))?;
+    let mut entries = OrderedMap::new();
+    entries.insert("status".to_string(), Value::Int(status));
+    entries.insert("body".to_string(), Value::str(body));
+    Ok(Value::dict(entries))
+}
+
+/// The error every operation on a closed socket raises.
+fn closed() -> DogeError {
+    DogeError::io_error("socket is closed")
+}
+
+/// A received line's bytes as a Str value, or a catchable IOError when they are
+/// not valid text.
+fn line_to_value(bytes: Vec<u8>) -> DogeResult {
+    String::from_utf8(bytes)
+        .map(Value::str)
+        .map_err(|_| DogeError::io_error("received bytes were not valid text"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+    use std::thread;
+
+    /// A listener bound to an OS-assigned loopback port, plus that port.
+    fn loopback() -> (Value, u16) {
+        let listener = howl_listen(&Value::str("127.0.0.1"), &Value::Int(0)).unwrap();
+        let port = match howl_port(&listener).unwrap() {
+            Value::Int(p) => p as u16,
+            _ => panic!("port is an Int"),
+        };
+        (listener, port)
+    }
+
+    fn recv_str(conn: &Value, n: i64) -> Option<String> {
+        match howl_recv(conn, &Value::Int(n)).unwrap() {
+            Value::Str(s) => Some(s.to_string()),
+            Value::None => None,
+            other => panic!("recv gave {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn tcp_round_trip_and_close() {
+        let (listener, port) = loopback();
+        // connect() succeeds into the backlog before accept(), so one thread can
+        // drive both ends.
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+
+        howl_send(&client, &Value::str("much hello\n")).unwrap();
+        assert_eq!(howl_recv_line(&server).unwrap().to_string(), "much hello");
+
+        howl_send(&server, &Value::str("wow\n")).unwrap();
+        assert_eq!(howl_recv_line(&client).unwrap().to_string(), "wow");
+
+        // After the server closes, the client reads end-of-input.
+        howl_close(&server).unwrap();
+        assert!(matches!(howl_recv_line(&client).unwrap(), Value::None));
+
+        // Every op on a closed socket is a catchable IOError.
+        assert_eq!(
+            howl_send(&server, &Value::str("x")).unwrap_err().kind,
+            ErrorKind::IOError
+        );
+        // close is idempotent.
+        howl_close(&server).unwrap();
+    }
+
+    #[test]
+    fn recv_reassembles_a_split_multibyte_character() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+
+        // "é" is two UTF-8 bytes; reading one byte at a time must still yield the
+        // whole character, never a split.
+        howl_send(&client, &Value::str("é")).unwrap();
+        assert_eq!(recv_str(&server, 1).as_deref(), Some("é"));
+    }
+
+    #[test]
+    fn recv_reports_eof_as_none() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+        howl_close(&client).unwrap();
+        assert_eq!(recv_str(&server, 16), None);
+    }
+
+    #[test]
+    fn wrong_socket_role_and_types_are_catchable() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        // accept on a connection, send on a listener: both TypeErrors.
+        assert_eq!(howl_accept(&client).unwrap_err().kind, ErrorKind::TypeError);
+        assert_eq!(
+            howl_send(&listener, &Value::str("x")).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
+        // Non-Str host, non-Socket receiver, zero recv size.
+        assert_eq!(
+            howl_connect(&Value::Int(1), &Value::Int(port as i64))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            howl_send(&Value::Int(1), &Value::str("x"))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            howl_recv(&client, &Value::Int(0)).unwrap_err().kind,
+            ErrorKind::ValueError
+        );
+        assert_eq!(
+            howl_listen(&Value::str("127.0.0.1"), &Value::Int(99999))
+                .unwrap_err()
+                .kind,
+            ErrorKind::ValueError
+        );
+    }
+
+    #[test]
+    fn connection_refused_is_a_catchable_io_error() {
+        // Bind, read the port, then drop the listener so nothing is listening.
+        let port = {
+            let (listener, port) = loopback();
+            howl_close(&listener).unwrap();
+            port
+        };
+        let err = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IOError);
+    }
+
+    #[test]
+    fn http_get_returns_status_and_body() {
+        // A one-shot HTTP/1.1 server on loopback, so the test never touches the
+        // network. It replies 404 to prove a non-2xx status is a normal result.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let body = "much not found";
+                let response = format!(
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        let url = Value::str(format!("http://127.0.0.1:{port}/"));
+        let result = howl_get(&url).unwrap();
+        handle.join().unwrap();
+
+        match result {
+            Value::Dict(entries) => {
+                let entries = entries.borrow();
+                assert!(matches!(entries.get("status"), Some(Value::Int(404))));
+                assert!(
+                    matches!(entries.get("body"), Some(Value::Str(s)) if &**s == "much not found")
+                );
+            }
+            other => panic!("expected a Dict, got {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn http_get_on_a_dead_port_is_a_catchable_io_error() {
+        // Bind to grab a free port, then drop the listener so nothing answers.
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let err = howl_get(&Value::str(format!("http://127.0.0.1:{port}/"))).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IOError);
+    }
+}

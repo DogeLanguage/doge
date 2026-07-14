@@ -1,0 +1,41 @@
+# such network. much howl. very socket.
+so howl
+
+# Bind a listener on an OS-chosen loopback port, then read the port back.
+such server = howl.listen("127.0.0.1", 0)
+such port = howl.port(server)
+
+# On loopback, connect() lands in the listener's backlog right away, so one
+# script can drive both ends of the conversation without a second thread.
+such client = howl.connect("127.0.0.1", port)
+howl.send(client, "much ping\n")
+
+# Accept the pending connection and read the client's line (newline trimmed).
+such conn = howl.accept(server)
+bark howl.recv_line(conn)
+
+# Reply, and read the reply back on the client side.
+howl.send(conn, "wow pong\n")
+bark howl.recv_line(client)
+
+# Sending on a listening socket (not a connection) is a catchable TypeError,
+# never a crash.
+pls
+    howl.send(server, "nope")
+oh no err!
+    bark err.type
+
+# Closing one end makes the other read end-of-input as none.
+howl.close(conn)
+bark howl.recv_line(client)
+howl.close(client)
+
+# Connecting where nothing listens is a catchable IOError. Grab the port, close
+# the listener, then try to reach it.
+such dead_port = howl.port(server)
+howl.close(server)
+pls
+    howl.connect("127.0.0.1", dead_port)
+oh no err!
+    bark err.type
+wow

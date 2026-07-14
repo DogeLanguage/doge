@@ -19,6 +19,7 @@ impl Codegen {
             uses_method_call: Cell::new(false),
             uses_call_function: Cell::new(false),
             uses_attr_read: Cell::new(false),
+            uses_pup_entry: Cell::new(false),
             materialized: RefCell::new(HashSet::new()),
             locals: HashMap::new(),
             local_funcs: HashMap::new(),
@@ -47,6 +48,7 @@ impl Codegen {
         let fn_dispatcher = self.function_dispatcher(&emit)?;
         let call_value = self.call_value_fn(&emit);
         let class_has_method = self.class_has_method_fn(&classes, &emit);
+        let pup_support = self.emit_pup_support(&env_fields, &emit);
 
         let mut out = String::new();
         out.push_str("#![allow(warnings)]\n");
@@ -64,7 +66,51 @@ impl Codegen {
         out.push_str(&fn_dispatcher);
         out.push_str(&call_value);
         out.push_str(&class_has_method);
+        out.push_str(&pup_support);
         Ok(out)
+    }
+
+    /// The pup trampoline, emitted only when the program calls `pack.zoom`.
+    /// `snapshot_env` packs every top-level binding (a `pack.zoom` argument's
+    /// counterpart to the compiled `Env`) into a `Packed` snapshot, and `pup_entry`
+    /// rebuilds a fresh `Env` from it on the pup's thread, unpacks the callee and
+    /// its arguments, runs the call through `call_value`, and packs the result home.
+    /// The two share one `env_fields` list, so their field order can never drift.
+    fn emit_pup_support(&self, env_fields: &[String], emit: &Emit) -> String {
+        if !emit.uses_pup_entry.get() {
+            return String::new();
+        }
+        let mut out = String::new();
+
+        out.push_str("\nfn snapshot_env(env: &Env) -> Packed {\n");
+        out.push_str("    Packed::List(vec![\n");
+        for field in env_fields {
+            out.push_str(&format!("        pack_snapshot(&env.{field}),\n"));
+        }
+        out.push_str("    ])\n");
+        out.push_str("}\n");
+
+        out.push_str(
+            "\nfn pup_entry(globals: Packed, f: Packed, args: Vec<Packed>) -> Result<Packed, PackedError> {\n",
+        );
+        out.push_str("    let mut globals = unpack_globals(globals).into_iter();\n");
+        out.push_str("    let mut env = Env {\n");
+        out.push_str("        cur_line: 0,\n");
+        if self.multifile {
+            out.push_str("        cur_file: 0,\n");
+        }
+        out.push_str("        depth: 0,\n");
+        for field in env_fields {
+            out.push_str(&format!(
+                "        {field}: globals.next().unwrap_or(Value::None),\n"
+            ));
+        }
+        out.push_str("    };\n");
+        out.push_str("    let callee = unpack_packed(f);\n");
+        out.push_str("    let args: Vec<Value> = args.into_iter().map(unpack_packed).collect();\n");
+        out.push_str("    finish_pup(call_value(callee, args, &mut env))\n");
+        out.push_str("}\n");
+        out
     }
 
     /// Every object in the program, across all files, each with a program-wide

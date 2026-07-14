@@ -52,6 +52,11 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Error(x), Value::Error(y)) => {
             x.kind == y.kind && x.message == y.message && x.file == y.file && x.line == y.line
         }
+        // Sockets are equal only when they are the very same handle.
+        (Value::Socket(x), Value::Socket(y)) => Rc::ptr_eq(x, y),
+        // Pups and bowls, like sockets, are equal only to the very same handle.
+        (Value::Pup(x), Value::Pup(y)) => Rc::ptr_eq(x, y),
+        (Value::Bowl(x), Value::Bowl(y)) => Rc::ptr_eq(x, y),
         // Cross-type comparisons are simply unequal, never an error. Written by
         // left-hand variant rather than a wildcard, so a new Value variant forces
         // its own same-type case to be added above.
@@ -66,7 +71,10 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         | (Value::Function(_), _)
         | (Value::Class(_), _)
         | (Value::BoundMethod(_), _)
-        | (Value::Error(_), _) => false,
+        | (Value::Error(_), _)
+        | (Value::Socket(_), _)
+        | (Value::Pup(_), _)
+        | (Value::Bowl(_), _) => false,
     }
 }
 
@@ -116,7 +124,10 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
         | Value::Function(_)
         | Value::Class(_)
         | Value::BoundMethod(_)
-        | Value::Error(_) => {
+        | Value::Error(_)
+        | Value::Socket(_)
+        | Value::Pup(_)
+        | Value::Bowl(_) => {
             return Err(DogeError::type_error(format!(
                 "in wants a List, Dict, or Str on the right, not {}",
                 container.describe()

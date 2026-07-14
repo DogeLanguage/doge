@@ -42,7 +42,7 @@ fn run_err(source: &str) -> ErrorKind {
     on_big_stack(move || {
         let program = dc::load_program("test.doge", &source).expect("parses and loads");
         dc::check_program(&program).expect("checks");
-        run_program(&program)
+        run_program(std::sync::Arc::new(program))
             .expect_err("expected a runtime error")
             .kind
     })
@@ -346,7 +346,9 @@ fn prepare_then_call_entry_function_drives_tests() {
         let program = dc::load_program("test.doge", &source).expect("parses and loads");
         dc::check_program(&program).expect("checks");
         let mut interp = Interp::new();
-        interp.prepare(&program).expect("integrates cleanly");
+        interp
+            .prepare(std::sync::Arc::new(program))
+            .expect("integrates cleanly");
         assert!(
             interp.call_entry_function("test_ok").is_ok(),
             "a passing test returns Ok"
@@ -359,4 +361,36 @@ fn prepare_then_call_entry_function_drives_tests() {
             ErrorKind::AssertError
         );
     });
+}
+
+/// Run a whole program through the interpreter, returning the kind of any uncaught
+/// error (the `Send` part of the error, so it can leave the big-stack thread). Used
+/// for `pack` tests, which assert inside the script with `amaze` so a mismatch
+/// becomes an uncaught error.
+fn run(source: &str) -> Result<(), ErrorKind> {
+    let source = source.to_string();
+    on_big_stack(move || {
+        let program = dc::load_program("test.doge", &source).expect("parses and loads");
+        dc::check_program(&program).expect("checks");
+        run_program(std::sync::Arc::new(program)).map_err(|err| err.kind)
+    })
+}
+
+#[test]
+fn pack_zoom_runs_a_pup_and_fetch_returns_its_result() {
+    run("so pack\nsuch sq much n:\n    return n * n\nwow\nsuch p = pack.zoom(sq, [6])\namaze pack.fetch(p) == 36\nwow\n")
+        .expect("the pup computes 36 and fetch returns it");
+}
+
+#[test]
+fn a_pups_error_is_re_raised_by_fetch_in_the_interpreter() {
+    // The pup bonks; fetch re-raises it, and pls/oh no on the fetch catches it.
+    run("so pack\nsuch boom much n:\n    bonk \"nope\"\nwow\nsuch p = pack.zoom(boom, [1])\npls\n    such r = pack.fetch(p)\noh no e!\n    amaze e.message == \"nope\"\n\nwow\n")
+        .expect("the pup error is caught with its message intact");
+}
+
+#[test]
+fn a_bowl_passes_a_value_between_pups_in_the_interpreter() {
+    run("so pack\nsuch feed much b:\n    pack.drop(b, 7)\n    return 0\nwow\nsuch b = pack.bowl()\nsuch p = pack.zoom(feed, [b])\namaze pack.sniff(b) == 7\nsuch done = pack.fetch(p)\nwow\n")
+        .expect("a value dropped in a pup is sniffed on the main thread");
 }

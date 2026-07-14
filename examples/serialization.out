@@ -1,0 +1,8 @@
+{"name":"kabosu","age":7,"good":true,"tags":["doge","shibe"]}
+kabosu
+shibe
+[1, 2.5, none, false]
+such "name" is "kabosu", "age" is 7, "good" is yes, "tags" is so "doge" and "shibe" many wow
+7
+[true, false, none]
+caught ValueError

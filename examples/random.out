@@ -1,0 +1,12 @@
+a d6 roll:
+1
+a coin flip:
+heads
+float is always in [0, 1):
+true
+a shuffled deck:
+[5, 1, 2, 3, 4]
+two distinct picks:
+2
+ValueError
+ValueError

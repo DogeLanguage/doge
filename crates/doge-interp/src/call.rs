@@ -124,7 +124,7 @@ impl Interp {
 
     /// Call a function value: unwrap it, then dispatch on its `fn_id`. Arity
     /// diagnostics name the function by its own definition name, not the call site.
-    fn call_value(
+    pub(crate) fn call_value(
         &mut self,
         value: Value,
         args: Vec<Value>,
@@ -166,6 +166,12 @@ impl Interp {
     ) -> DogeResult<Value> {
         let callable = self.callables[id].clone();
         match callable.as_ref() {
+            // `pack.zoom` is the one native that needs interpreter state: it spawns
+            // a fresh interpreter over the same program on a new thread, so it is
+            // dispatched here rather than through the stateless `call_native`.
+            Callable::Native(native) if native.runtime_fn == dc::PACK_ZOOM_RUNTIME_FN => {
+                self.interp_zoom(args)
+            }
             Callable::Native(native) => call_native(native, args),
             Callable::User(template) => {
                 self.call_user(template, &captures, args, kwargs, None, label)
