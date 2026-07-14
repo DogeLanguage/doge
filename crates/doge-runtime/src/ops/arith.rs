@@ -35,6 +35,12 @@ pub fn add(a: Value, b: Value) -> DogeResult {
             .map(Value::Int)
             .ok_or_else(|| overflow("+", *x, *y)),
         (Value::Str(x), Value::Str(y)) => Ok(Value::str(format!("{x}{y}"))),
+        (Value::Bytes(x), Value::Bytes(y)) => {
+            let mut joined = Vec::with_capacity(x.len() + y.len());
+            joined.extend_from_slice(x);
+            joined.extend_from_slice(y);
+            Ok(Value::bytes(joined))
+        }
         // An Error concatenates with a Str as its message, so `"caught: " + err`
         // reads the same as barking the error. Every other `Str + x` stays a type
         // error — an Error is special only because its payload is text.

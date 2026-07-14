@@ -1,0 +1,39 @@
+# such bytes. much binary. very wow.
+so fetch
+
+# bytes() from text UTF-8-encodes it; the value prints in b"..." form.
+such greeting = bytes("hi")
+bark greeting
+bark len(greeting)
+bark greeting[0]
+
+# bytes() also builds from a List of Ints (each 0-255).
+such raw = bytes([104, 105, 33])
+bark raw.hex()
+bark raw.decode()
+
+# Byte-based, deliberately unlike char-based Str: one accented character is two
+# bytes, so len counts 2 where a Str would count 1.
+such accented = bytes("é")
+bark len(accented)
+bark accented.hex()
+
+# Concatenation, byte membership, and slicing all work.
+bark greeting + bytes("!")
+bark 104 in greeting
+bark greeting[0:1]
+
+# A binary file round-trip: write raw bytes, read them straight back.
+such path = "bytes_scratch.bin"
+fetch.write_bytes(path, raw)
+such loaded = fetch.read_bytes(path)
+bark loaded == raw
+bark loaded.decode()
+fetch.delete(path)
+
+# Decoding bytes that are not valid UTF-8 is catchable, never a crash.
+pls
+    bark bytes([255, 254]).decode()
+oh no err!
+    bark err.type
+wow

@@ -29,16 +29,22 @@ pub fn index_get(container: &Value, index: &Value) -> DogeResult {
             let idx = normalize_index(*i, chars.len())?;
             Ok(Value::str(chars[idx].to_string()))
         }
+        (Value::Bytes(b), Value::Int(i)) => {
+            let idx = normalize_index(*i, b.len())?;
+            Ok(Value::Int(b[idx] as i64))
+        }
         (Value::Dict(d), Value::Str(k)) => d
             .borrow()
             .get(k.as_ref())
             .cloned()
             .ok_or_else(|| DogeError::key_error(format!("no such key: {k:?}"))),
-        (Value::List(_) | Value::Str(_), _) => Err(DogeError::type_error(format!(
-            "cannot index {} with {} (need an Int)",
-            container.describe(),
-            index.describe()
-        ))),
+        (Value::List(_) | Value::Str(_) | Value::Bytes(_), _) => {
+            Err(DogeError::type_error(format!(
+                "cannot index {} with {} (need an Int)",
+                container.describe(),
+                index.describe()
+            )))
+        }
         (Value::Dict(_), _) => Err(DogeError::type_error(format!(
             "cannot index a Dict with {} (keys are Str)",
             index.describe()
@@ -82,6 +88,9 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
         }
         (Value::Str(_), _) => Err(DogeError::type_error(
             "cannot assign into a Str (Str values are immutable)",
+        )),
+        (Value::Bytes(_), _) => Err(DogeError::type_error(
+            "cannot assign into a Bytes (Bytes values are immutable)",
         )),
         (Value::List(_), _) => Err(DogeError::type_error(format!(
             "cannot index a List with {} (need an Int)",
@@ -212,6 +221,13 @@ pub fn slice_get(container: &Value, start: &Value, end: &Value, step: &Value) ->
                 .collect();
             Ok(Value::str(picked))
         }
+        Value::Bytes(b) => {
+            let picked: Vec<u8> = slice_indices(start, end, step, b.len())
+                .into_iter()
+                .map(|i| b[i])
+                .collect();
+            Ok(Value::bytes(picked))
+        }
         // Listed by variant rather than a wildcard, so a new sliceable Value
         // variant forces a decision here.
         Value::Dict(_)
@@ -241,6 +257,7 @@ pub fn iter_value(v: &Value) -> DogeResult<Vec<Value>> {
     match v {
         Value::List(items) => Ok(items.borrow().clone()),
         Value::Str(s) => Ok(s.chars().map(|c| Value::str(c.to_string())).collect()),
+        Value::Bytes(b) => Ok(b.iter().map(|&x| Value::Int(x as i64)).collect()),
         Value::Dict(entries) => Ok(entries
             .borrow()
             .iter()

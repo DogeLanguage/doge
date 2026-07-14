@@ -10,7 +10,7 @@ mod pack;
 mod stdlib;
 mod value;
 
-pub use builtins::{bark, gib, interp, len, range, to_float, to_int, to_str};
+pub use builtins::{bark, gib, interp, len, range, to_bytes, to_float, to_int, to_str};
 pub use error::{
     assert_error, bonk_error, enter_call, error_field, error_value, exit_call, DogeError,
     DogeResult, ErrorKind,
@@ -32,7 +32,10 @@ pub use pack::{
 };
 pub use stdlib::dson::{dson_emit, dson_parse};
 pub use stdlib::env::{env_args, env_get, set_script_args};
-pub use stdlib::fetch::{fetch_append, fetch_delete, fetch_exists, fetch_read, fetch_write};
+pub use stdlib::fetch::{
+    fetch_append, fetch_delete, fetch_exists, fetch_read, fetch_read_bytes, fetch_write,
+    fetch_write_bytes,
+};
 pub use stdlib::howl::{
     howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_port, howl_post, howl_recv,
     howl_recv_line, howl_send,

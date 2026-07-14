@@ -136,7 +136,7 @@ by the compiler's own published version once `doge` is installed — so a
 
 ## 3. Runtime model (`doge-runtime`)
 
-- `enum Value { Int(i64), Float(f64), Str(Rc<str>), Bool(bool), None, List(Rc<RefCell<Vec<Value>>>), Dict(Rc<RefCell<OrderedMap>>), Func(…), Object(…) }` — `OrderedMap` is an insertion-ordered string→`Value` map, so dict iteration and printing are deterministic.
+- `enum Value { Int(i64), Float(f64), Str(Rc<str>), Bytes(Rc<[u8]>), Bool(bool), None, List(Rc<RefCell<Vec<Value>>>), Dict(Rc<RefCell<OrderedMap>>), Func(…), Object(…) }` — `Bytes` is the byte-based counterpart of the char-based `Str`; `OrderedMap` is an insertion-ordered string→`Value` map, so dict iteration and printing are deterministic.
 - All fallible operations return `Result<Value, DogeError>`; generated code threads
   `?` through, and `pls`/`oh no` compiles to a `match` on the block's `Result`.
   No panics in the happy path; no `unsafe` anywhere.

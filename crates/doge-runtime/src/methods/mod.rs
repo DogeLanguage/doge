@@ -13,11 +13,13 @@ use crate::error::{DogeError, DogeResult};
 use crate::objects::method_arity_error;
 use crate::value::Value;
 
+mod bytes;
 mod dict;
 mod list;
 #[cfg(test)]
 mod tests;
 
+use bytes::bytes_method;
 use dict::dict_method;
 use list::list_method;
 
@@ -28,6 +30,7 @@ pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult 
     match recv {
         Value::List(_) => list_method(recv, name, args),
         Value::Dict(_) => dict_method(recv, name, args),
+        Value::Bytes(_) => bytes_method(recv, name, args),
         // The dispatcher routes objects to its own class match, never here; this
         // defensive branch names the class rather than claiming "no methods".
         Value::Object(_) => Err(crate::objects::no_such_method(recv, name)),
@@ -56,6 +59,7 @@ pub fn has_builtin_method(recv: &Value, name: &str) -> bool {
     match recv {
         Value::List(_) => list::LIST_METHODS.contains(&name),
         Value::Dict(_) => dict::DICT_METHODS.contains(&name),
+        Value::Bytes(_) => bytes::BYTES_METHODS.contains(&name),
         _ => false,
     }
 }

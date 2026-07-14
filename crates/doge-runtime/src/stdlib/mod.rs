@@ -25,6 +25,18 @@ pub(crate) fn str_arg<'a>(module: &str, fname: &str, v: &'a Value) -> DogeResult
     }
 }
 
+/// A Bytes argument as `&[u8]`, or a catchable type error naming the module
+/// member. Shared by every stdlib module that takes a Bytes argument.
+pub(crate) fn bytes_arg<'a>(module: &str, fname: &str, v: &'a Value) -> DogeResult<&'a [u8]> {
+    match v {
+        Value::Bytes(b) => Ok(b),
+        _ => Err(DogeError::type_error(format!(
+            "{module}.{fname} needs a Bytes, got {}",
+            v.describe()
+        ))),
+    }
+}
+
 /// An Int argument as `i64`, or a catchable type error naming the module member.
 /// Shared by every stdlib module that takes an Int argument.
 pub(crate) fn int_arg(module: &str, fname: &str, v: &Value) -> DogeResult<i64> {

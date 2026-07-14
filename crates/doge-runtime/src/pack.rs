@@ -46,6 +46,7 @@ pub enum Packed {
     Int(i64),
     Float(f64),
     Str(String),
+    Bytes(Vec<u8>),
     Bool(bool),
     None,
     List(Vec<Packed>),
@@ -172,6 +173,7 @@ fn pack_at(value: &Value, mode: PackMode, depth: usize) -> DogeResult<Packed> {
         Value::Int(n) => Packed::Int(*n),
         Value::Float(f) => Packed::Float(*f),
         Value::Str(s) => Packed::Str(s.to_string()),
+        Value::Bytes(b) => Packed::Bytes(b.to_vec()),
         Value::Bool(b) => Packed::Bool(*b),
         Value::None => Packed::None,
         Value::List(items) => {
@@ -251,6 +253,7 @@ pub fn unpack_packed(packed: Packed) -> Value {
         Packed::Int(n) => Value::Int(n),
         Packed::Float(f) => Value::Float(f),
         Packed::Str(s) => Value::str(s),
+        Packed::Bytes(b) => Value::bytes(b),
         Packed::Bool(b) => Value::Bool(b),
         Packed::None => Value::None,
         Packed::List(items) => Value::list(items.into_iter().map(unpack_packed).collect()),

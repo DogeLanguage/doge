@@ -1,5 +1,5 @@
 //! Registration and dispatch of the runtime natives — the always-in-scope
-//! builtins (`len`, `str`, `int`, `float`, `range`) and the stdlib module
+//! builtins (`len`, `str`, `int`, `float`, `bytes`, `range`) and the stdlib module
 //! functions (`nerd.*`, `strings.*`). Registration is driven straight from the
 //! compiler's `BUILTINS` and `MODULES` tables, so names and arities can never
 //! drift; only the runtime-function dispatch below is written by hand, and a test
@@ -76,6 +76,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "to_str" => Ok(rt::to_str(&a[0])),
         "to_int" => rt::to_int(&a[0]),
         "to_float" => rt::to_float(&a[0]),
+        "to_bytes" => rt::to_bytes(&a[0]),
         "range" => rt::range(&a[0], &a[1]),
         "gib" => rt::gib(a.first()),
         "nerd_abs" => rt::nerd_abs(&a[0]),
@@ -96,6 +97,8 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "fetch_read" => rt::fetch_read(&a[0]),
         "fetch_write" => rt::fetch_write(&a[0], &a[1]),
         "fetch_append" => rt::fetch_append(&a[0], &a[1]),
+        "fetch_read_bytes" => rt::fetch_read_bytes(&a[0]),
+        "fetch_write_bytes" => rt::fetch_write_bytes(&a[0], &a[1]),
         "fetch_exists" => rt::fetch_exists(&a[0]),
         "fetch_delete" => rt::fetch_delete(&a[0]),
         "env_args" => rt::env_args(),

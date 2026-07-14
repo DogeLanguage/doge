@@ -40,11 +40,12 @@ pub fn gib(prompt: Option<&Value>) -> DogeResult {
     }
 }
 
-/// `len(x)` — character count for a Str, element count for a List or Dict.
-/// Anything else is a catchable type error.
+/// `len(x)` — character count for a Str, byte count for a Bytes, element count
+/// for a List or Dict. Anything else is a catchable type error.
 pub fn len(v: &Value) -> DogeResult {
     match v {
         Value::Str(s) => Ok(Value::Int(s.chars().count() as i64)),
+        Value::Bytes(b) => Ok(Value::Int(b.len() as i64)),
         Value::List(items) => Ok(Value::Int(items.borrow().len() as i64)),
         Value::Dict(entries) => Ok(Value::Int(entries.borrow().len() as i64)),
         _ => Err(crate::error::DogeError::type_error(format!(
@@ -100,6 +101,44 @@ pub fn to_float(v: &Value) -> DogeResult {
         }),
         _ => Err(crate::error::DogeError::type_error(format!(
             "cannot turn {} into a Float",
+            v.describe()
+        ))),
+    }
+}
+
+/// `bytes(x)` — raw bytes from a value. A Str is UTF-8 encoded; a List of Ints
+/// becomes those bytes, each of which must be in `0..=255` (a catchable
+/// `ValueError` otherwise); a Bytes is returned unchanged. Any other type is a
+/// catchable `TypeError`.
+pub fn to_bytes(v: &Value) -> DogeResult {
+    match v {
+        Value::Bytes(_) => Ok(v.clone()),
+        Value::Str(s) => Ok(Value::bytes(s.as_bytes())),
+        Value::List(items) => {
+            let items = items.borrow();
+            let mut out = Vec::with_capacity(items.len());
+            for item in items.iter() {
+                match item {
+                    Value::Int(n) => {
+                        let byte = u8::try_from(*n).map_err(|_| {
+                            crate::error::DogeError::value_error(format!(
+                                "bytes needs each Int in 0..=255, got {n}"
+                            ))
+                        })?;
+                        out.push(byte);
+                    }
+                    other => {
+                        return Err(crate::error::DogeError::type_error(format!(
+                            "bytes needs a List of Ints, got {} in the List",
+                            other.describe()
+                        )))
+                    }
+                }
+            }
+            Ok(Value::bytes(out))
+        }
+        _ => Err(crate::error::DogeError::type_error(format!(
+            "cannot turn {} into Bytes",
             v.describe()
         ))),
     }
@@ -176,6 +215,51 @@ mod tests {
             to_float(&Value::str("woof")).unwrap_err().kind,
             ErrorKind::ValueError
         );
+    }
+
+    #[test]
+    fn to_bytes_from_str_list_and_bytes() {
+        // A Str UTF-8-encodes: 'é' is the two bytes 0xC3 0xA9.
+        assert!(matches!(
+            to_bytes(&Value::str("é")).unwrap(),
+            Value::Bytes(b) if b[..] == [0xc3, 0xa9]
+        ));
+        // A List of Ints becomes those bytes.
+        let from_list = to_bytes(&Value::list(vec![Value::Int(104), Value::Int(105)])).unwrap();
+        assert!(matches!(from_list, Value::Bytes(b) if b[..] == [104, 105]));
+        // A Bytes is returned unchanged.
+        assert!(matches!(
+            to_bytes(&Value::bytes([1, 2])).unwrap(),
+            Value::Bytes(b) if b[..] == [1, 2]
+        ));
+    }
+
+    #[test]
+    fn to_bytes_rejects_out_of_range_and_wrong_types() {
+        assert_eq!(
+            to_bytes(&Value::list(vec![Value::Int(256)]))
+                .unwrap_err()
+                .kind,
+            ErrorKind::ValueError
+        );
+        assert_eq!(
+            to_bytes(&Value::list(vec![Value::str("x")]))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            to_bytes(&Value::Int(1)).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
+    }
+
+    #[test]
+    fn len_counts_bytes_for_bytes() {
+        assert!(matches!(
+            len(&Value::bytes("héllo")).unwrap(),
+            Value::Int(6)
+        ));
     }
 
     #[test]

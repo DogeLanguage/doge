@@ -82,6 +82,7 @@ Dynamic value types (all runtime-checked):
 | Int | `42`, `-7` (i64) |
 | Float | `3.14` (f64) |
 | Str | `"much wow"` (double quotes, `\n` escapes, `{expr}` interpolation) |
+| Bytes | raw binary data from `bytes(...)` or a binary `fetch` read — no literal; byte-based, so `b[i]` is an Int 0–255 and `len` counts bytes (see [STDLIB.md](STDLIB.md)) |
 | Bool | `true`, `false` |
 | None | `none` |
 | List | `["kabosu", "cheems"]` |
@@ -185,11 +186,12 @@ bark "bos" in "kabosu"                # true — substring
 Numeric semantics: `/` always
 returns a Float, `//` is integer division, Int and Float mix freely with automatic
 promotion, and overflow is a catchable runtime error. String indexing and `len()`
-count characters, not bytes.
+count characters, not bytes — `Bytes` is the byte-based counterpart, where indexing
+and `len()` count bytes.
 
-Builtins (always in scope, no import): `len(x)` (character/element count),
-`str(x)`, `int(x)`, `float(x)` (conversions), `range`, and `gib` (read a line of
-input). `range(n)` yields the Ints `0 … n-1` as a List; `range(a, b)` yields
+Builtins (always in scope, no import): `len(x)` (character/byte/element count),
+`str(x)`, `int(x)`, `float(x)`, `bytes(x)` (conversions), `range`, and `gib` (read a
+line of input). `range(n)` yields the Ints `0 … n-1` as a List; `range(a, b)` yields
 `a … b-1`; both bounds must be Ints and the List is empty when the end is not past
 the start. `gib()` reads one line from standard input as a Str (`none` at end of
 input); `gib("prompt")` prints the prompt first. Details in [STDLIB.md](STDLIB.md).

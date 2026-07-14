@@ -1,12 +1,14 @@
-//! `fetch` — the file-I/O stdlib module. Every operation takes a Str path (and,
-//! where relevant, Str text), and every OS failure — a missing file, a permission
-//! problem, non-text bytes — is a catchable IOError rather than a panic.
+//! `fetch` — the file-I/O stdlib module. Every operation takes a Str path; the
+//! text operations read and write a Str (so non-text bytes are a catchable
+//! IOError), while `read_bytes`/`write_bytes` carry raw Bytes for binary files.
+//! Every OS failure — a missing file, a permission problem — is a catchable
+//! IOError rather than a panic.
 
 use std::fs;
 use std::io::Write;
 
 use crate::error::{DogeError, DogeResult};
-use crate::stdlib::str_arg;
+use crate::stdlib::{bytes_arg, str_arg};
 use crate::value::Value;
 
 /// `fetch.read(path)` — the file's whole contents as a Str. A missing file or one
@@ -48,6 +50,27 @@ pub fn fetch_append(path: &Value, text: &Value) -> DogeResult {
     }
 }
 
+/// `fetch.read_bytes(path)` — the file's whole contents as raw Bytes, for binary
+/// files that are not valid text. A missing file is a catchable IOError.
+pub fn fetch_read_bytes(path: &Value) -> DogeResult {
+    let path = str_arg("fetch", "read_bytes", path)?;
+    match fs::read(path) {
+        Ok(bytes) => Ok(Value::bytes(bytes)),
+        Err(err) => Err(DogeError::io_error(format!("cannot read {path}: {err}"))),
+    }
+}
+
+/// `fetch.write_bytes(path, bytes)` — replace the file's contents with the raw
+/// `bytes`, creating it if needed. Returns `none`.
+pub fn fetch_write_bytes(path: &Value, data: &Value) -> DogeResult {
+    let path = str_arg("fetch", "write_bytes", path)?;
+    let data = bytes_arg("fetch", "write_bytes", data)?;
+    match fs::write(path, data) {
+        Ok(()) => Ok(Value::None),
+        Err(err) => Err(DogeError::io_error(format!("cannot write {path}: {err}"))),
+    }
+}
+
 /// `fetch.exists(path)` — whether a file or directory exists at `path`.
 pub fn fetch_exists(path: &Value) -> DogeResult {
     let path = str_arg("fetch", "exists", path)?;
@@ -86,6 +109,31 @@ mod tests {
         assert!(matches!(fetch_exists(&p).unwrap(), Value::Bool(true)));
         fetch_delete(&p).unwrap();
         assert!(matches!(fetch_exists(&p).unwrap(), Value::Bool(false)));
+    }
+
+    #[test]
+    fn write_bytes_read_bytes_round_trip() {
+        let path = scratch("bytes_round_trip");
+        let p = Value::str(path.to_string_lossy());
+        let data = Value::bytes([0x00, 0xff, 0x68, 0x69]);
+        fetch_write_bytes(&p, &data).unwrap();
+        assert!(matches!(
+            fetch_read_bytes(&p).unwrap(),
+            Value::Bytes(b) if b[..] == [0x00, 0xff, 0x68, 0x69]
+        ));
+        fetch_delete(&p).unwrap();
+    }
+
+    #[test]
+    fn write_bytes_rejects_a_non_bytes_payload() {
+        let path = scratch("bytes_bad_payload");
+        let p = Value::str(path.to_string_lossy());
+        assert_eq!(
+            fetch_write_bytes(&p, &Value::str("not bytes"))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
     }
 
     #[test]

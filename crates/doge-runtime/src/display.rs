@@ -13,12 +13,30 @@ fn receiver_label(v: &Value) -> String {
 }
 
 /// String form of a value as it appears *nested* inside a container: strings
-/// gain quotes, everything else prints as it would on its own.
+/// gain quotes, everything else prints as it would on its own (the `b"..."` form
+/// bytes already print in is self-quoting, so it needs no nested special case).
 fn repr(v: &Value) -> String {
     match v {
         Value::Str(s) => format!("\"{s}\""),
         other => other.to_string(),
     }
+}
+
+/// The printable `b"..."` form of raw bytes: printable ASCII shown literally
+/// (with `"` and `\` escaped), every other byte as a `\xNN` hex escape. Total and
+/// UTF-8-safe, so `bark` and `str(bytes)` can render any bytes without decoding.
+fn bytes_repr(bytes: &[u8]) -> String {
+    let mut out = String::from("b\"");
+    for &byte in bytes {
+        match byte {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            0x20..=0x7e => out.push(byte as char),
+            _ => out.push_str(&format!("\\x{byte:02x}")),
+        }
+    }
+    out.push('"');
+    out
 }
 
 impl fmt::Display for Value {
@@ -35,6 +53,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Str(s) => write!(f, "{s}"),
+            Value::Bytes(b) => write!(f, "{}", bytes_repr(b)),
             Value::Bool(b) => write!(f, "{b}"),
             Value::None => write!(f, "none"),
             Value::List(items) => {
@@ -121,6 +140,21 @@ mod tests {
         assert_eq!(
             Value::bound_method(list, "append").to_string(),
             "<method List.append>"
+        );
+    }
+
+    #[test]
+    fn bytes_print_in_b_quote_form_with_hex_escapes() {
+        assert_eq!(Value::bytes("hi").to_string(), "b\"hi\"");
+        // Non-printable and high bytes become \xNN; quotes and backslashes escape.
+        assert_eq!(
+            Value::bytes([0x00, 0xff, b'"', b'\\']).to_string(),
+            "b\"\\x00\\xff\\\"\\\\\""
+        );
+        // Self-quoting, so it stays the same nested in a container.
+        assert_eq!(
+            Value::list(vec![Value::bytes("hi")]).to_string(),
+            "[b\"hi\"]"
         );
     }
 

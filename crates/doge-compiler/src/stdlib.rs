@@ -200,6 +200,18 @@ pub const MODULES: &[Module] = &[
                 hint: "fetch.append(path, text)",
             },
             ModuleFn {
+                name: "read_bytes",
+                arity: 1,
+                runtime_fn: "fetch_read_bytes",
+                hint: "fetch.read_bytes(path)",
+            },
+            ModuleFn {
+                name: "write_bytes",
+                arity: 2,
+                runtime_fn: "fetch_write_bytes",
+                hint: "fetch.write_bytes(path, bytes)",
+            },
+            ModuleFn {
                 name: "exists",
                 arity: 1,
                 runtime_fn: "fetch_exists",

@@ -19,6 +19,12 @@ pub enum Value {
     Int(i64),
     Float(f64),
     Str(Rc<str>),
+    /// Raw binary data — an immutable, ref-counted byte string, the counterpart of
+    /// `Str` for bytes that are not text. Where `Str` is char-based (indexing and
+    /// `len` count characters), `Bytes` is byte-based: `bytes[i]` is an `Int`
+    /// 0–255 and `len` counts bytes. Produced by `bytes(...)` and the binary
+    /// `fetch` reads; decoded back to text with `.decode()`.
+    Bytes(Rc<[u8]>),
     Bool(bool),
     None,
     List(Rc<RefCell<Vec<Value>>>),
@@ -136,6 +142,11 @@ impl Value {
         Value::Str(Rc::from(s.as_ref()))
     }
 
+    /// Build a `Bytes` value from any byte slice.
+    pub fn bytes(b: impl AsRef<[u8]>) -> Value {
+        Value::Bytes(Rc::from(b.as_ref()))
+    }
+
     /// Build a `List` value from a vector of elements.
     pub fn list(items: Vec<Value>) -> Value {
         Value::List(Rc::new(RefCell::new(items)))
@@ -249,6 +260,7 @@ impl Value {
             Value::Int(n) => *n != 0,
             Value::Float(f) => *f != 0.0,
             Value::Str(s) => !s.is_empty(),
+            Value::Bytes(b) => !b.is_empty(),
             Value::Bool(b) => *b,
             Value::None => false,
             Value::List(items) => !items.borrow().is_empty(),
@@ -270,6 +282,7 @@ impl Value {
             Value::Int(_) => "Int",
             Value::Float(_) => "Float",
             Value::Str(_) => "Str",
+            Value::Bytes(_) => "Bytes",
             Value::Bool(_) => "Bool",
             Value::None => "None",
             Value::List(_) => "List",

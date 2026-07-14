@@ -8,10 +8,11 @@ implemented in Rust inside `doge-runtime`.
 
 | Builtin | Meaning |
 |---|---|
-| `len(x)` | character count of a Str, element count of a List/Dict |
+| `len(x)` | character count of a Str, byte count of a Bytes, element count of a List/Dict |
 | `str(x)` | convert to Str (the same display form `bark` prints) |
 | `int(x)` | convert to Int |
 | `float(x)` | convert to Float |
+| `bytes(x)` | convert to Bytes: a Str is UTF-8-encoded, a List of Ints (each 0–255) becomes those bytes, a Bytes is returned unchanged |
 | `range(n)` / `range(a, b)` | a List of Ints `0 … n-1`, or `a … b-1` |
 | `gib()` / `gib("prompt")` | read one line from standard input as a Str, or `none` at end of input |
 
@@ -77,13 +78,38 @@ updates its value but keeps its original position.
 Methods are not first-class values — `such f = xs.append` is a catchable runtime
 error, since `xs.append` reads a (non-existent) field before the call.
 
+### Bytes
+
+`Bytes` is raw binary data — the byte-based counterpart of the char-based `Str`,
+for data that is not text (file contents, hashes, binary formats). Build one with
+`bytes(x)`; there is no literal. It is immutable, like `Str`.
+
+Where `Str` operations count characters, `Bytes` operations count bytes: `len(b)`
+is the byte count and `b[i]` is an `Int` 0–255. Iterating a `Bytes` yields those
+Ints, `int in b` tests byte membership (and `bytes in b` a contiguous sub-slice),
+`b + b` concatenates, slicing yields a `Bytes`, and `==`/ordering compare
+byte-wise. Printing (and `str(b)`) shows the `b"..."` form — printable ASCII
+literally, other bytes as `\xNN`.
+
+| Method | Returns | Meaning |
+|---|---|---|
+| `hex()` | `Str` | the bytes as lowercase hexadecimal (`bytes("hi").hex()` is `"6869"`) |
+| `decode()` | `Str` | the bytes decoded as UTF-8 text; invalid UTF-8 is a catchable `ValueError` |
+
+```doge
+such raw = bytes("hi")     # b"hi"
+bark len(raw)              # 2
+bark raw.hex()             # 6869
+bark raw.decode()          # hi
+```
+
 ## Modules
 
 | Module | Members |
 |---|---|
 | `nerd` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `min`, `max`, `pow`; constants `pi`, `e` |
 | `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `replace` |
-| `fetch` | `read`, `write`, `append`, `exists`, `delete` — file I/O |
+| `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete` — file I/O |
 | `env` | `args`, `get` — command-line arguments and environment variables |
 | `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
@@ -98,16 +124,19 @@ from a module table in the compiler that mirrors the runtime.
 
 ### `fetch` — file I/O
 
-Every path (and, for writes, the text) must be a Str; anything else is a catchable
-`TypeError`. Every OS failure — a missing file, a permission problem, bytes that
-are not valid text — is a catchable `IOError` (`err.type == "IOError"`), never a
-crash.
+Every path must be a Str, the text operations take/return a Str, and the binary
+operations take/return `Bytes`; anything else is a catchable `TypeError`. Every OS
+failure — a missing file, a permission problem — is a catchable `IOError`
+(`err.type == "IOError"`), never a crash. Read a file whose bytes are not valid
+text with `read` and it is an `IOError`; use `read_bytes` for binary files.
 
 | Member | Returns | Meaning |
 |---|---|---|
 | `read(path)` | `Str` | the whole file as text (missing file or non-text bytes are an `IOError`) |
 | `write(path, text)` | `none` | replace the file's contents with `text`, creating it if needed |
 | `append(path, text)` | `none` | add `text` to the end of the file, creating it if needed |
+| `read_bytes(path)` | `Bytes` | the whole file as raw bytes, for binary data (a missing file is an `IOError`) |
+| `write_bytes(path, bytes)` | `none` | replace the file's contents with raw `bytes`, creating it if needed |
 | `exists(path)` | `Bool` | whether anything exists at `path` |
 | `delete(path)` | `none` | remove the file (a missing file is an `IOError`) |
 
