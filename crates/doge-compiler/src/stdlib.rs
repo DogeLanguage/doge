@@ -409,4 +409,46 @@ pub const MODULES: &[Module] = &[
         ],
         consts: &[],
     },
+    Module {
+        name: "roll",
+        funcs: &[
+            ModuleFn {
+                name: "seed",
+                arity: 1,
+                runtime_fn: "roll_seed",
+                hint: "roll.seed(n)",
+            },
+            ModuleFn {
+                name: "int",
+                arity: 2,
+                runtime_fn: "roll_int",
+                hint: "roll.int(low, high)",
+            },
+            ModuleFn {
+                name: "float",
+                arity: 0,
+                runtime_fn: "roll_float",
+                hint: "roll.float()",
+            },
+            ModuleFn {
+                name: "choice",
+                arity: 1,
+                runtime_fn: "roll_choice",
+                hint: "roll.choice(list)",
+            },
+            ModuleFn {
+                name: "shuffle",
+                arity: 1,
+                runtime_fn: "roll_shuffle",
+                hint: "roll.shuffle(list)",
+            },
+            ModuleFn {
+                name: "sample",
+                arity: 2,
+                runtime_fn: "roll_sample",
+                hint: "roll.sample(list, k)",
+            },
+        ],
+        consts: &[],
+    },
 ];

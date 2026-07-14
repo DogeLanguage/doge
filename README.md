@@ -45,7 +45,7 @@ Doge needs a [Rust](https://rustup.rs) toolchain to install and to compile scrip
 cargo install dogelang
 ```
 
-The first run pays the Rust compile time (a few seconds); the binary is then cached in `~/.cache/doge/`, so an unchanged script runs instantly.
+The first run pays the Rust compile time; the binary is then cached in `~/.cache/doge/`, so an unchanged script runs instantly.
 
 ## Usage
 
@@ -55,10 +55,9 @@ The first run pays the Rust compile time (a few seconds); the binary is then cac
 | `doge bark script.doge` | compile (cached) and run |
 | `doge build script.doge` | compile and copy the binary to `./<name>` |
 | `doge check script.doge` | parse and check only, no build |
-| `doge repl` (or bare `doge`) | interactive interpreter — evaluate Doge with no build |
+| `doge repl` (or bare `doge`) | interactive interpreter, evaluate Doge with no build |
 
-The `examples/` folder tours the language; start with `examples/tour.doge`. For a
-quick play, `doge repl` drops you into an interactive prompt.
+The `examples/` folder tours the language; start with `examples/tour.doge`.
 
 ## Documentation
 
@@ -66,11 +65,11 @@ quick play, `doge repl` drops you into an interactive prompt.
 |---|---|
 | [SYNTAX.md](docs/SYNTAX.md) | Keywords, literals, variables, control flow, functions, error handling, objects, imports |
 | [GRAMMAR.md](docs/GRAMMAR.md) | Grammar sketch (EBNF) and disambiguation rules |
-| [STDLIB.md](docs/STDLIB.md) | Builtins, list/dict methods, and the `nerd`, `strings` modules |
+| [STDLIB.md](docs/STDLIB.md) | Builtins, list/dict methods, and modules |
 | [ERRORS.md](docs/ERRORS.md) | Diagnostic and runtime error message style |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 | [CLI.md](docs/CLI.md) | The `doge` binary and the build cache |
 | [PACKAGING.md](docs/PACKAGING.md) | Projects, the `doge.toml` manifest, dependencies, install, and sharing |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Compiler pipeline, crate layout, runtime model, codegen |
 
 ## License
 

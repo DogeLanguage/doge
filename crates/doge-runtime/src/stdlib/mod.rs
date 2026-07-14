@@ -6,6 +6,7 @@ pub mod json;
 pub mod nap;
 pub mod nerd;
 pub mod pack;
+pub mod roll;
 mod serialize;
 pub mod strings;
 

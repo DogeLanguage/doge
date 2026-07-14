@@ -79,9 +79,6 @@ error, since `xs.append` reads a (non-existent) field before the call.
 
 ## Modules
 
-v1 ships six stdlib modules. There is no `math` module; the math module is
-`nerd`.
-
 | Module | Members |
 |---|---|
 | `nerd` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `min`, `max`, `pow`; constants `pi`, `e` |
@@ -92,6 +89,8 @@ v1 ships six stdlib modules. There is no `math` module; the math module is
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
+| `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
+| `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -368,6 +367,51 @@ bark nap.parse("2000-01-01T00:00:00Z") == 946684800   # true
 
 pls
     nap.parse("not a date")
+oh no err!
+    bark err.type                    # ValueError
+```
+
+### `roll` — random numbers and sampling
+
+Rolling dice, picking, shuffling, and drawing samples. The generator is seeded
+from the clock on first use, so every run differs; call `seed` to fix the sequence
+and make a run reproducible.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `seed(n)` | `none` | seed the generator with an Int, so the following draws repeat next run |
+| `int(low, high)` | `Int` | a uniform Int in the **inclusive** range `[low, high]` |
+| `float()` | `Float` | a uniform Float in `0.0 <= x < 1.0` |
+| `choice(list)` | element | one random element of a non-empty List |
+| `shuffle(list)` | `List` | a new List with the same elements in random order |
+| `sample(list, k)` | `List` | a new List of `k` elements drawn from distinct positions |
+
+`shuffle` and `sample` return a **new** List and leave their argument untouched —
+like every module function, they do not mutate in place (that is what list methods
+such as `xs.append` are for). `sample` draws by position, so if the List holds
+duplicate values the sample may too, but no position is drawn twice.
+
+`int` with `low` above `high` is a catchable `ValueError` (there is no empty
+range), `choice` of an empty List is a `ValueError`, and `sample` needs
+`0 <= k <= len(list)` or it is a `ValueError` too — never a crash.
+
+Seeding is per **pup**: `seed` fixes only the calling thread's generator, and a pup
+spawned by `pack.zoom` starts from its own clock-seeded stream. A single-threaded
+script is fully reproducible after `seed`.
+
+```doge
+so roll
+
+roll.seed(42)                        # reproducible from here
+
+bark roll.int(1, 6)                  # a d6 roll, 1..6
+bark roll.float() < 1.0              # true — always in [0, 1)
+bark roll.choice(["heads", "tails"]) # heads or tails
+bark roll.shuffle([1, 2, 3])         # e.g. [3, 1, 2]
+bark roll.sample([1, 2, 3, 4, 5], 2) # two distinct picks
+
+pls
+    roll.choice([])
 oh no err!
     bark err.type                    # ValueError
 ```
