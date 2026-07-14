@@ -1,8 +1,11 @@
+pub mod dson;
 pub mod env;
 pub mod fetch;
 pub mod howl;
+pub mod json;
 pub mod nerd;
 pub mod pack;
+mod serialize;
 pub mod strings;
 
 use crate::error::{DogeError, DogeResult};

@@ -299,6 +299,42 @@ pub const MODULES: &[Module] = &[
         consts: &[],
     },
     Module {
+        name: "json",
+        funcs: &[
+            ModuleFn {
+                name: "parse",
+                arity: 1,
+                runtime_fn: "json_parse",
+                hint: "json.parse(text)",
+            },
+            ModuleFn {
+                name: "emit",
+                arity: 1,
+                runtime_fn: "json_emit",
+                hint: "json.emit(value)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "dson",
+        funcs: &[
+            ModuleFn {
+                name: "parse",
+                arity: 1,
+                runtime_fn: "dson_parse",
+                hint: "dson.parse(text)",
+            },
+            ModuleFn {
+                name: "emit",
+                arity: 1,
+                runtime_fn: "dson_emit",
+                hint: "dson.emit(value)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
         name: "pack",
         funcs: &[
             // `zoom` is special in codegen: it also receives the generated pup

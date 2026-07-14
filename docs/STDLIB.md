@@ -90,6 +90,8 @@ v1 ships six stdlib modules. There is no `math` module; the math module is
 | `env` | `args`, `get` — command-line arguments and environment variables |
 | `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
+| `json` | `parse`, `emit` — JSON to and from Doge values |
+| `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -251,6 +253,81 @@ for p in pups:
 such bowl = pack.bowl()
 pack.drop(bowl, "treat")
 bark pack.sniff(bowl)              # treat
+```
+
+### `json` — JSON parse and emit
+
+Structured-data serialization. `json.parse(text)` turns a JSON document into a
+Doge value; `json.emit(value)` turns a Doge value back into compact JSON text.
+The mapping between the two is direct:
+
+| JSON | Doge |
+|---|---|
+| object | `Dict` (insertion-ordered; a repeated key keeps its last value) |
+| array | `List` |
+| string | `Str` |
+| number | `Int` when it is written with no fraction or exponent and fits an `Int`, otherwise `Float` |
+| `true` / `false` | `Bool` |
+| `null` | `none` |
+
+`json.emit` produces the compact form — no spaces, keys in the dict's insertion
+order (`{"name":"kabosu","tags":["doge","shibe"]}`). A whole-number `Float` keeps
+its point (`3.0`, not `3`) so it re-parses as a `Float`. Only
+`Dict`/`List`/`Str`/`Int`/`Float`/`Bool`/`none` have a JSON form: emitting an
+object, function, socket, or any other type is a catchable `TypeError`, and a
+non-finite `Float` (JSON has no `NaN`/infinity) is a catchable `ValueError`.
+
+Every malformed input is a catchable `ValueError` that names the offset it failed
+at — a truncated document, a bad escape, trailing text after the value, or nesting
+deeper than 128 levels (the depth cap that keeps a pathological or self-describing
+input from exhausting the stack). Nothing here ever crashes.
+
+```doge
+so json
+
+such config = json.parse("[1, 2.5, null, true]")
+bark config[1]                       # 2.5
+
+such doc = {"name": "kabosu", "good": true}
+bark json.emit(doc)                  # {"name":"kabosu","good":true}
+
+pls
+    json.parse("[1, 2,")
+oh no err!
+    bark err.type                    # ValueError
+```
+
+### `dson` — DSON parse and emit
+
+DSON — [Doge Serialized Object Notation](https://dogeon.xyz/) — is JSON's shape in
+doge-speak, and the `dson` module mirrors `json` member-for-member (`parse`,
+`emit`) and maps to the exact same Doge values. Only the surface syntax differs:
+
+- An object is `such … wow`, each pair written `"key" is value`, pairs separated by
+  any of `,` `.` `!` `?` (emit uses `,`). An empty object is `such wow`.
+- An array is `so … many`, elements separated by `and` or `also` (emit uses `and`).
+  An empty array is `so many`.
+- `yes` / `no` / `empty` are `true` / `false` / `none`.
+- **Numbers are octal.** `17620` is `8080`, `-12` is `-10`, and a fraction or a
+  `very`/`VERY` exponent (meaning × 8ⁿ, so `4very2` is `4 × 8² = 256`) makes it a
+  `Float`. `dson.emit` writes Ints as plain octal and Floats as their exact octal
+  expansion, always with a point (`0.4` for `0.5`) so a whole Float stays a Float.
+- A `\u` string escape takes **six octal digits** (not four hex).
+
+The value mapping, the catchable-error contract, and the 128-level depth cap are
+identical to [`json`](#json--json-parse-and-emit); the two codecs are
+interchangeable but for how the text reads.
+
+```doge
+so dson
+
+such doc = {"name": "kabosu", "age": 7, "tags": ["doge", "shibe"]}
+bark dson.emit(doc)
+# such "name" is "kabosu", "age" is 7, "tags" is so "doge" and "shibe" many wow
+
+such back = dson.parse(dson.emit(doc))
+bark back["age"]                     # 7
+bark dson.parse("so yes and no and empty many")   # [true, false, none]
 ```
 
 A `so <name>` import that is not a stdlib module resolves to the user file

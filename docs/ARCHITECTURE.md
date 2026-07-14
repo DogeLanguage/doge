@@ -25,7 +25,7 @@ generated .rs  ──rustc/cargo──►  native binary  ──►  cached & ex
 ```
 
 A `so <name>` import resolves in order to a built-in module
-(`nerd`/`strings`/`fetch`/`env`/`howl`/`pack`), a declared **dependency** of the importing file's
+(`nerd`/`strings`/`fetch`/`env`/`howl`/`pack`/`json`/`dson`), a declared **dependency** of the importing file's
 project, or the user file `<name>.doge` next to the importer. When the entry lives
 in a project (a directory with a `doge.toml`), the CLI first resolves the manifest's
 dependency graph into a map of package-root → alias → entry file and hands it to the
@@ -116,7 +116,8 @@ doge/
 │   │                     #   plus keywords, token, builtins, stdlib, diagnostics
 │   ├── doge-runtime/     # Value enum, ops/ (arith, compare, index), methods/
 │   │                     #   (list, dict), builtins, objects, pack (Send boundary),
-│   │                     #   stdlib/ (nerd, strings, fetch, env, howl, pack)
+│   │                     #   stdlib/ (nerd, strings, fetch, env, howl, pack,
+│   │                     #   json, dson)
 │   ├── doge-interp/      # tree-walking interpreter over the checked AST (doge repl):
 │   │                     #   analyze (fn ids + captures + class table), exec, expr,
 │   │                     #   call, natives — evaluates against doge-runtime directly
@@ -140,7 +141,7 @@ by the compiler's own published version once `doge` is installed — so a
   `?` through, and `pls`/`oh no` compiles to a `match` on the block's `Result`.
   No panics in the happy path; no `unsafe` anywhere.
 - `bark` is a runtime print with doge-friendly `Display` formatting of values.
-- Stdlib modules (`nerd`, `strings`, `fetch`, `env`, `howl`, `pack`) are Rust
+- Stdlib modules (`nerd`, `strings`, `fetch`, `env`, `howl`, `pack`, `json`, `dson`) are Rust
   functions in the runtime, one per member, named `{module}_{member}` (`nerd_sqrt`,
   `fetch_read`).
 - Objects are `Rc<RefCell<ObjectData>>`: a class id, the class name, and a field
