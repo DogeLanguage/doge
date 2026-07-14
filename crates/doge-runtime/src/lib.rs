@@ -38,6 +38,7 @@ pub use stdlib::howl::{
     howl_recv_line, howl_send,
 };
 pub use stdlib::json::{json_emit, json_parse};
+pub use stdlib::nap::{nap_mono, nap_now, nap_parse, nap_rest, nap_stamp};
 pub use stdlib::nerd::{
     nerd_abs, nerd_ceil, nerd_floor, nerd_max, nerd_min, nerd_pow, nerd_round, nerd_sqrt,
 };

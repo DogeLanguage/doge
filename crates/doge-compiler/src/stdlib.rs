@@ -335,6 +335,42 @@ pub const MODULES: &[Module] = &[
         consts: &[],
     },
     Module {
+        name: "nap",
+        funcs: &[
+            ModuleFn {
+                name: "now",
+                arity: 0,
+                runtime_fn: "nap_now",
+                hint: "nap.now()",
+            },
+            ModuleFn {
+                name: "mono",
+                arity: 0,
+                runtime_fn: "nap_mono",
+                hint: "nap.mono()",
+            },
+            ModuleFn {
+                name: "rest",
+                arity: 1,
+                runtime_fn: "nap_rest",
+                hint: "nap.rest(seconds)",
+            },
+            ModuleFn {
+                name: "stamp",
+                arity: 1,
+                runtime_fn: "nap_stamp",
+                hint: "nap.stamp(secs)",
+            },
+            ModuleFn {
+                name: "parse",
+                arity: 1,
+                runtime_fn: "nap_parse",
+                hint: "nap.parse(text)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
         name: "pack",
         funcs: &[
             // `zoom` is special in codegen: it also receives the generated pup

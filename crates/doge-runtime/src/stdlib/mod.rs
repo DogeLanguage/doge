@@ -3,6 +3,7 @@ pub mod env;
 pub mod fetch;
 pub mod howl;
 pub mod json;
+pub mod nap;
 pub mod nerd;
 pub mod pack;
 mod serialize;

@@ -330,5 +330,47 @@ bark back["age"]                     # 7
 bark dson.parse("so yes and no and empty many")   # [true, false, none]
 ```
 
+### `nap` — time and clocks
+
+Reading the clock, sleeping, and turning timestamps into dates. Time is measured
+in seconds throughout, as a `Float` (so it mixes freely with the rest of Doge's
+numbers and keeps sub-second precision).
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `now()` | `Float` | seconds since the Unix epoch, UTC (sub-second) |
+| `mono()` | `Float` | seconds from a fixed process origin; monotonic, so only *differences* between readings are meaningful |
+| `rest(seconds)` | `none` | sleep for `seconds` (an Int or Float) |
+| `stamp(secs)` | `Str` | the ISO-8601 UTC string for a unix timestamp |
+| `parse(text)` | `Float` | unix seconds for an ISO-8601 UTC string |
+
+Use `now()` for wall-clock timestamps and `mono()` for benchmarking — `mono()`
+never jumps when the system clock is adjusted, so `nap.mono() - start` is a
+trustworthy elapsed time. `now()` never fails; a system clock set before the
+epoch simply reads back negative.
+
+`stamp` formats to whole-second UTC — `nap.stamp(0)` is `"1970-01-01T00:00:00Z"` —
+and `parse` reads that same shape (`"YYYY-MM-DDTHH:MM:SSZ"`, the trailing `Z`
+optional) back to seconds, so the two round-trip. A duration that is negative,
+non-finite, or absurdly large is a catchable `ValueError` from `rest` rather than
+a crash, and a timestamp `parse` cannot read — wrong layout, or a field out of
+range — is a catchable `ValueError` too.
+
+```doge
+so nap
+
+such start = nap.mono()
+nap.rest(0.05)
+bark nap.mono() - start >= 0.05      # true
+
+bark nap.stamp(946684800)            # 2000-01-01T00:00:00Z
+bark nap.parse("2000-01-01T00:00:00Z") == 946684800   # true
+
+pls
+    nap.parse("not a date")
+oh no err!
+    bark err.type                    # ValueError
+```
+
 A `so <name>` import that is not a stdlib module resolves to the user file
 `<name>.doge` next to the importer; see [SYNTAX.md](SYNTAX.md) §9.
