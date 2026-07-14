@@ -91,6 +91,8 @@ Dynamic value types (all runtime-checked):
 | Class | a `many Name:` definition used as a value — a callable that builds an instance (see §8) |
 | Error | the value `oh no err!` binds; `err.type` / `err.message` / `err.file` / `err.line` (see §7) |
 | Socket | a network handle from the `howl` module — a TCP listener or connection; opaque, closes when dropped (see [STDLIB.md](STDLIB.md)) |
+| Pup | a function running on its own thread, from `pack.zoom`; opaque, waited on with `pack.fetch` (see [STDLIB.md](STDLIB.md)) |
+| Bowl | a channel from `pack.bowl` that pups pass values over; opaque, shared across threads (see [STDLIB.md](STDLIB.md)) |
 
 Operators: `+ - * / // % ** == != < <= > >= in and or not`, the bitwise
 operators `& | ^ ~ << >>`, membership `x in xs` and `x not in xs`, indexing
@@ -639,6 +641,18 @@ A name that is both a declared dependency and an on-disk sibling is an ambiguity
 error — rename one. Dependencies come from a local path or a git repository and are
 pinned in `doge.lock`; the manifest format, sources, and lockfile are covered in
 [PACKAGING.md](PACKAGING.md).
+
+## 9a. Concurrency
+
+Doge has no concurrency keywords or shared mutable state — parallelism is the
+[`pack`](STDLIB.md#pack--threads-and-channels) stdlib module. `pack.zoom(f, args)`
+runs `f` on its own thread (a **Pup**) and hands back a handle; `pack.fetch(pup)`
+waits for its result or re-raises the error it hit; a **Bowl** (`pack.bowl`/`drop`/
+`sniff`) is a channel pups pass values over. Each pup is its own single-threaded
+world: its arguments, captures, and a snapshot of the top-level variables are
+deep-copied in and its result copied back, so pups never race over shared memory. A
+socket sent explicitly to a pup transfers to it; a bowl is shared. Full semantics
+are in [STDLIB.md](STDLIB.md#pack--threads-and-channels).
 
 ## 10. Complete example
 

@@ -1,0 +1,28 @@
+# such parallel. much zoomies. very pup.
+so pack
+
+such square much n:
+    return n * n
+wow
+
+such boom much x:
+    bonk "boom at " + str(x)
+wow
+
+# Spawn three pups, then fetch them in order. fetch blocks until a pup finishes,
+# so the output is deterministic no matter how the threads are scheduled.
+such pups = []
+for n in [2, 3, 4]:
+    pups.append(pack.zoom(square, [n]))
+
+for p in pups:
+    bark pack.fetch(p)
+
+# A pup that raises: fetch re-raises the error on the fetching side, so pls/oh no
+# catches it with the pup's own type and message.
+such bad = pack.zoom(boom, [7])
+pls
+    bark pack.fetch(bad)
+oh no err!
+    bark "caught " + err.type + ": " + err.message
+wow

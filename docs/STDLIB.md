@@ -79,7 +79,7 @@ error, since `xs.append` reads a (non-existent) field before the call.
 
 ## Modules
 
-v1 ships five stdlib modules. There is no `math` module; the math module is
+v1 ships six stdlib modules. There is no `math` module; the math module is
 `nerd`.
 
 | Module | Members |
@@ -89,6 +89,7 @@ v1 ships five stdlib modules. There is no `math` module; the math module is
 | `fetch` | `read`, `write`, `append`, `exists`, `delete` — file I/O |
 | `env` | `args`, `get` — command-line arguments and environment variables |
 | `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
+| `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -181,6 +182,75 @@ bark howl.recv_line(client)        # wow pong
 # An HTTP GET returns a status and body Dict.
 such page = howl.get("https://example.com")
 bark page["status"]                # 200
+```
+
+### `pack` — threads and channels
+
+Parallel execution. `pack.zoom` runs a function on its own OS thread — a **pup** —
+so real work happens on several cores at once; `pack.fetch` waits for a pup's
+result; and a **bowl** is a channel (`bowl`/`drop`/`sniff`) pups pass values over.
+Every misuse — a non-callable `zoom`, a second `fetch` of the same pup, a wrong
+handle type, an un-sendable value — is a catchable error, never a crash.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `zoom(f, args)` | `Pup` | run `f` on a new pup, called with the List `args`; returns a handle to it |
+| `fetch(pup)` | the result | block until the pup finishes and return what `f` returned, or re-raise the error it hit |
+| `bowl()` | `Bowl` | open a fresh, empty channel |
+| `drop(bowl, value)` | `none` | send `value` into a bowl |
+| `sniff(bowl)` | the value | block until a value arrives in the bowl, then return it |
+
+**Each pup is its own world.** Doge values are reference-counted and
+single-threaded, so a pup never shares mutable state with the thread that spawned
+it. Instead, everything a pup needs is **deep-copied** across the boundary when it
+starts: the callee and its captured variables, each argument, and a snapshot of the
+script's top-level variables as they were at `zoom` time. The return value is copied
+back the same way. A pup mutating a copied list or object changes only its own copy
+— there are no shared-memory races to reason about, and no locks to hold.
+
+Two things are shared rather than copied, because sharing is their point:
+
+- A **bowl** hands both sides a handle to the *same* channel, so a value dropped in
+  one pup can be sniffed in another. `sniff` is first-in first-out and blocks until
+  a value is available. Any pup may drop or sniff.
+- A **socket** ([`howl`](#howl--tcp-sockets-and-http)) is *transferred* when you
+  send it explicitly — as a `zoom` argument or a `drop` payload — the pup takes over
+  the live connection and the sender's handle becomes closed. (A socket merely
+  caught in the globals snapshot or a closure arrives closed instead, so spawning a
+  pup never silently steals a listener you are still using.)
+
+A **Pup** and a **Bowl** are opaque values like a Socket: no fields or methods, and
+equal only to the very same handle. A pup itself cannot be sent to another pup (a
+catchable `TypeError`), and a self-referential value cannot be copied across (a
+catchable `ValueError`). Fetching a pup twice is a catchable error — its result can
+only be claimed once. If a pup raises, the error travels back and `fetch` re-raises
+it with the pup's own type, message, and source location, so `pls`/`oh no` on the
+`fetch` catches it exactly as if the call had run locally.
+
+The script exits when its top-level statements finish; it does **not** wait for
+pups still running, so `fetch` whatever results you need before the end. A program
+where every thread is blocked in `sniff` with nothing left to drop is a deadlock of
+your own making — a bowl whose every writer is gone raises a catchable `IOError`
+from `sniff` rather than blocking forever.
+
+```doge
+so pack
+
+such square much n:
+    return n * n
+wow
+
+# Spawn three pups, then fetch in order — fetch blocks, so output is deterministic.
+such pups = []
+for n in [2, 3, 4]:
+    pups.append(pack.zoom(square, [n]))
+for p in pups:
+    bark pack.fetch(p)             # 4, 9, 16
+
+# A bowl carries values between pups.
+such bowl = pack.bowl()
+pack.drop(bowl, "treat")
+bark pack.sniff(bowl)              # treat
 ```
 
 A `so <name>` import that is not a stdlib module resolves to the user file

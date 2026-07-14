@@ -42,7 +42,9 @@ pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult 
         | Value::Class(_)
         | Value::BoundMethod(_)
         | Value::Error(_)
-        | Value::Socket(_) => Err(crate::objects::no_methods_error(recv)),
+        | Value::Socket(_)
+        | Value::Pup(_)
+        | Value::Bowl(_) => Err(crate::objects::no_methods_error(recv)),
     }
 }
 

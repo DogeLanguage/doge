@@ -52,6 +52,12 @@ impl Module {
     }
 }
 
+/// The runtime function `pack.zoom` maps to. Both engines special-case it: the
+/// compiler hands it the pup trampoline plus a globals snapshot, and the
+/// interpreter routes it to its own thread-spawning path instead of the generic
+/// native dispatch. Kept in step with the `pack` module's `zoom` entry below.
+pub const PACK_ZOOM_RUNTIME_FN: &str = "pack_zoom";
+
 /// The module named `name`, if it exists.
 pub fn module(name: &str) -> Option<&'static Module> {
     MODULES.iter().find(|m| m.name == name)
@@ -288,6 +294,45 @@ pub const MODULES: &[Module] = &[
                 arity: 2,
                 runtime_fn: "howl_post",
                 hint: "howl.post(url, body)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
+        name: "pack",
+        funcs: &[
+            // `zoom` is special in codegen: it also receives the generated pup
+            // trampoline and a snapshot of the globals (see `PACK_ZOOM_RUNTIME_FN`),
+            // so its two members here are the two the user actually writes.
+            ModuleFn {
+                name: "zoom",
+                arity: 2,
+                runtime_fn: PACK_ZOOM_RUNTIME_FN,
+                hint: "pack.zoom(f, [args])",
+            },
+            ModuleFn {
+                name: "fetch",
+                arity: 1,
+                runtime_fn: "pack_fetch",
+                hint: "pack.fetch(pup)",
+            },
+            ModuleFn {
+                name: "bowl",
+                arity: 0,
+                runtime_fn: "pack_bowl",
+                hint: "pack.bowl()",
+            },
+            ModuleFn {
+                name: "drop",
+                arity: 2,
+                runtime_fn: "pack_drop",
+                hint: "pack.drop(bowl, value)",
+            },
+            ModuleFn {
+                name: "sniff",
+                arity: 1,
+                runtime_fn: "pack_sniff",
+                hint: "pack.sniff(bowl)",
             },
         ],
         consts: &[],

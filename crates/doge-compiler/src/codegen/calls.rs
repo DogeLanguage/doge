@@ -243,6 +243,18 @@ impl Codegen {
                 .with_headline(ARITY_HEADLINE)
                 .with_hint(func.hint));
         }
+        // `pack.zoom(f, args)` also receives the generated pup trampoline and a
+        // snapshot of the globals, so the pup can rebuild a fresh world and run the
+        // call on its own thread. It calls values indirectly, so it needs the
+        // function dispatcher too.
+        if func.runtime_fn == crate::stdlib::PACK_ZOOM_RUNTIME_FN {
+            emit.uses_call_function.set(true);
+            emit.uses_pup_entry.set(true);
+            let f = self.expr(&args[0], emit)?;
+            let job = self.expr(&args[1], emit)?;
+            let call = format!("pack_zoom(pup_entry, snapshot_env(&*env), &{f}, &{job})");
+            return Ok(self.fail(emit, call));
+        }
         let mut parts = Vec::with_capacity(args.len());
         for arg in args {
             parts.push(format!("&{}", self.expr(arg, emit)?));

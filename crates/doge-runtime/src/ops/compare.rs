@@ -54,6 +54,9 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         }
         // Sockets are equal only when they are the very same handle.
         (Value::Socket(x), Value::Socket(y)) => Rc::ptr_eq(x, y),
+        // Pups and bowls, like sockets, are equal only to the very same handle.
+        (Value::Pup(x), Value::Pup(y)) => Rc::ptr_eq(x, y),
+        (Value::Bowl(x), Value::Bowl(y)) => Rc::ptr_eq(x, y),
         // Cross-type comparisons are simply unequal, never an error. Written by
         // left-hand variant rather than a wildcard, so a new Value variant forces
         // its own same-type case to be added above.
@@ -69,7 +72,9 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         | (Value::Class(_), _)
         | (Value::BoundMethod(_), _)
         | (Value::Error(_), _)
-        | (Value::Socket(_), _) => false,
+        | (Value::Socket(_), _)
+        | (Value::Pup(_), _)
+        | (Value::Bowl(_), _) => false,
     }
 }
 
@@ -120,7 +125,9 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
         | Value::Class(_)
         | Value::BoundMethod(_)
         | Value::Error(_)
-        | Value::Socket(_) => {
+        | Value::Socket(_)
+        | Value::Pup(_)
+        | Value::Bowl(_) => {
             return Err(DogeError::type_error(format!(
                 "in wants a List, Dict, or Str on the right, not {}",
                 container.describe()

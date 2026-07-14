@@ -1,0 +1,22 @@
+# such channel. much bowl. very treat.
+so pack
+
+# A pup that drops a fixed run of treats into the shared bowl, then reports how
+# many it sent. A bowl is not copied when it crosses to a pup — both sides share
+# the one channel, which is the whole point.
+such feeder much bowl, count:
+    for i in range(count):
+        pack.drop(bowl, "treat " + str(i))
+    return count
+wow
+
+such bowl = pack.bowl()
+such pup = pack.zoom(feeder, [bowl, 3])
+
+# Sniff exactly as many as the feeder sends. Each sniff blocks until a value
+# arrives, and a bowl is first-in first-out, so the order is deterministic.
+for i in range(3):
+    bark pack.sniff(bowl)
+
+bark pack.fetch(pup)
+wow

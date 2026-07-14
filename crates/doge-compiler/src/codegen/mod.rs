@@ -207,6 +207,9 @@ struct Emit<'a> {
     /// Set once any bare `obj.name` value read is compiled, so `class_has_method`
     /// (the bound-method gate) is emitted.
     uses_attr_read: Cell<bool>,
+    /// Set once a `pack.zoom` call is compiled, so the pup trampoline
+    /// (`snapshot_env` + `pup_entry`) is emitted.
+    uses_pup_entry: Cell<bool>,
     /// Every `fn_id` turned into a `Value::function` somewhere — the dispatcher
     /// arms it must carry.
     materialized: RefCell<HashSet<u32>>,

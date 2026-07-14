@@ -6,6 +6,7 @@ mod methods;
 mod objects;
 mod ops;
 mod ordered_map;
+mod pack;
 mod stdlib;
 mod value;
 
@@ -25,6 +26,10 @@ pub use ops::{
     unpack_value, values_equal,
 };
 pub use ordered_map::OrderedMap;
+pub use pack::{
+    finish_pup, pack_snapshot, pack_value, unpack_globals, unpack_packed, BowlHandle, PackMode,
+    Packed, PackedError, PupEntry,
+};
 pub use stdlib::env::{env_args, env_get, set_script_args};
 pub use stdlib::fetch::{fetch_append, fetch_delete, fetch_exists, fetch_read, fetch_write};
 pub use stdlib::howl::{
@@ -34,6 +39,7 @@ pub use stdlib::howl::{
 pub use stdlib::nerd::{
     nerd_abs, nerd_ceil, nerd_floor, nerd_max, nerd_min, nerd_pow, nerd_round, nerd_sqrt,
 };
+pub use stdlib::pack::{pack_bowl, pack_drop, pack_fetch, pack_sniff, pack_zoom, spawn_pup};
 pub use stdlib::strings::{
     strings_beeg, strings_contains, strings_join, strings_replace, strings_smoll, strings_split,
     strings_trim,

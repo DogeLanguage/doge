@@ -2,6 +2,7 @@ pub mod env;
 pub mod fetch;
 pub mod howl;
 pub mod nerd;
+pub mod pack;
 pub mod strings;
 
 use crate::error::{DogeError, DogeResult};

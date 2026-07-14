@@ -110,6 +110,17 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "howl_close" => rt::howl_close(&a[0]),
         "howl_get" => rt::howl_get(&a[0]),
         "howl_post" => rt::howl_post(&a[0], &a[1]),
+        "pack_fetch" => rt::pack_fetch(&a[0]),
+        "pack_bowl" => rt::pack_bowl(),
+        "pack_drop" => rt::pack_drop(&a[0], &a[1]),
+        "pack_sniff" => rt::pack_sniff(&a[0]),
+        // `pack.zoom` rebuilds an interpreter on a new thread, which needs
+        // interpreter state, so it is dispatched in `call_id` (see `interp_zoom`),
+        // never here. This arm keeps the "every native reaches a runtime arm"
+        // parity invariant honest for the one native that is special.
+        dc::PACK_ZOOM_RUNTIME_FN => Err(DogeError::type_error(
+            "pack.zoom cannot run as a bare native",
+        )),
         other => Err(DogeError::type_error(format!(
             "interp bug: no runtime function {other}"
         ))),

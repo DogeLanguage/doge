@@ -126,9 +126,10 @@ fn run_file(path: &Path, totals: &mut Totals) {
         return;
     }
 
+    let program = std::sync::Arc::new(program);
     let mut interp = doge_interp::Interp::new();
     println!("such test: {display}");
-    if let Err(err) = interp.prepare(&program) {
+    if let Err(err) = interp.prepare(program.clone()) {
         let (_, line) = interp.error_site();
         println!(
             "  ✗ (setup) — {}: {} ({display}:{line})",

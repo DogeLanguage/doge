@@ -2,9 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
+use std::thread::JoinHandle;
 
 use crate::error::{ErrorData, ErrorKind};
 use crate::ordered_map::OrderedMap;
+use crate::pack::{BowlHandle, Packed, PackedError};
 
 /// A shared, mutable binding cell. Closures capture enclosing variables by
 /// sharing these: a `such`/param captured by a nested function becomes a `Cell`,
@@ -43,6 +45,16 @@ pub enum Value {
     /// automatically when the last reference is dropped. Two socket values are
     /// the same socket only when they share this `Rc`.
     Socket(Rc<SocketData>),
+    /// A pup: a function running on its own OS thread, spawned by `pack.zoom`.
+    /// Opaque like a socket — no methods or fields, identity comparison — and
+    /// waited on with `pack.fetch`, which returns the function's result (or
+    /// re-raises the error it hit). A pup cannot be sent to another pup.
+    Pup(Rc<PupData>),
+    /// A bowl: an unbounded channel opened by `pack.bowl`, over which pups pass
+    /// values (`pack.drop`/`pack.sniff`). Unlike every other value, a bowl is
+    /// *shared*, not copied, when it crosses a pup boundary — both sides talk over
+    /// the same channel. Opaque and compared by identity.
+    Bowl(Rc<BowlData>),
 }
 
 /// The innards of a [`Value::Socket`]: the live OS handle behind a `RefCell`, so
@@ -61,6 +73,31 @@ pub enum SocketState {
     Listener(TcpListener),
     Conn { stream: TcpStream, buf: Vec<u8> },
     Closed,
+}
+
+/// The innards of a [`Value::Pup`]: the join handle of its OS thread behind a
+/// `RefCell` so `pack.fetch` can take it. The thread yields either the packed
+/// return value or a packed error. Once fetched, the state is [`PupState::Fetched`]
+/// and a second fetch is a catchable error.
+#[derive(Debug)]
+pub struct PupData {
+    pub state: RefCell<PupState>,
+}
+
+/// What a pup currently is: still running (its join handle is available to wait
+/// on), or already fetched (its result has been claimed).
+#[derive(Debug)]
+pub enum PupState {
+    Running(JoinHandle<Result<Packed, PackedError>>),
+    Fetched,
+}
+
+/// The innards of a [`Value::Bowl`]: the shared channel handle. Cloning a bowl
+/// value shares this handle, and so does sending a bowl to a pup — both reach the
+/// same channel.
+#[derive(Debug)]
+pub struct BowlData {
+    pub handle: BowlHandle,
 }
 
 /// A method captured together with the receiver it was read off. Two bound
@@ -160,6 +197,19 @@ impl Value {
         }))
     }
 
+    /// Build a running pup value around the join handle of its OS thread.
+    pub fn pup(handle: JoinHandle<Result<Packed, PackedError>>) -> Value {
+        Value::Pup(Rc::new(PupData {
+            state: RefCell::new(PupState::Running(handle)),
+        }))
+    }
+
+    /// Build a bowl value around a channel handle — a fresh channel from
+    /// `pack.bowl`, or a shared handle rebuilt on the far side of a pup boundary.
+    pub fn bowl(handle: BowlHandle) -> Value {
+        Value::Bowl(Rc::new(BowlData { handle }))
+    }
+
     /// Build a class value from the constructor arm `fn_id` and the class `name`.
     /// A class captures nothing — calling it always builds a fresh instance — so
     /// its `captures` are empty and two values for the same class compare equal.
@@ -209,6 +259,8 @@ impl Value {
             Value::BoundMethod(_) => true,
             Value::Error(_) => true,
             Value::Socket(_) => true,
+            Value::Pup(_) => true,
+            Value::Bowl(_) => true,
         }
     }
 
@@ -228,6 +280,8 @@ impl Value {
             Value::BoundMethod(_) => "Method",
             Value::Error(_) => "Error",
             Value::Socket(_) => "Socket",
+            Value::Pup(_) => "Pup",
+            Value::Bowl(_) => "Bowl",
         }
     }
 

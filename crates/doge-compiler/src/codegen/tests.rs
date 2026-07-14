@@ -1006,3 +1006,46 @@ fn module_objects_get_global_class_ids() {
         "class 1 dispatches bork_it:\n{out}"
     );
 }
+
+#[test]
+fn pack_zoom_emits_the_pup_trampoline() {
+    let out = gen(
+        "so pack\nsuch w much n:\n    return n\nwow\nsuch p = pack.zoom(w, [1])\nbark pack.fetch(p)\nwow\n",
+    )
+    .unwrap();
+    // zoom is special-cased: it passes the generated trampoline and a globals
+    // snapshot, and the trampoline pair is emitted.
+    assert!(
+        out.contains("pack_zoom(pup_entry, snapshot_env(&*env)"),
+        "zoom call passes the trampoline and globals snapshot:\n{out}"
+    );
+    assert!(
+        out.contains("fn snapshot_env(env: &Env) -> Packed {"),
+        "snapshot_env is emitted:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "fn pup_entry(globals: Packed, f: Packed, args: Vec<Packed>) -> Result<Packed, PackedError> {"
+        ),
+        "pup_entry trampoline is emitted:\n{out}"
+    );
+    // The snapshot packs the top-level binding `p`; the trampoline restores it.
+    assert!(
+        out.contains("pack_snapshot(&env.v_p)"),
+        "snapshot_env packs each global:\n{out}"
+    );
+    // The pup runs the call through the same call_value shim any indirect call uses.
+    assert!(
+        out.contains("finish_pup(call_value("),
+        "the pup runs its call through call_value:\n{out}"
+    );
+}
+
+#[test]
+fn a_program_without_pack_has_no_trampoline() {
+    let out = gen("such age = 7\nbark age\nwow\n").unwrap();
+    assert!(
+        !out.contains("pup_entry") && !out.contains("snapshot_env"),
+        "no pup trampoline when pack is unused:\n{out}"
+    );
+}

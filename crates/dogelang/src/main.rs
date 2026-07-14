@@ -263,8 +263,9 @@ fn run_interpreted(located: Located, args: Vec<String>) -> ExitCode {
         eprint!("{}", diag.render());
         return ExitCode::from(EXIT_FAILURE);
     }
+    let program = std::sync::Arc::new(program);
     let mut interp = doge_interp::Interp::new();
-    match interp.run(&program) {
+    match interp.run(program.clone()) {
         Ok(()) => ExitCode::from(EXIT_OK),
         Err(err) => {
             let (fid, line) = interp.error_site();

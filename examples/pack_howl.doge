@@ -1,0 +1,38 @@
+# such handoff. much socket. very pup.
+so pack
+so howl
+
+# A pup that owns a handed-over connection: read the client's line, reply, close,
+# and report what it handled.
+such handler much conn:
+    such line = howl.recv_line(conn)
+    howl.send(conn, "wow " + line + "\n")
+    howl.close(conn)
+    return "handled: " + line
+wow
+
+such server = howl.listen("127.0.0.1", 0)
+such port = howl.port(server)
+
+# Connect from this side (loopback lands in the backlog), then accept it.
+such client = howl.connect("127.0.0.1", port)
+such conn = howl.accept(server)
+howl.close(server)
+
+# Hand the live connection to a pup. A socket is *transferred* across a zoom
+# argument: the pup now owns it, and our `conn` handle is closed.
+such worker = pack.zoom(handler, [conn])
+
+# Drive the client end of the conversation the pup is now serving.
+howl.send(client, "ping\n")
+bark howl.recv_line(client)
+bark pack.fetch(worker)
+
+# Our transferred handle is closed now, so touching it is a catchable IOError —
+# never a crash.
+pls
+    howl.send(conn, "nope")
+oh no err!
+    bark err.type
+howl.close(client)
+wow
