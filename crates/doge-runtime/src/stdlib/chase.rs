@@ -66,7 +66,7 @@ pub fn chase_run(cmd: &Value, args: &Value, stdin: &Value) -> DogeResult {
     let stderr = decode(cmd, "stderr", output.stderr)?;
 
     let mut result = OrderedMap::new();
-    result.insert("code".to_string(), Value::Int(code));
+    result.insert("code".to_string(), Value::int(code));
     result.insert("stdout".to_string(), Value::str(stdout));
     result.insert("stderr".to_string(), Value::str(stderr));
     Ok(Value::dict(result))
@@ -123,6 +123,7 @@ fn decode(cmd: &str, stream: &str, bytes: Vec<u8>) -> DogeResult<String> {
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
+    use bigdecimal::ToPrimitive;
 
     fn run(cmd: &str, args: &[&str], stdin: Value) -> DogeResult {
         let args = Value::list(args.iter().map(Value::str).collect());
@@ -144,7 +145,7 @@ mod tests {
     fn assert_code(dict: &Value, expected: i64) {
         match dict {
             Value::Dict(entries) => match entries.borrow().get("code") {
-                Some(Value::Int(n)) => assert_eq!(*n, expected, "code"),
+                Some(Value::Int(n)) => assert_eq!(n.to_i64().unwrap(), expected, "code"),
                 other => panic!("expected an Int code, got {other:?}"),
             },
             _ => panic!("expected a dict"),
@@ -191,26 +192,26 @@ mod tests {
 
     #[test]
     fn a_non_str_command_is_a_type_error() {
-        let err = chase_run(&Value::Int(1), &Value::list(vec![]), &Value::None).unwrap_err();
+        let err = chase_run(&Value::int(1), &Value::list(vec![]), &Value::None).unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]
     fn non_list_args_is_a_type_error() {
-        let err = chase_run(&Value::str("echo"), &Value::Int(1), &Value::None).unwrap_err();
+        let err = chase_run(&Value::str("echo"), &Value::int(1), &Value::None).unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]
     fn a_non_str_args_element_is_a_type_error() {
-        let args = Value::list(vec![Value::Int(1)]);
+        let args = Value::list(vec![Value::int(1)]);
         let err = chase_run(&Value::str("echo"), &args, &Value::None).unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]
     fn a_non_str_non_none_stdin_is_a_type_error() {
-        let err = chase_run(&Value::str("cat"), &Value::list(vec![]), &Value::Int(1)).unwrap_err();
+        let err = chase_run(&Value::str("cat"), &Value::list(vec![]), &Value::int(1)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 }

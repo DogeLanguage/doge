@@ -7,6 +7,8 @@
 
 use std::fmt::Write;
 
+use num_bigint::BigInt;
+
 use crate::error::{DogeError, DogeResult};
 use crate::ordered_map::OrderedMap;
 use crate::stdlib::serialize::{escape_str, too_deep, unsupported, MAX_DEPTH};
@@ -48,6 +50,12 @@ fn emit(value: &Value, out: &mut String, depth: usize) -> Result<(), DogeError> 
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Int(n) => {
             let _ = write!(out, "{n}");
+        }
+        // A Decimal emits as a bare JSON number, preserving its exact digits.
+        // JSON has no decimal type, so a round-trip through `json.parse` returns a
+        // Float — the value is exact on the wire, inexact only if re-parsed.
+        Value::Decimal(d) => {
+            let _ = write!(out, "{d}");
         }
         Value::Float(x) => {
             if !x.is_finite() {
@@ -318,7 +326,7 @@ impl Parser {
         }
         let literal: String = self.chars[start..self.pos].iter().collect();
         if !is_float {
-            if let Ok(n) = literal.parse::<i64>() {
+            if let Ok(n) = literal.parse::<BigInt>() {
                 return Ok(Value::Int(n));
             }
         }
@@ -343,6 +351,7 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
+    use crate::ops::values_equal;
 
     fn parse(text: &str) -> DogeResult {
         json_parse(&Value::str(text))
@@ -360,8 +369,8 @@ mod tests {
         assert!(matches!(parse("null").unwrap(), Value::None));
         assert!(matches!(parse("true").unwrap(), Value::Bool(true)));
         assert!(matches!(parse("false").unwrap(), Value::Bool(false)));
-        assert!(matches!(parse("  42 ").unwrap(), Value::Int(42)));
-        assert!(matches!(parse("-7").unwrap(), Value::Int(-7)));
+        assert!(values_equal(&parse("  42 ").unwrap(), &Value::int(42)));
+        assert!(values_equal(&parse("-7").unwrap(), &Value::int(-7)));
         assert!(matches!(parse("\"wow\"").unwrap(), Value::Str(s) if &*s == "wow"));
     }
 
@@ -370,16 +379,15 @@ mod tests {
         assert!(matches!(parse("3.5").unwrap(), Value::Float(x) if x == 3.5));
         assert!(matches!(parse("3.0").unwrap(), Value::Float(x) if x == 3.0));
         assert!(matches!(parse("1e2").unwrap(), Value::Float(x) if x == 100.0));
-        assert!(matches!(parse("100").unwrap(), Value::Int(100)));
+        assert!(values_equal(&parse("100").unwrap(), &Value::int(100)));
     }
 
     #[test]
-    fn an_integer_past_i64_falls_back_to_a_float() {
-        // 2^63 does not fit i64, so it becomes a Float rather than erroring.
-        assert!(matches!(
-            parse("9223372036854775808").unwrap(),
-            Value::Float(_)
-        ));
+    fn an_integer_past_i64_parses_exactly() {
+        // 2^63 does not fit i64, but Int is arbitrary precision, so it parses
+        // exactly rather than losing precision to a Float.
+        let big = "9223372036854775808";
+        assert_eq!(parse(big).unwrap().to_string(), big);
     }
 
     #[test]
@@ -436,7 +444,7 @@ mod tests {
     #[test]
     fn a_non_str_argument_to_parse_is_a_type_error() {
         assert_eq!(
-            json_parse(&Value::Int(1)).unwrap_err().kind,
+            json_parse(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }

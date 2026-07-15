@@ -15,7 +15,9 @@ pub enum ErrorKind {
     TypeError,
     /// `/` or `//` or `%` with a zero divisor.
     DivisionByZero,
-    /// Integer arithmetic that would exceed the `i64` range.
+    /// A number too large to materialize where a bounded one is unavoidable — a
+    /// `**` exponent too big to compute, or a non-finite Float narrowed to an Int.
+    /// Ordinary Int arithmetic is arbitrary precision and never overflows.
     Overflow,
     /// List/Str index outside the valid range.
     IndexOutOfBounds,
@@ -186,7 +188,7 @@ pub fn error_field(err: &ErrorData, name: &str) -> DogeResult {
         "type" => Ok(Value::str(err.kind.as_str())),
         "message" => Ok(Value::Str(err.message.clone())),
         "file" => Ok(Value::Str(err.file.clone())),
-        "line" => Ok(Value::Int(err.line as i64)),
+        "line" => Ok(Value::int(err.line)),
         _ => Err(DogeError::attr_error(format!(
             "an Error has no field {name}"
         ))),
@@ -222,9 +224,9 @@ mod tests {
 
     #[test]
     fn bonk_error_message_is_the_barked_form() {
-        assert_eq!(bonk_error(&Value::Int(5)).message, "5");
+        assert_eq!(bonk_error(&Value::int(5)).message, "5");
         assert_eq!(bonk_error(&Value::str("much fail")).message, "much fail");
-        assert_eq!(bonk_error(&Value::Int(5)).kind, ErrorKind::Bonk);
+        assert_eq!(bonk_error(&Value::int(5)).kind, ErrorKind::Bonk);
     }
 
     #[test]
@@ -287,7 +289,10 @@ mod tests {
         assert!(matches!(error_field(&e, "type").unwrap(), Value::Str(s) if &*s == "ValueError"));
         assert!(matches!(error_field(&e, "message").unwrap(), Value::Str(s) if &*s == "bad"));
         assert!(matches!(error_field(&e, "file").unwrap(), Value::Str(s) if &*s == "f.doge"));
-        assert!(matches!(error_field(&e, "line").unwrap(), Value::Int(4)));
+        assert!(crate::values_equal(
+            &error_field(&e, "line").unwrap(),
+            &Value::int(4)
+        ));
         assert_eq!(
             error_field(&e, "nope").unwrap_err().kind,
             ErrorKind::AttrError

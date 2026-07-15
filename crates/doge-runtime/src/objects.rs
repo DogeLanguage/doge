@@ -164,10 +164,10 @@ mod tests {
     #[test]
     fn a_field_wins_over_a_method_of_the_same_name() {
         let obj = Value::object(0, "Shibe");
-        attr_set(&obj, "speak", Value::Int(1)).unwrap();
+        attr_set(&obj, "speak", Value::int(1)).unwrap();
         // The class "has" a method speak, but the field shadows it.
         let got = attr_get_or_bind(&obj, "speak", &|_, _| true).unwrap();
-        assert!(matches!(got, Value::Int(1)));
+        assert!(crate::values_equal(&got, &Value::int(1)));
     }
 
     #[test]
@@ -198,16 +198,16 @@ mod tests {
 
     #[test]
     fn attr_on_a_non_object_is_a_type_error() {
-        let err = attr_get(&Value::Int(1), "name").unwrap_err();
+        let err = attr_get(&Value::int(1), "name").unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
-        let err = attr_set(&Value::Int(1), "name", Value::None).unwrap_err();
+        let err = attr_set(&Value::int(1), "name", Value::None).unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]
     fn class_id_reads_the_object_and_rejects_others() {
         assert_eq!(object_class_id(&Value::object(3, "Shibe")).unwrap(), 3);
-        let err = object_class_id(&Value::Int(1)).unwrap_err();
+        let err = object_class_id(&Value::int(1)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::AttrError);
     }
 
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn no_methods_error_names_the_type_with_its_article() {
-        let err = no_methods_error(&Value::Int(1));
+        let err = no_methods_error(&Value::int(1));
         assert_eq!(err.kind, ErrorKind::AttrError);
         assert_eq!(err.message, "an Int has no methods");
         assert_eq!(

@@ -1,4 +1,7 @@
-use super::as_f64;
+use bigdecimal::{BigDecimal, Pow, RoundingMode, Signed, ToPrimitive, Zero};
+use num_bigint::BigInt;
+
+use super::{as_decimal, as_f64, is_decimal, is_float};
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
@@ -10,30 +13,68 @@ fn type_err_binop(sym: &str, a: &Value, b: &Value) -> DogeError {
     ))
 }
 
-fn overflow(sym: &str, x: i64, y: i64) -> DogeError {
-    DogeError::overflow(format!("{x} {sym} {y} overflowed the Int range"))
-}
-
 fn div_by_zero(sym: &str) -> DogeError {
     DogeError::division_by_zero(format!("cannot {sym} by zero"))
 }
 
-/// Numeric fallback shared by `sub`/`mul`: promote both operands to Float and
-/// apply `op`, or raise a type error if either operand is non-numeric.
-fn float_fallback(sym: &str, a: &Value, b: &Value, op: impl Fn(f64, f64) -> f64) -> DogeResult {
+/// A `Float`/`Decimal` arithmetic mix. Decimal is exact and Float is not, so
+/// silently joining them would corrupt the exact value — the fix is to convert
+/// one side explicitly.
+fn mix_float_decimal(sym: &str, a: &Value, b: &Value) -> DogeError {
+    DogeError::type_error(format!(
+        "cannot {sym} {} and {} — Decimal is exact and Float is not; convert one with dec() or float()",
+        a.describe(),
+        b.describe()
+    ))
+}
+
+/// Shared resolver for `+`/`-`/`*` once the type-specific arms (Int/Int, Str, …)
+/// have been ruled out: exact `Decimal` math when a Decimal is involved (a
+/// Float/Decimal mix is rejected), otherwise `Float` promotion.
+fn numeric_binop(
+    sym: &str,
+    a: &Value,
+    b: &Value,
+    dec_op: impl Fn(BigDecimal, BigDecimal) -> BigDecimal,
+    float_op: impl Fn(f64, f64) -> f64,
+) -> DogeResult {
+    if is_decimal(a) || is_decimal(b) {
+        if is_float(a) || is_float(b) {
+            return Err(mix_float_decimal(sym, a, b));
+        }
+        return match (as_decimal(a), as_decimal(b)) {
+            (Some(x), Some(y)) => Ok(Value::decimal(dec_op(x, y))),
+            _ => Err(type_err_binop(sym, a, b)),
+        };
+    }
     match (as_f64(a), as_f64(b)) {
-        (Some(x), Some(y)) => Ok(Value::Float(op(x, y))),
+        (Some(x), Some(y)) => Ok(Value::Float(float_op(x, y))),
         _ => Err(type_err_binop(sym, a, b)),
     }
 }
 
-/// `+` — Int+Int (checked), Float promotion, Str concatenation, List concatenation.
+/// Floor division on arbitrary-precision integers: truncate toward zero, then
+/// nudge down one when the remainder is non-zero and the signs differ (Python).
+fn bigint_floordiv(x: &BigInt, y: &BigInt) -> BigInt {
+    let q = x / y;
+    let r = x % y;
+    if !r.is_zero() && (r.is_negative() != y.is_negative()) {
+        q - BigInt::from(1)
+    } else {
+        q
+    }
+}
+
+/// `floor(x / y)` as an exact integer-valued `Decimal`.
+fn decimal_floordiv(x: &BigDecimal, y: &BigDecimal) -> BigDecimal {
+    (x / y).with_scale_round(0, RoundingMode::Floor)
+}
+
+/// `+` — Int+Int (arbitrary precision), Float/Decimal promotion, Str/Bytes/List
+/// concatenation, Error-as-message concatenation.
 pub fn add(a: Value, b: Value) -> DogeResult {
     match (&a, &b) {
-        (Value::Int(x), Value::Int(y)) => x
-            .checked_add(*y)
-            .map(Value::Int)
-            .ok_or_else(|| overflow("+", *x, *y)),
+        (Value::Int(x), Value::Int(y)) => Ok(Value::int(x + y)),
         (Value::Str(x), Value::Str(y)) => Ok(Value::str(format!("{x}{y}"))),
         (Value::Bytes(x), Value::Bytes(y)) => {
             let mut joined = Vec::with_capacity(x.len() + y.len());
@@ -51,37 +92,39 @@ pub fn add(a: Value, b: Value) -> DogeResult {
             joined.extend(y.borrow().iter().cloned());
             Ok(Value::list(joined))
         }
-        _ => match (as_f64(&a), as_f64(&b)) {
-            (Some(x), Some(y)) => Ok(Value::Float(x + y)),
-            _ => Err(type_err_binop("+", &a, &b)),
-        },
+        _ => numeric_binop("+", &a, &b, |x, y| x + y, |x, y| x + y),
     }
 }
 
-/// `-` — Int-Int (checked) or Float promotion.
+/// `-` — Int-Int (arbitrary precision) or Float/Decimal promotion.
 pub fn sub(a: Value, b: Value) -> DogeResult {
-    match (&a, &b) {
-        (Value::Int(x), Value::Int(y)) => x
-            .checked_sub(*y)
-            .map(Value::Int)
-            .ok_or_else(|| overflow("-", *x, *y)),
-        _ => float_fallback("-", &a, &b, |x, y| x - y),
+    if let (Value::Int(x), Value::Int(y)) = (&a, &b) {
+        return Ok(Value::int(x - y));
     }
+    numeric_binop("-", &a, &b, |x, y| x - y, |x, y| x - y)
 }
 
-/// `*` — Int*Int (checked) or Float promotion.
+/// `*` — Int*Int (arbitrary precision) or Float/Decimal promotion.
 pub fn mul(a: Value, b: Value) -> DogeResult {
-    match (&a, &b) {
-        (Value::Int(x), Value::Int(y)) => x
-            .checked_mul(*y)
-            .map(Value::Int)
-            .ok_or_else(|| overflow("*", *x, *y)),
-        _ => float_fallback("*", &a, &b, |x, y| x * y),
+    if let (Value::Int(x), Value::Int(y)) = (&a, &b) {
+        return Ok(Value::int(x * y));
     }
+    numeric_binop("*", &a, &b, |x, y| x * y, |x, y| x * y)
 }
 
-/// `/` — always returns a Float (`5 / 2 == 2.5`), per the sharp-edges table in docs/README.md.
+/// `/` — always a Float for integers (`5 / 2 == 2.5`); exact for decimals
+/// (`Decimal / Decimal` → `Decimal`). A Float/Decimal mix is a type error.
 pub fn div(a: Value, b: Value) -> DogeResult {
+    if is_decimal(&a) || is_decimal(&b) {
+        if is_float(&a) || is_float(&b) {
+            return Err(mix_float_decimal("/", &a, &b));
+        }
+        return match (as_decimal(&a), as_decimal(&b)) {
+            (Some(_), Some(y)) if y.is_zero() => Err(div_by_zero("/")),
+            (Some(x), Some(y)) => Ok(Value::decimal(x / y)),
+            _ => Err(type_err_binop("/", &a, &b)),
+        };
+    }
     match (as_f64(&a), as_f64(&b)) {
         (Some(_), Some(0.0)) => Err(div_by_zero("/")),
         (Some(x), Some(y)) => Ok(Value::Float(x / y)),
@@ -89,24 +132,25 @@ pub fn div(a: Value, b: Value) -> DogeResult {
     }
 }
 
-/// `//` — floor division. Int//Int yields an Int (floored toward negative
-/// infinity, Python-style); any Float operand yields a floored Float.
+/// `//` — floor division. Int//Int yields an Int, Decimal//Decimal an exact
+/// integer-valued Decimal, any Float operand a floored Float.
 pub fn floordiv(a: Value, b: Value) -> DogeResult {
     match (&a, &b) {
         (Value::Int(x), Value::Int(y)) => {
-            if *y == 0 {
+            if y.is_zero() {
                 return Err(div_by_zero("//"));
             }
-            let q = x.checked_div(*y).ok_or_else(|| overflow("//", *x, *y))?;
-            let r = x % y;
-            // Truncated division rounds toward zero; nudge down one when the
-            // remainder is non-zero and operands have opposite signs.
-            let floored = if r != 0 && ((r < 0) != (*y < 0)) {
-                q - 1
-            } else {
-                q
-            };
-            Ok(Value::Int(floored))
+            Ok(Value::int(bigint_floordiv(x, y)))
+        }
+        _ if is_decimal(&a) || is_decimal(&b) => {
+            if is_float(&a) || is_float(&b) {
+                return Err(mix_float_decimal("//", &a, &b));
+            }
+            match (as_decimal(&a), as_decimal(&b)) {
+                (Some(_), Some(y)) if y.is_zero() => Err(div_by_zero("//")),
+                (Some(x), Some(y)) => Ok(Value::decimal(decimal_floordiv(&x, &y))),
+                _ => Err(type_err_binop("//", &a, &b)),
+            }
         }
         _ => match (as_f64(&a), as_f64(&b)) {
             (Some(_), Some(0.0)) => Err(div_by_zero("//")),
@@ -121,16 +165,29 @@ pub fn floordiv(a: Value, b: Value) -> DogeResult {
 pub fn rem(a: Value, b: Value) -> DogeResult {
     match (&a, &b) {
         (Value::Int(x), Value::Int(y)) => {
-            if *y == 0 {
+            if y.is_zero() {
                 return Err(div_by_zero("%"));
             }
-            let r = x.checked_rem(*y).ok_or_else(|| overflow("%", *x, *y))?;
-            let m = if r != 0 && ((r < 0) != (*y < 0)) {
+            let r = x % y;
+            let m = if !r.is_zero() && (r.is_negative() != y.is_negative()) {
                 r + y
             } else {
                 r
             };
-            Ok(Value::Int(m))
+            Ok(Value::int(m))
+        }
+        _ if is_decimal(&a) || is_decimal(&b) => {
+            if is_float(&a) || is_float(&b) {
+                return Err(mix_float_decimal("%", &a, &b));
+            }
+            match (as_decimal(&a), as_decimal(&b)) {
+                (Some(_), Some(y)) if y.is_zero() => Err(div_by_zero("%")),
+                (Some(x), Some(y)) => {
+                    let f = decimal_floordiv(&x, &y);
+                    Ok(Value::decimal(&x - f * &y))
+                }
+                _ => Err(type_err_binop("%", &a, &b)),
+            }
         }
         _ => match (as_f64(&a), as_f64(&b)) {
             (Some(_), Some(0.0)) => Err(div_by_zero("%")),
@@ -149,19 +206,38 @@ pub fn rem(a: Value, b: Value) -> DogeResult {
 }
 
 /// `**` — exponentiation. Int raised to a non-negative Int stays an Int
-/// (checked, so it overflows catchably); a negative exponent or any Float
-/// operand promotes to Float. `0 ** <negative>` is a catchable division by zero.
+/// (arbitrary precision); a Decimal raised to a non-negative Int stays an exact
+/// Decimal; a negative exponent or any Float operand promotes to Float. `0 **
+/// <negative>` is a catchable division by zero, and an exponent too large to
+/// materialize is a catchable overflow.
 pub fn pow(a: Value, b: Value) -> DogeResult {
     match (&a, &b) {
-        (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-            let e = u32::try_from(*exp).map_err(|_| overflow("**", *base, *exp))?;
-            base.checked_pow(e)
-                .map(Value::Int)
-                .ok_or_else(|| overflow("**", *base, *exp))
+        (Value::Int(base), Value::Int(exp)) if !exp.is_negative() => {
+            let e = exp
+                .to_u32()
+                .ok_or_else(|| DogeError::overflow(format!("exponent {exp} is too large")))?;
+            Ok(Value::int(Pow::pow(base.clone(), e)))
         }
-        (Value::Int(0), Value::Int(_)) => Err(div_by_zero("**")),
+        // A non-negative exponent is handled above, so the only Int base left with
+        // an Int exponent here has a negative exponent: `0 ** <negative>` diverges.
+        (Value::Int(base), Value::Int(_)) if base.is_zero() => Err(div_by_zero("**")),
+        (Value::Decimal(base), Value::Int(exp)) if !exp.is_negative() => {
+            let e = exp
+                .to_u32()
+                .ok_or_else(|| DogeError::overflow(format!("exponent {exp} is too large")))?;
+            let mut result = BigDecimal::from(1);
+            for _ in 0..e {
+                result *= base;
+            }
+            Ok(Value::decimal(result))
+        }
+        _ if is_decimal(&a) || is_decimal(&b) => Err(DogeError::type_error(format!(
+            "cannot raise {} to {} — a Decimal power needs a non-negative Int exponent",
+            a.describe(),
+            b.describe()
+        ))),
         _ => match (as_f64(&a), as_f64(&b)) {
-            (Some(0.0), Some(y)) if y < 0.0 => Err(div_by_zero("**")),
+            (Some(x), Some(y)) if x == 0.0 && y < 0.0 => Err(div_by_zero("**")),
             (Some(x), Some(y)) => Ok(Value::Float(x.powf(y))),
             _ => Err(type_err_binop("**", &a, &b)),
         },
@@ -171,11 +247,9 @@ pub fn pow(a: Value, b: Value) -> DogeResult {
 /// Unary `-`.
 pub fn neg(a: Value) -> DogeResult {
     match &a {
-        Value::Int(n) => n
-            .checked_neg()
-            .map(Value::Int)
-            .ok_or_else(|| DogeError::overflow(format!("-{n} overflowed the Int range"))),
+        Value::Int(n) => Ok(Value::int(-n)),
         Value::Float(f) => Ok(Value::Float(-f)),
+        Value::Decimal(d) => Ok(Value::decimal(-d)),
         _ => Err(DogeError::type_error(format!(
             "cannot negate {}",
             a.describe()

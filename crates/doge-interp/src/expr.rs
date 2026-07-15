@@ -16,7 +16,7 @@ impl Interp {
     /// Evaluate an expression to a value in the given call frame and file.
     pub(crate) fn eval(&mut self, expr: &dc::Expr, frame: &Scope, fid: u32) -> DogeResult<Value> {
         match expr {
-            dc::Expr::Int { value, .. } => Ok(Value::Int(*value)),
+            dc::Expr::Int { value, .. } => Ok(Value::Int(value.clone())),
             dc::Expr::Float { value, .. } => Ok(Value::Float(*value)),
             dc::Expr::Str { value, .. } => Ok(Value::str(value)),
             dc::Expr::Bool { value, .. } => Ok(Value::Bool(*value)),

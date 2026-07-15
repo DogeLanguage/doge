@@ -46,7 +46,7 @@ fn main() -> std::process::ExitCode {
 
 fn run(env: &mut Env) -> DogeResult<()> {
     env.cur_line = 1;
-    env.v_age = Value::Int(7i64);
+    env.v_age = Value::int(7i64);
     env.cur_line = 2;
     let _ = bark(&add(Value::str(\"age is \"), to_str(&env.v_age.clone()))?);
     Ok(())
@@ -119,7 +119,7 @@ fn b_greet(mut v_name: Value, env: &mut Env) -> DogeResult<Value> {
 fn decl_inside_if_is_hoisted() {
     let out = gen("such c = 1\nif c:\n    such y = 2\nbark y\nwow\n").unwrap();
     assert!(out.contains("    v_y: Value,\n"));
-    assert!(out.contains("env.v_y = Value::Int(2i64);"));
+    assert!(out.contains("env.v_y = Value::int(2i64);"));
     assert!(out.contains("let _ = bark(&env.v_y.clone());"));
 }
 
@@ -171,7 +171,7 @@ fn rust_keyword_idents_are_mangled() {
     // `match` is a Rust keyword; the `v_` prefix keeps the generated code legal.
     let out = gen("such match = 1\nbark match\nwow\n").unwrap();
     assert!(out.contains("    v_match: Value,\n"));
-    assert!(out.contains("env.v_match = Value::Int(1i64);"));
+    assert!(out.contains("env.v_match = Value::int(1i64);"));
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn string_escapes_survive() {
 fn const_compiles_like_decl() {
     let out = gen("so PI = 3\nbark PI\nwow\n").unwrap();
     assert!(out.contains("    v_PI: Value,\n"));
-    assert!(out.contains("env.v_PI = Value::Int(3i64);"));
+    assert!(out.contains("env.v_PI = Value::int(3i64);"));
     assert!(out.contains("let _ = bark(&env.v_PI.clone());"));
 }
 
@@ -282,9 +282,9 @@ fn keyword_args_bind_by_name_with_ordered_temporaries() {
     let out = gen("such f much a, b, c:\n    return a\nwow\nf(1, c = 3, b = 2)\nwow\n").unwrap();
     // Provided arguments evaluate left-to-right into temporaries, then fill their
     // slots in binding order (a, b, c) → temp for `c` lands in the third slot.
-    assert!(out.contains("let __a0 = Value::Int(1i64); "));
-    assert!(out.contains("let __a1 = Value::Int(3i64); "));
-    assert!(out.contains("let __a2 = Value::Int(2i64); "));
+    assert!(out.contains("let __a0 = Value::int(1i64); "));
+    assert!(out.contains("let __a1 = Value::int(3i64); "));
+    assert!(out.contains("let __a2 = Value::int(2i64); "));
     assert!(out.contains("f_f(__a0, __a2, __a1, &mut *env)"));
 }
 
@@ -330,9 +330,9 @@ fn dispatcher_arm_fills_defaults_and_packs_variadic() {
 #[test]
 fn range_one_and_two_args() {
     let one = gen("for i in range(3):\n    bark i\nwow\n").unwrap();
-    assert!(one.contains("range(&Value::Int(0i64), &Value::Int(3i64))?"));
+    assert!(one.contains("range(&Value::int(0i64), &Value::int(3i64))?"));
     let two = gen("for i in range(2, 5):\n    bark i\nwow\n").unwrap();
-    assert!(two.contains("range(&Value::Int(2i64), &Value::Int(5i64))?"));
+    assert!(two.contains("range(&Value::int(2i64), &Value::int(5i64))?"));
 }
 
 #[test]
@@ -406,7 +406,7 @@ fn closure_captures_an_enclosing_variable() {
     assert!(out.contains("let v_count: Cell = Rc::new(RefCell::new(Value::None));"));
     // The closure receives `count` as a leading cell parameter.
     assert!(out.contains("fn cb_1(v_count: Cell, env: &mut Env)"));
-    assert!(out.contains("cell_set(&v_count, add(cell_get(&v_count), Value::Int(1i64))?);"));
+    assert!(out.contains("cell_set(&v_count, add(cell_get(&v_count), Value::int(1i64))?);"));
     // Construction threads the shared cell into the function value.
     assert!(
         out.contains("cell_set(&v_bump, Value::function(1u32, \"bump\", vec![v_count.clone()]));")
@@ -461,7 +461,7 @@ fn unknown_module_is_an_error() {
 #[test]
 fn module_call_emits_runtime_fn() {
     let out = gen("so nerd\nbark nerd.sqrt(16)\nwow\n").unwrap();
-    assert!(out.contains("nerd_sqrt(&Value::Int(16i64))?"));
+    assert!(out.contains("nerd_sqrt(&Value::int(16i64))?"));
 }
 
 #[test]
@@ -609,7 +609,7 @@ fn main() -> std::process::ExitCode {
 
 fn run(env: &mut Env) -> DogeResult<()> {
     env.cur_line = 12;
-    env.v_kabosu = n_0(Value::str("kabosu"), Value::Int(18i64), &mut *env)?;
+    env.v_kabosu = n_0(Value::str("kabosu"), Value::int(18i64), &mut *env)?;
     env.cur_line = 13;
     let _ = call_method(env.v_kabosu.clone(), "speak", vec![], &mut *env)?;
     Ok(())
@@ -674,7 +674,7 @@ fn attr_get_and_set_emission() {
     // A field read as a value binds a method when there is no field, so it emits
     // `attr_get_or_bind`; a field write is still a plain `attr_set`.
     let out = gen("such x = 1\nx.name = 2\nbark x.name\nwow\n").unwrap();
-    assert!(out.contains("attr_set(&env.v_x.clone(), \"name\", Value::Int(2i64))?;"));
+    assert!(out.contains("attr_set(&env.v_x.clone(), \"name\", Value::int(2i64))?;"));
     assert!(out.contains("attr_get_or_bind(&env.v_x.clone(), \"name\", &class_has_method)?"));
 }
 
@@ -731,10 +731,10 @@ fn no_init_class_takes_no_args() {
 #[test]
 fn class_as_value_constructs_a_class_value() {
     // A bare class name used as a value builds a `Value::class` over its
-    // constructor arm — its id follows the builtins (there are seven).
+    // constructor arm — its id follows the builtins (there are eight).
     let out = gen("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nsuch g = Shibe\nwow\n")
         .unwrap();
-    assert!(out.contains("env.v_g = Value::class(7u32, \"Shibe\");"));
+    assert!(out.contains("env.v_g = Value::class(8u32, \"Shibe\");"));
 }
 
 #[test]
@@ -744,8 +744,8 @@ fn calling_a_class_value_dispatches_to_the_constructor() {
     let out =
         gen("many Shibe:\n    such init much n:\n        self.n = n\n    wow\nwow\nsuch g = Shibe\nsuch s = g(1)\nwow\n")
             .unwrap();
-    assert!(out.contains("Value::class(7u32, \"Shibe\")"));
-    assert!(out.contains("7u32 => {"));
+    assert!(out.contains("Value::class(8u32, \"Shibe\")"));
+    assert!(out.contains("8u32 => {"));
     assert!(out.contains("function_arity_error(\"Shibe\", 1usize, Some(1usize), args.len())"));
     assert!(out.contains("n_0(args.remove(0), &mut *env)"));
 }

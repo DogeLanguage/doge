@@ -95,6 +95,13 @@ pub const BUILTINS: &[BuiltinFn] = &[
         hint: "bytes(thing)",
     },
     BuiltinFn {
+        name: "dec",
+        runtime_fn: "to_decimal",
+        arities: &[1],
+        shape: BuiltinShape::Fallible,
+        hint: "dec(thing)",
+    },
+    BuiltinFn {
         name: "range",
         runtime_fn: "range",
         arities: &[1, 2],

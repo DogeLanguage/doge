@@ -1,3 +1,5 @@
+use num_bigint::BigInt;
+
 use crate::token::Span;
 
 mod analysis;
@@ -212,7 +214,9 @@ pub enum Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int {
-        value: i64,
+        /// The literal's value at full width — arbitrary precision, so a literal
+        /// larger than `i64` survives to codegen.
+        value: BigInt,
         span: Span,
     },
     Float {

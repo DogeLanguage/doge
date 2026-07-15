@@ -1,18 +1,59 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use super::as_f64;
+use bigdecimal::{BigDecimal, ToPrimitive};
+
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
+
+/// Whether `v` is one of the three numeric types (`Int`/`Float`/`Decimal`), which
+/// compare across each other rather than by exact type.
+fn is_numeric(v: &Value) -> bool {
+    matches!(v, Value::Int(_) | Value::Float(_) | Value::Decimal(_))
+}
+
+/// A numeric value as `f64`, for any comparison that pairs a `Float` with an
+/// `Int`/`Decimal`. `None` only for a non-number or a `Float` NaN.
+fn numeric_f64(v: &Value) -> Option<f64> {
+    match v {
+        Value::Int(n) => n.to_f64(),
+        Value::Float(f) => Some(*f),
+        Value::Decimal(d) => d.to_f64(),
+        _ => None,
+    }
+}
+
+/// Ordering between two numeric values, comparing exactly where both are exact
+/// (Int/Decimal) and via `f64` once a `Float` is involved. `None` when a NaN is
+/// involved (no ordering). Both operands must be numeric.
+fn numeric_cmp(a: &Value, b: &Value) -> Option<Ordering> {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
+        (Value::Decimal(x), Value::Decimal(y)) => Some(x.cmp(y)),
+        (Value::Int(x), Value::Decimal(y)) => Some(BigDecimal::from(x.clone()).cmp(y)),
+        (Value::Decimal(x), Value::Int(y)) => Some(x.cmp(&BigDecimal::from(y.clone()))),
+        _ => numeric_f64(a)?.partial_cmp(&numeric_f64(b)?),
+    }
+}
+
+/// Numeric equality when both operands are numbers (`Some`), else `None` so the
+/// caller falls through to structural/type comparison. Uses value ordering, so
+/// `dec("0.10") == dec("0.1")` and `1 == 1.0` both hold.
+fn numeric_equal(a: &Value, b: &Value) -> Option<bool> {
+    if is_numeric(a) && is_numeric(b) {
+        Some(numeric_cmp(a, b) == Some(Ordering::Equal))
+    } else {
+        None
+    }
+}
 
 /// Structural, Python-style equality: `1 == 1.0`, deep list/dict comparison,
 /// everything else across types is unequal.
 pub fn values_equal(a: &Value, b: &Value) -> bool {
+    if let Some(numeric) = numeric_equal(a, b) {
+        return numeric;
+    }
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => x == y,
-        (Value::Float(x), Value::Float(y)) => x == y,
-        (Value::Int(x), Value::Float(y)) => (*x as f64) == *y,
-        (Value::Float(x), Value::Int(y)) => *x == (*y as f64),
         (Value::Str(x), Value::Str(y)) => x == y,
         (Value::Bytes(x), Value::Bytes(y)) => x == y,
         (Value::Bool(x), Value::Bool(y)) => x == y,
@@ -63,6 +104,7 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         // its own same-type case to be added above.
         (Value::Int(_), _)
         | (Value::Float(_), _)
+        | (Value::Decimal(_), _)
         | (Value::Str(_), _)
         | (Value::Bytes(_), _)
         | (Value::Bool(_), _)
@@ -121,7 +163,7 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
         // `int in bytes` tests byte membership (the byte must be 0–255); `bytes in
         // bytes` tests for a contiguous sub-slice, mirroring `Str in Str`.
         Value::Bytes(haystack) => match &needle {
-            Value::Int(n) => u8::try_from(*n).is_ok_and(|b| haystack.contains(&b)),
+            Value::Int(n) => n.to_u8().is_some_and(|b| haystack.contains(&b)),
             Value::Bytes(sub) => {
                 sub.is_empty() || haystack.windows(sub.len()).any(|w| w == &sub[..])
             }
@@ -134,6 +176,7 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
         },
         Value::Int(_)
         | Value::Float(_)
+        | Value::Decimal(_)
         | Value::Bool(_)
         | Value::None
         | Value::Object(_)
@@ -166,8 +209,8 @@ pub fn not_in(needle: Value, container: Value) -> DogeResult {
 /// lexicographically, anything else is a type error. The list `sort` method
 /// reuses this so its ordering matches the comparison operators exactly.
 pub(crate) fn order(a: &Value, b: &Value) -> DogeResult<Ordering> {
-    if let (Some(x), Some(y)) = (as_f64(a), as_f64(b)) {
-        return x.partial_cmp(&y).ok_or_else(|| {
+    if is_numeric(a) && is_numeric(b) {
+        return numeric_cmp(a, b).ok_or_else(|| {
             DogeError::type_error(format!(
                 "cannot compare {} and {}",
                 a.describe(),
@@ -223,15 +266,15 @@ mod tests {
         let hay = Value::bytes([104, 105, 33]);
         // `int in bytes` is byte membership; a value outside 0..=255 is simply absent.
         assert!(matches!(
-            in_(Value::Int(105), hay.clone()).unwrap(),
+            in_(Value::int(105), hay.clone()).unwrap(),
             Value::Bool(true)
         ));
         assert!(matches!(
-            in_(Value::Int(200), hay.clone()).unwrap(),
+            in_(Value::int(200), hay.clone()).unwrap(),
             Value::Bool(false)
         ));
         assert!(matches!(
-            in_(Value::Int(999), hay.clone()).unwrap(),
+            in_(Value::int(999), hay.clone()).unwrap(),
             Value::Bool(false)
         ));
         // `bytes in bytes` is a contiguous sub-slice.

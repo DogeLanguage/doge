@@ -1,3 +1,5 @@
+use num_bigint::BigInt;
+
 use crate::ast::BinOp;
 
 /// A 1-based source position pointing at the first character of a token.
@@ -64,7 +66,9 @@ pub enum TokenKind {
 
     // --- Literals and identifiers ---
     Ident(String),
-    Int(i64),
+    /// An integer literal at full width: `Int` is arbitrary precision, so a literal
+    /// larger than `i64` must survive to codegen intact.
+    Int(BigInt),
     Float(f64),
     Str(String),
     /// A string literal containing at least one `{…}` interpolation hole.

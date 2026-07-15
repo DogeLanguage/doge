@@ -57,7 +57,7 @@ pub(crate) fn call_native(native: &Native, args: Vec<Value>) -> DogeResult<Value
             call_runtime(native.runtime_fn, &args)
         }
         Arity::OneOrTwo => match args.len() {
-            1 => call_runtime(native.runtime_fn, &[Value::Int(0), args[0].clone()]),
+            1 => call_runtime(native.runtime_fn, &[Value::int(0), args[0].clone()]),
             2 => call_runtime(native.runtime_fn, &args),
             got => Err(function_arity_error(&native.name, 1, Some(2), got)),
         },
@@ -77,6 +77,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "to_int" => rt::to_int(&a[0]),
         "to_float" => rt::to_float(&a[0]),
         "to_bytes" => rt::to_bytes(&a[0]),
+        "to_decimal" => rt::to_decimal(&a[0]),
         "range" => rt::range(&a[0], &a[1]),
         "gib" => rt::gib(a.first()),
         "nerd_abs" => rt::nerd_abs(&a[0]),
@@ -214,7 +215,7 @@ mod tests {
                 // prompt errors out before any read.
                 Arity::ZeroOrOne => 1,
             };
-            let args = vec![Value::Int(1); argc];
+            let args = vec![Value::int(1); argc];
             if let Err(err) = call_native(native, args) {
                 assert!(
                     !err.message.starts_with("interp bug"),

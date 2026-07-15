@@ -10,8 +10,9 @@ implemented in Rust inside `doge-runtime`.
 |---|---|
 | `len(x)` | character count of a Str, byte count of a Bytes, element count of a List/Dict |
 | `str(x)` | convert to Str (the same display form `bark` prints) |
-| `int(x)` | convert to Int |
+| `int(x)` | convert to Int: a whole number of any size from a Str, a Float/Decimal truncated toward zero, a Bool to 0/1 |
 | `float(x)` | convert to Float |
+| `dec(x)` | convert to an exact Decimal: a Str/Int exactly, a Float via its shortest decimal form (so `dec(0.1)` is `0.1`, not binary noise), a Decimal unchanged |
 | `bytes(x)` | convert to Bytes: a Str is UTF-8-encoded, a List of Ints (each 0–255) becomes those bytes, a Bytes is returned unchanged |
 | `range(n)` / `range(a, b)` | a List of Ints `0 … n-1`, or `a … b-1` |
 | `gib()` / `gib("prompt")` | read one line from standard input as a Str, or `none` at end of input |
@@ -102,6 +103,41 @@ bark len(raw)              # 2
 bark raw.hex()             # 6869
 bark raw.decode()          # hi
 ```
+
+### Decimal
+
+`Decimal` is exact base-10 arithmetic — the companion to `Float` for money and any
+calculation that must be exact rather than the nearest binary approximation. Build
+one with `dec(x)`; there is no literal. It has no methods (operators do the work).
+
+A `Decimal` is exact and arbitrary precision. It participates in the ordinary
+operators, with two rules that keep exactness honest:
+
+- **Int and Decimal mix** (both are exact), promoting to `Decimal`: `1 + dec("0.5")`
+  is `dec("1.5")`.
+- **Float and Decimal do not mix** in arithmetic — silently folding an inexact
+  `Float` into an exact `Decimal` would corrupt it, so it is a catchable `TypeError`.
+  Convert one side first (`dec(x)` or `float(x)`). Comparison still works across all
+  three numeric types.
+
+`Decimal / Decimal` is a `Decimal` (exact when the division terminates, otherwise
+rounded to a fixed scale). `//` and `%` follow the same floor/modulo rules as Ints,
+and `Decimal ** <non-negative Int>` stays an exact Decimal. Printing keeps the value's
+own scale (`dec("0.10")` shows `0.10`), while equality is by value (`dec("0.10") ==
+dec("0.1")`). `int(d)` truncates toward zero; `float(d)` rounds to the nearest Float.
+
+```doge
+bark dec("0.1") + dec("0.2")   # 0.3      (Float 0.1 + 0.2 is 0.30000000000000004)
+such price = dec("19.99")
+bark price * 3                 # 59.97
+bark dec("1") / dec("4")       # 0.25
+bark dec("0.10") == dec("0.1") # true
+```
+
+`dec` and `json`/`dson`: `json.emit` writes a Decimal as a bare JSON number (JSON has
+no decimal type, so a round-trip through `json.parse` returns a Float). `dson` numbers
+are octal and so have no faithful Decimal form — `dson.emit` of a Decimal is a
+catchable `TypeError`, like any other unserializable value.
 
 ## Modules
 

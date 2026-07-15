@@ -22,3 +22,9 @@ regex = "1"
 # `howl.post` need a real HTTP stack; ureq is blocking/synchronous, matching the
 # runtime's no-async design, and rustls keeps it pure-Rust with bundled roots.
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# Arbitrary-precision numerics: `num-bigint` backs the `Int` value type (overflow
+# just grows instead of wrapping) and `bigdecimal` backs the exact base-10 `Decimal`
+# type (money/crypto). Both are pure-Rust and correctness-sensitive; hand-rolling a
+# correct bignum/decimal would be far more code and risk. Same rationale as `regex`.
+num-bigint = "0.4"
+bigdecimal = "0.4"

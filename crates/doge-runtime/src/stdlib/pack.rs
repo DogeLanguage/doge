@@ -162,8 +162,11 @@ mod tests {
 
     #[test]
     fn a_pup_returns_its_value_through_fetch() {
-        let pup = spawn_pup(|| finish_pup(Ok(Value::Int(49)))).unwrap();
-        assert!(matches!(pack_fetch(&pup).unwrap(), Value::Int(49)));
+        let pup = spawn_pup(|| finish_pup(Ok(Value::int(49)))).unwrap();
+        assert!(crate::values_equal(
+            &pack_fetch(&pup).unwrap(),
+            &Value::int(49)
+        ));
     }
 
     #[test]
@@ -184,15 +187,15 @@ mod tests {
     #[test]
     fn fetch_and_bowl_ops_reject_wrong_handles() {
         assert_eq!(
-            pack_fetch(&Value::Int(1)).unwrap_err().kind,
+            pack_fetch(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            pack_drop(&Value::Int(1), &Value::None).unwrap_err().kind,
+            pack_drop(&Value::int(1), &Value::None).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            pack_sniff(&Value::Int(1)).unwrap_err().kind,
+            pack_sniff(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }
@@ -222,7 +225,7 @@ mod tests {
             pack_zoom(
                 stub_entry,
                 Packed::None,
-                &Value::Int(3),
+                &Value::int(3),
                 &Value::list(vec![])
             )
             .unwrap_err()
@@ -232,7 +235,7 @@ mod tests {
         // A callable but a non-List argument bundle.
         let f = Value::function(0, "worker", vec![]);
         assert_eq!(
-            pack_zoom(stub_entry, Packed::None, &f, &Value::Int(3))
+            pack_zoom(stub_entry, Packed::None, &f, &Value::int(3))
                 .unwrap_err()
                 .kind,
             ErrorKind::TypeError

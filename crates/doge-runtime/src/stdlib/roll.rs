@@ -147,7 +147,7 @@ pub fn roll_int(low: &Value, high: &Value) -> DogeResult {
     } else {
         with_rng(|rng| rng.below(span as u64))
     };
-    Ok(Value::Int((low as i128 + draw as i128) as i64))
+    Ok(Value::int((low as i128 + draw as i128) as i64))
 }
 
 /// `roll.float()` — a uniform Float in `0.0 <= x < 1.0`.
@@ -212,14 +212,15 @@ fn fisher_yates(rng: &mut Xoshiro256ss, items: &mut [Value], count: usize) {
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
+    use bigdecimal::ToPrimitive;
 
     fn seed(n: i64) {
-        roll_seed(&Value::Int(n)).unwrap();
+        roll_seed(&Value::int(n)).unwrap();
     }
 
     fn as_int(v: Value) -> i64 {
         match v {
-            Value::Int(n) => n,
+            Value::Int(n) => n.to_i64().unwrap(),
             other => panic!("expected an Int, got {other:?}"),
         }
     }
@@ -235,11 +236,11 @@ mod tests {
     fn same_seed_reproduces_the_sequence() {
         seed(1234);
         let first: Vec<i64> = (0..10)
-            .map(|_| as_int(roll_int(&Value::Int(0), &Value::Int(1_000_000)).unwrap()))
+            .map(|_| as_int(roll_int(&Value::int(0), &Value::int(1_000_000)).unwrap()))
             .collect();
         seed(1234);
         let second: Vec<i64> = (0..10)
-            .map(|_| as_int(roll_int(&Value::Int(0), &Value::Int(1_000_000)).unwrap()))
+            .map(|_| as_int(roll_int(&Value::int(0), &Value::int(1_000_000)).unwrap()))
             .collect();
         assert_eq!(first, second);
     }
@@ -248,7 +249,7 @@ mod tests {
     fn int_stays_within_the_inclusive_range() {
         seed(7);
         for _ in 0..1000 {
-            let n = as_int(roll_int(&Value::Int(-3), &Value::Int(3)).unwrap());
+            let n = as_int(roll_int(&Value::int(-3), &Value::int(3)).unwrap());
             assert!((-3..=3).contains(&n), "{n} out of range");
         }
     }
@@ -256,13 +257,13 @@ mod tests {
     #[test]
     fn int_with_equal_bounds_is_that_bound() {
         seed(7);
-        assert_eq!(as_int(roll_int(&Value::Int(5), &Value::Int(5)).unwrap()), 5);
+        assert_eq!(as_int(roll_int(&Value::int(5), &Value::int(5)).unwrap()), 5);
     }
 
     #[test]
     fn int_low_above_high_is_value_error() {
         assert_eq!(
-            roll_int(&Value::Int(5), &Value::Int(1)).unwrap_err().kind,
+            roll_int(&Value::int(5), &Value::int(1)).unwrap_err().kind,
             ErrorKind::ValueError
         );
     }
@@ -282,7 +283,7 @@ mod tests {
     #[test]
     fn choice_returns_a_member_and_rejects_empty() {
         seed(42);
-        let list = Value::list(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
+        let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
         for _ in 0..100 {
             let n = as_int(roll_choice(&list).unwrap());
             assert!([10, 20, 30].contains(&n));
@@ -296,7 +297,7 @@ mod tests {
     #[test]
     fn shuffle_is_a_permutation_that_leaves_the_input_untouched() {
         seed(2024);
-        let list = Value::list((0..8).map(Value::Int).collect());
+        let list = Value::list((0..8).map(Value::int).collect());
         let shuffled = as_list(roll_shuffle(&list).unwrap());
         // The source List is unchanged (module functions are pure).
         let after: Vec<i64> = as_list(list).into_iter().map(as_int).collect();
@@ -310,8 +311,8 @@ mod tests {
     #[test]
     fn sample_draws_k_distinct_positions() {
         seed(2024);
-        let list = Value::list((0..10).map(Value::Int).collect());
-        let picked = as_list(roll_sample(&list, &Value::Int(4)).unwrap());
+        let list = Value::list((0..10).map(Value::int).collect());
+        let picked = as_list(roll_sample(&list, &Value::int(4)).unwrap());
         assert_eq!(picked.len(), 4);
         let mut values: Vec<i64> = picked.into_iter().map(as_int).collect();
         values.sort_unstable();
@@ -321,13 +322,13 @@ mod tests {
 
     #[test]
     fn sample_bounds_are_value_errors() {
-        let list = Value::list((0..3).map(Value::Int).collect());
+        let list = Value::list((0..3).map(Value::int).collect());
         assert_eq!(
-            roll_sample(&list, &Value::Int(4)).unwrap_err().kind,
+            roll_sample(&list, &Value::int(4)).unwrap_err().kind,
             ErrorKind::ValueError
         );
         assert_eq!(
-            roll_sample(&list, &Value::Int(-1)).unwrap_err().kind,
+            roll_sample(&list, &Value::int(-1)).unwrap_err().kind,
             ErrorKind::ValueError
         );
     }
@@ -335,9 +336,9 @@ mod tests {
     #[test]
     fn sample_of_zero_is_empty_and_of_all_is_a_permutation() {
         seed(1);
-        let list = Value::list((0..5).map(Value::Int).collect());
-        assert!(as_list(roll_sample(&list, &Value::Int(0)).unwrap()).is_empty());
-        let all = as_list(roll_sample(&list, &Value::Int(5)).unwrap());
+        let list = Value::list((0..5).map(Value::int).collect());
+        assert!(as_list(roll_sample(&list, &Value::int(0)).unwrap()).is_empty());
+        let all = as_list(roll_sample(&list, &Value::int(5)).unwrap());
         let mut values: Vec<i64> = all.into_iter().map(as_int).collect();
         values.sort_unstable();
         assert_eq!(values, (0..5).collect::<Vec<_>>());
@@ -350,19 +351,19 @@ mod tests {
             ErrorKind::TypeError
         );
         assert_eq!(
-            roll_int(&Value::str("x"), &Value::Int(1)).unwrap_err().kind,
+            roll_int(&Value::str("x"), &Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            roll_choice(&Value::Int(1)).unwrap_err().kind,
+            roll_choice(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            roll_shuffle(&Value::Int(1)).unwrap_err().kind,
+            roll_shuffle(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            roll_sample(&Value::Int(1), &Value::Int(1))
+            roll_sample(&Value::int(1), &Value::int(1))
                 .unwrap_err()
                 .kind,
             ErrorKind::TypeError

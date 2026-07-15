@@ -1,0 +1,29 @@
+# such money. much exact. very decimal.
+
+# Binary floats cannot represent 0.1 + 0.2 exactly; an exact Decimal can.
+bark dec("0.1") + dec("0.2")
+
+# Money maths stays exact — a price times a whole quantity, to the cent.
+such price = dec("19.99")
+such qty = 3
+bark price * qty
+
+# Int and Decimal mix freely (both are exact), promoting to Decimal.
+bark 1 + dec("0.5")
+
+# Division is exact where it terminates.
+bark dec("1") / dec("4")
+
+# Trailing zeros are preserved on display but do not affect equality.
+bark dec("2.50")
+bark dec("2.50") == dec("2.5")
+
+# dec() from a Float uses the float's shortest form, not binary noise.
+bark dec(0.1)
+
+# Mixing an exact Decimal with an inexact Float is a catchable type error.
+pls
+    bark dec("0.1") + 0.2
+oh no err!
+    bark err.type
+wow

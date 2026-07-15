@@ -10,7 +10,7 @@ mod pack;
 mod stdlib;
 mod value;
 
-pub use builtins::{bark, gib, interp, len, range, to_bytes, to_float, to_int, to_str};
+pub use builtins::{bark, gib, interp, len, range, to_bytes, to_decimal, to_float, to_int, to_str};
 pub use error::{
     assert_error, bonk_error, enter_call, error_field, error_value, exit_call, DogeError,
     DogeResult, ErrorKind,

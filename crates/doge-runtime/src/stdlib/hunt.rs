@@ -183,11 +183,11 @@ mod tests {
     #[test]
     fn non_str_argument_is_a_type_error() {
         assert_eq!(
-            hunt_test(&Value::Int(1), &s("x")).unwrap_err().kind,
+            hunt_test(&Value::int(1), &s("x")).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            hunt_find(&s("x"), &Value::Int(1)).unwrap_err().kind,
+            hunt_find(&s("x"), &Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }

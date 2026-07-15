@@ -174,7 +174,7 @@ pub fn fetch_stat(path: &Value) -> DogeResult {
         Err(before) => -before.duration().as_secs_f64(),
     };
     Value::dict_from_pairs(vec![
-        (Value::str("size"), Value::Int(meta.len() as i64)),
+        (Value::str("size"), Value::int(meta.len())),
         (Value::str("modified"), Value::Float(modified)),
         (Value::str("is_dir"), Value::Bool(meta.is_dir())),
     ])
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn non_str_path_is_a_type_error() {
         assert_eq!(
-            fetch_read(&Value::Int(1)).unwrap_err().kind,
+            fetch_read(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }
@@ -308,7 +308,9 @@ mod tests {
             panic!("expected a Dict, got {info:?}");
         };
         let map = map.borrow();
-        assert!(matches!(map.get("size"), Some(Value::Int(3))));
+        assert!(map
+            .get("size")
+            .is_some_and(|v| crate::values_equal(v, &Value::int(3))));
         assert!(matches!(map.get("is_dir"), Some(Value::Bool(false))));
         assert!(matches!(map.get("modified"), Some(Value::Float(f)) if *f > 0.0));
 
@@ -372,11 +374,11 @@ mod tests {
     #[test]
     fn new_members_reject_non_str_paths() {
         assert_eq!(
-            fetch_list(&Value::Int(1)).unwrap_err().kind,
+            fetch_list(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            fetch_join(&Value::str("ok"), &Value::Int(1))
+            fetch_join(&Value::str("ok"), &Value::int(1))
                 .unwrap_err()
                 .kind,
             ErrorKind::TypeError

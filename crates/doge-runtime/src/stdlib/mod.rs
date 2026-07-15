@@ -12,6 +12,8 @@ pub mod roll;
 mod serialize;
 pub mod strings;
 
+use bigdecimal::ToPrimitive;
+
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
@@ -43,7 +45,9 @@ pub(crate) fn bytes_arg<'a>(module: &str, fname: &str, v: &'a Value) -> DogeResu
 /// Shared by every stdlib module that takes an Int argument.
 pub(crate) fn int_arg(module: &str, fname: &str, v: &Value) -> DogeResult<i64> {
     match v {
-        Value::Int(n) => Ok(*n),
+        Value::Int(n) => n
+            .to_i64()
+            .ok_or_else(|| DogeError::value_error(format!("{module}.{fname}: {n} is too large"))),
         _ => Err(DogeError::type_error(format!(
             "{module}.{fname} needs an Int, got {}",
             v.describe()

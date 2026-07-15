@@ -75,8 +75,8 @@ the user. These are guarantees, not aspirations; each one gets integration tests
 | Borrow checker, ownership, moves, lifetimes | Don't exist for the user. The runtime uses `Rc`/`RefCell`; assigning or passing a value never "moves it away" or invalidates anything |
 | `String` vs `&str`, byte-indexed slicing that can panic mid-UTF-8 | One `Str` type. Indexing and `len()` are character-based, never byte-based: `"héllo"[1]` is `"é"` |
 | Integer division truncates (`5 / 2 == 2`) | `/` always returns a Float; `//` is explicit integer division |
-| Mixed-type math needs casts (`x as f64`) | Int and Float mix freely; promotion is automatic |
-| Overflow panics in debug builds but silently wraps in release | Overflow is a catchable runtime error (`pls`/`oh no`) with the same behaviour in every build, never silent wraparound |
+| Mixed-type math needs casts (`x as f64`) | Int, Float, and exact Decimal mix with automatic promotion (Int↔Decimal exact; Float↔Decimal is a catchable type error) |
+| Overflow panics in debug builds but silently wraps in release | `Int` is arbitrary precision, so arithmetic never overflows — it just grows. The few spots that unavoidably need a machine int (index, shift count, `range` bound) raise a catchable error when a value is too large, never a silent wraparound |
 | `unwrap()` panics; `Option`/`Result` ceremony everywhere | `none` is an ordinary value; every runtime error is catchable with `pls`/`oh no`, so there is no unwrap to forget |
 | Out-of-bounds indexing panics and kills the program | Catchable runtime error with file/line/caret |
 | `.clone()`, `&`, `*`, `let mut` ceremony | Invisible: `such x = y` and function calls just work |

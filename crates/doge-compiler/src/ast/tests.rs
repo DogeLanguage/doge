@@ -14,7 +14,7 @@ fn dump_pins_the_tree_shape() {
                 names: vec!["age".into()],
                 rest: None,
                 expr: Expr::Int {
-                    value: 7,
+                    value: num_bigint::BigInt::from(7),
                     span: span(),
                 },
                 span: span(),
@@ -152,7 +152,7 @@ fn hoisted_names_are_first_seen_order_and_unique() {
                 names: vec!["a".into()],
                 rest: None,
                 expr: Expr::Int {
-                    value: 1,
+                    value: num_bigint::BigInt::from(1),
                     span: span(),
                 },
                 span: span(),
@@ -168,7 +168,7 @@ fn hoisted_names_are_first_seen_order_and_unique() {
                     names: vec!["a".into()],
                     rest: None,
                     expr: Expr::Int {
-                        value: 2,
+                        value: num_bigint::BigInt::from(2),
                         span: span(),
                     },
                     span: span(),
@@ -198,7 +198,7 @@ fn for_each_child_block_skips_nested_function_bodies() {
             names: vec!["hidden".into()],
             rest: None,
             expr: Expr::Int {
-                value: 0,
+                value: num_bigint::BigInt::from(0),
                 span: span(),
             },
             span: span(),
