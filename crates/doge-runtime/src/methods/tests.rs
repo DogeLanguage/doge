@@ -219,6 +219,13 @@ fn has_builtin_method_agrees_with_the_dispatch_tables() {
             assert_ne!(e.message, format!("a Dict has no method {name}"));
         }
     }
+    let s = Value::str("");
+    for name in str::STR_METHODS {
+        assert!(has_builtin_method(&s, name));
+        if let Err(e) = call(&s, name, vec![]) {
+            assert_ne!(e.message, format!("a Str has no method {name}"));
+        }
+    }
     // A name in neither table does not bind and is not a method.
     assert!(!has_builtin_method(&xs, "nope"));
     assert!(!has_builtin_method(&Value::int(1), "append"));

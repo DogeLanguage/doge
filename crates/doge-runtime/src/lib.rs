@@ -1,4 +1,5 @@
 mod builtins;
+mod codec;
 mod display;
 mod error;
 mod functions;

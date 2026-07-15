@@ -48,8 +48,15 @@ first-class and mutates `xs` when called.
 
 ## Bytes methods
 
-`hex()` → lowercase hex Str · `decode()` → UTF-8 Str (invalid UTF-8 is a `ValueError`).
+`hex()` → lowercase hex Str · `b64()` → standard base64 Str (RFC 4648, padded) ·
+`decode()` → UTF-8 Str (invalid UTF-8 is a `ValueError`).
 `b[i]` is an Int 0–255; `len(b)` counts bytes; slicing yields Bytes.
+
+## Str methods
+
+`from_b64()` / `from_hex()` → Bytes, decoding the Str (the inverse of Bytes
+`b64()` / `hex()`); malformed input is a catchable `ValueError`. These are the only
+Str methods — every other string transform lives in the `strings` module.
 
 ## Modules (import with `so <name>`)
 

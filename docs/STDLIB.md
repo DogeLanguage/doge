@@ -95,13 +95,26 @@ literally, other bytes as `\xNN`.
 | Method | Returns | Meaning |
 |---|---|---|
 | `hex()` | `Str` | the bytes as lowercase hexadecimal (`bytes("hi").hex()` is `"6869"`) |
+| `b64()` | `Str` | the bytes as standard base64 (RFC 4648, with padding — `bytes("hi").b64()` is `"aGk="`) |
 | `decode()` | `Str` | the bytes decoded as UTF-8 text; invalid UTF-8 is a catchable `ValueError` |
 
+The reverse — turning encoded text back into `Bytes` — is a pair of `Str` methods,
+the only methods `Str` has (every other string transform lives in the `strings`
+module):
+
+| Method | Returns | Meaning |
+|---|---|---|
+| `from_b64()` | `Bytes` | decode a standard base64 `Str`; malformed input is a catchable `ValueError` |
+| `from_hex()` | `Bytes` | decode a hex `Str` (upper- or lowercase); malformed input is a catchable `ValueError` |
+
 ```doge
-such raw = bytes("hi")     # b"hi"
-bark len(raw)              # 2
-bark raw.hex()             # 6869
-bark raw.decode()          # hi
+such raw = bytes("hi")         # b"hi"
+bark len(raw)                  # 2
+bark raw.hex()                 # 6869
+bark raw.b64()                 # aGk=
+bark raw.decode()              # hi
+bark "aGk=".from_b64() == raw  # true
+bark "6869".from_hex() == raw  # true
 ```
 
 ### Decimal

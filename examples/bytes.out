@@ -3,6 +3,9 @@ b"hi"
 104
 686921
 hi!
+aGkh
+true
+true
 2
 c3a9
 b"hi!"
@@ -10,4 +13,5 @@ true
 b"h"
 true
 hi!
+ValueError
 ValueError

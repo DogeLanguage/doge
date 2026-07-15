@@ -18,12 +18,14 @@ use crate::value::Value;
 mod bytes;
 mod dict;
 mod list;
+mod str;
 #[cfg(test)]
 mod tests;
 
 use bytes::bytes_method;
 use dict::dict_method;
 use list::list_method;
+use str::str_method;
 
 /// Dispatch a method call on a List or Dict. `recv` is the receiver, `name` the
 /// method, `args` the already-evaluated arguments. A non-collection receiver, an
@@ -33,6 +35,7 @@ pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult 
         Value::List(_) => list_method(recv, name, args),
         Value::Dict(_) => dict_method(recv, name, args),
         Value::Bytes(_) => bytes_method(recv, name, args),
+        Value::Str(_) => str_method(recv, name, args),
         // The dispatcher routes objects to its own class match, never here; this
         // defensive branch names the class rather than claiming "no methods".
         Value::Object(_) => Err(crate::objects::no_such_method(recv, name)),
@@ -41,7 +44,6 @@ pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult 
         Value::Int(_)
         | Value::Float(_)
         | Value::Decimal(_)
-        | Value::Str(_)
         | Value::Bool(_)
         | Value::None
         | Value::Function(_)
@@ -63,6 +65,7 @@ pub fn has_builtin_method(recv: &Value, name: &str) -> bool {
         Value::List(_) => list::LIST_METHODS.contains(&name),
         Value::Dict(_) => dict::DICT_METHODS.contains(&name),
         Value::Bytes(_) => bytes::BYTES_METHODS.contains(&name),
+        Value::Str(_) => str::STR_METHODS.contains(&name),
         _ => false,
     }
 }

@@ -12,6 +12,12 @@ such raw = bytes([104, 105, 33])
 bark raw.hex()
 bark raw.decode()
 
+# Text encodings: base64 renders bytes as text like hex does, and the reverse of
+# both hex() and b64() is a Str method that decodes straight back to Bytes.
+bark raw.b64()
+bark raw.b64().from_b64() == raw
+bark raw.hex().from_hex() == raw
+
 # Byte-based, deliberately unlike char-based Str: one accented character is two
 # bytes, so len counts 2 where a Str would count 1.
 such accented = bytes("é")
@@ -36,4 +42,10 @@ pls
     bark bytes([255, 254]).decode()
 oh no err!
     bark err.type
+
+# Decoding malformed base64 is catchable too, never a crash.
+pls
+    bark "!!!!".from_b64()
+oh no oops!
+    bark oops.type
 wow
