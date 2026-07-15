@@ -40,6 +40,8 @@ The only sanctioned way to release: the user (never Claude) pushes an annotated 
 
 Never create or publish a release by hand with `gh release create`/`edit`. A hand-made release bypasses CI verification, races the workflow's own draft on the same tag, and receives whatever partial assets the build jobs happen to upload. If a release run fails: fix the cause on a branch and merge it to `main` via PR like any other change (`main` only takes merges — never a direct push or hotfix commit), delete the leftover *draft*, then delete the old tag and re-tag the new `main` commit — never undraft or patch a release manually.
 
+Release notes follow one shape: fill the placeholder template at [.github/release-notes-template.md](../.github/release-notes-template.md) and hand the result to the user to paste into the GitHub release. Never commit filled-in release notes into the repo.
+
 ## Domain
 
 Doge is a dynamically typed, indentation-based scripting language:
