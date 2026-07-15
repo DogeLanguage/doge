@@ -34,8 +34,9 @@ pub use stdlib::chase::chase_run;
 pub use stdlib::dson::{dson_emit, dson_parse};
 pub use stdlib::env::{env_args, env_get, set_script_args};
 pub use stdlib::fetch::{
-    fetch_append, fetch_delete, fetch_exists, fetch_read, fetch_read_bytes, fetch_write,
-    fetch_write_bytes,
+    fetch_append, fetch_basename, fetch_copy, fetch_delete, fetch_exists, fetch_ext, fetch_join,
+    fetch_list, fetch_make_dir, fetch_read, fetch_read_bytes, fetch_remove_dir, fetch_rename,
+    fetch_stat, fetch_write, fetch_write_bytes,
 };
 pub use stdlib::howl::{
     howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_port, howl_post, howl_recv,

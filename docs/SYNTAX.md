@@ -376,7 +376,7 @@ oh no err!
     bark "very error: " + err
 ```
 
-- `pls` opens the try block bare, with no `:`. `oh no <name>!` binds the error and
+- `pls` opens the try block bare. `oh no <name>!` binds the error and
   opens the handler; the header ends with `!` instead of `:`.
 - Errors are structured values. `oh no err!` binds `err` to an `Error` carrying
   four fields:

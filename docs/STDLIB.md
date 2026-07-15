@@ -109,7 +109,7 @@ bark raw.decode()          # hi
 |---|---|
 | `nerd` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `min`, `max`, `pow`; constants `pi`, `e` |
 | `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `replace` |
-| `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete` — file I/O |
+| `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
 | `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
@@ -140,12 +140,31 @@ text with `read` and it is an `IOError`; use `read_bytes` for binary files.
 | `write_bytes(path, bytes)` | `none` | replace the file's contents with raw `bytes`, creating it if needed |
 | `exists(path)` | `Bool` | whether anything exists at `path` |
 | `delete(path)` | `none` | remove the file (a missing file is an `IOError`) |
+| `list(path)` | `List` of `Str` | the entry names in a directory, sorted (a missing path or non-directory is an `IOError`) |
+| `make_dir(path)` | `none` | create the directory and any missing parents; already existing is not an error |
+| `remove_dir(path)` | `none` | remove the directory and everything inside it (a missing path is an `IOError`) |
+| `rename(from, to)` | `none` | move or rename a file or directory, replacing `to` if it exists |
+| `copy(from, to)` | `none` | copy a file's contents to `to`, creating or replacing it |
+| `stat(path)` | `Dict` | metadata about `path` (a missing path is an `IOError`) |
+| `join(a, b)` | `Str` | join two path segments with the OS separator |
+| `basename(path)` | `Str` | the final component of a path (`"a/b/c.txt"` → `"c.txt"`) |
+| `ext(path)` | `Str` | the extension including the leading dot (`"c.txt"` → `".txt"`), or `""` when none |
+
+`stat` returns a Dict with three keys: `size` (an `Int` byte count), `modified`
+(a `Float` of Unix seconds, negative before the epoch), and `is_dir` (a `Bool`).
+`join`, `basename`, and `ext` never touch the filesystem — they are pure string
+operations on the path, so they only ever raise a `TypeError`, never an `IOError`.
 
 ```doge
 so fetch
 fetch.write("notes.txt", "much wow")
 fetch.append("notes.txt", "\nsuch file")
 bark fetch.read("notes.txt")
+
+fetch.make_dir("logs")
+bark fetch.stat("notes.txt")["size"]
+bark fetch.join("logs", "run.txt")
+fetch.remove_dir("logs")
 ```
 
 ### `env` — arguments and environment
