@@ -42,7 +42,11 @@ Implementation: a TextMate grammar (`syntaxes/doge.tmLanguage.json`) provides th
 base scopes, and a semantic-token provider (`src/`) computes the per-group
 rainbow. The keyword list in `src/tokenizer.js` mirrors
 [`crates/doge-compiler/src/keywords.rs`](../../crates/doge-compiler/src/keywords.rs)
-(`lookup`) — keep them in sync when keywords change.
+(`lookup`), and the grammar additionally mirrors the builtin names
+([`builtins.rs`](../../crates/doge-compiler/src/builtins.rs)) and the stdlib module
+names ([`stdlib.rs`](../../crates/doge-compiler/src/stdlib.rs)) — keep all three in
+sync when a keyword, builtin, or module is added or removed
+(`grammar.test.js` guards the grammar lists).
 
 ## Tests
 
