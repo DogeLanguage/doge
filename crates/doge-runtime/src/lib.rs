@@ -30,6 +30,7 @@ pub use pack::{
     finish_pup, pack_snapshot, pack_value, unpack_globals, unpack_packed, BowlHandle, PackMode,
     Packed, PackedError, PupEntry,
 };
+pub use stdlib::chase::chase_run;
 pub use stdlib::dson::{dson_emit, dson_parse};
 pub use stdlib::env::{env_args, env_get, set_script_args};
 pub use stdlib::fetch::{

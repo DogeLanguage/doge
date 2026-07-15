@@ -101,6 +101,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "fetch_write_bytes" => rt::fetch_write_bytes(&a[0], &a[1]),
         "fetch_exists" => rt::fetch_exists(&a[0]),
         "fetch_delete" => rt::fetch_delete(&a[0]),
+        "chase_run" => rt::chase_run(&a[0], &a[1], &a[2]),
         "env_args" => rt::env_args(),
         "env_get" => rt::env_get(&a[0]),
         "howl_listen" => rt::howl_listen(&a[0], &a[1]),

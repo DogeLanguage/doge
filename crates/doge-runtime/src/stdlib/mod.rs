@@ -1,3 +1,4 @@
+pub mod chase;
 pub mod dson;
 pub mod env;
 pub mod fetch;

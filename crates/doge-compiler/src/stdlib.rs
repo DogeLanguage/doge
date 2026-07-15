@@ -422,6 +422,16 @@ pub const MODULES: &[Module] = &[
         consts: &[],
     },
     Module {
+        name: "chase",
+        funcs: &[ModuleFn {
+            name: "run",
+            arity: 3,
+            runtime_fn: "chase_run",
+            hint: "chase.run(cmd, args, stdin)",
+        }],
+        consts: &[],
+    },
+    Module {
         name: "roll",
         funcs: &[
             ModuleFn {

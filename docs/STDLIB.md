@@ -117,6 +117,7 @@ bark raw.decode()          # hi
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
 | `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
 | `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
+| `chase` | `run` — run an external program and capture its output |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -443,6 +444,48 @@ pls
     roll.choice([])
 oh no err!
     bark err.type                    # ValueError
+```
+
+### `chase` — subprocess
+
+Run another program. `chase.run` launches a command, waits for it to finish, and
+gives back a Dict of what happened. Both output streams are always captured (the
+child never writes to your terminal), and failing to launch the program — a missing
+binary, a permission problem — is a catchable `IOError` (`err.type == "IOError"`),
+never a crash.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `run(cmd, args, stdin)` | `Dict` | run `cmd` with the Str `args`, optionally feeding `stdin`, then give back `{"code": Int, "stdout": Str, "stderr": Str}` |
+
+`cmd` is a Str program name or path; `args` is a `List` of `Str`; `stdin` is a Str
+to feed the program on its standard input, or `none` to feed it nothing. A wrong
+type for any of them — a non-Str `cmd`, an `args` that is not a List of Str, a
+`stdin` that is neither a Str nor `none` — is a catchable `TypeError`, checked
+before anything is launched.
+
+The result Dict is always `{"code", "stdout", "stderr"}`: `code` is the program's
+exit status (`0` on success, `-1` when it was terminated by a signal), and `stdout`
+and `stderr` are its captured output as text. Output that is not valid text is an
+`IOError`, as with `fetch.read`. Feeding `stdin` to a program that ignores it (or
+exits early) is fine — it is not an error — and `chase.run` never hangs, however
+much a program reads or writes.
+
+```doge
+so chase
+
+such hello = chase.run("echo", ["much", "wow"], none)
+bark hello["code"]                   # 0
+bark hello["stdout"]                 # much wow
+
+# Feed a program on its standard input.
+such shout = chase.run("cat", [], "such input\n")
+bark shout["stdout"]                 # such input
+
+pls
+    chase.run("doge-no-such-program", [], none)
+oh no err!
+    bark err.type                    # IOError
 ```
 
 A `so <name>` import that is not a stdlib module resolves to the user file
