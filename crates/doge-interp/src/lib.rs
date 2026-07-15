@@ -83,6 +83,9 @@ enum Arity {
     Exact(usize),
     OneOrTwo,
     ZeroOrOne,
+    /// A required count with one optional trailing argument (`min..=max`); an
+    /// omitted trailing argument is padded with `none` before dispatch.
+    Range(usize, usize),
 }
 
 /// Anything callable through a `fn_id`: a user definition, a runtime native, or a

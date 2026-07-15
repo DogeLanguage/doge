@@ -285,8 +285,9 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 | `recv_bytes(conn, max_bytes)` | `Bytes` or `none` | read up to `max_bytes` raw bytes, or `none` at end of input |
 | `recv_line(conn)` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input |
 | `close(sock)` | `none` | close a listener or connection now (idempotent) |
-| `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str}` |
-| `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str}` |
+| `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str, "headers": Dict}` |
+| `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str, "headers": Dict}` |
+| `request(method, url[, opts])` | `Dict` | HTTP(S) request with a chosen method, headers, and body → `{"status": Int, "body": Str, "headers": Dict}` |
 
 `recv` carries one `Str` type: it never splits a multi-byte character across two
 reads (an incomplete trailing sequence is held for the next call, so every read
@@ -295,10 +296,25 @@ are an `IOError`. `send_bytes`/`recv_bytes` are the binary counterpart: they car
 raw `Bytes` with no UTF-8 validation, so non-text data is never an error and each
 `recv_bytes` returns bytes exactly as they arrive — the way to handle a binary
 upload or byte-accurate framing (a `Content-Length` body), where `recv`'s
-partial-character buffering would get the count wrong. Raw TCP calls block with no timeout; `howl.get`/`howl.post` time
+partial-character buffering would get the count wrong. Raw TCP calls block with no timeout; `howl.get`/`howl.post`/`howl.request` time
 out after 30 seconds (a catchable `IOError`). For HTTP, only a transport, TLS, or
 timeout failure is an error — a non-2xx response (a `404`, say) comes back as an
-ordinary `{"status", "body"}` Dict, so the script decides what a status means.
+ordinary `{"status", "body", "headers"}` Dict, so the script decides what a status
+means. Every HTTP response carries a `"headers"` Dict whose keys are lowercased, so
+`resp["headers"]["content-type"]` reads the same regardless of how the server cased
+the header.
+
+`howl.get`/`howl.post` are the shorthand for a plain GET and a `text/plain` POST.
+`howl.request(method, url, opts)` is the general form for real APIs — a chosen method,
+custom headers, and a typed body:
+
+- `method` is one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`
+  (case-insensitive); any other verb is a catchable `ValueError`.
+- `opts` is optional. When given, it is a Dict with the optional keys `"headers"` (a
+  Dict of Str→Str) and `"body"` (a `Str`, sent as UTF-8, or `Bytes`, sent raw). Any
+  other key is a catchable `ValueError`, and a non-Str header value or a body that is
+  neither `Str` nor `Bytes` is a catchable `TypeError`. Omitting `opts` sends no extra
+  headers and no body.
 
 ```doge
 so howl
@@ -314,9 +330,17 @@ bark howl.recv_line(conn)          # much ping
 howl.send(conn, "wow pong\n")
 bark howl.recv_line(client)        # wow pong
 
-# An HTTP GET returns a status and body Dict.
+# An HTTP GET returns a status, body, and headers Dict.
 such page = howl.get("https://example.com")
 bark page["status"]                # 200
+
+# A general request with a method, headers, and a JSON body.
+such resp = howl.request("POST", "https://api.example.com/invoices", {
+    "headers": {"Authorization": "Bearer secret", "Content-Type": "application/json"},
+    "body": json.emit({"month": "2026-07"}),
+})
+bark resp["status"]                       # Int
+bark resp["headers"]["content-type"]      # response headers, keys lowercased
 ```
 
 ### `pack` — threads and channels

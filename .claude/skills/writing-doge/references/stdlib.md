@@ -79,8 +79,12 @@ OS failures are `IOError`; `join`/`basename`/`ext` are pure string ops.
 `listen(host, port)`→Socket (port 0 = OS-chosen) · `connect(host, port)`→Socket ·
 `accept(listener)`→Socket · `port(sock)`→Int · `send(conn, text)` · `send_bytes(conn, bytes)` ·
 `recv(conn, max)`→Str|none · `recv_bytes(conn, max)`→Bytes|none · `recv_line(conn)`→Str|none ·
-`close(sock)` · `get(url)`→`{status, body}` · `post(url, body)`→`{status, body}`.
-Network failures are `IOError`; a non-2xx HTTP response is a normal `{status, body}` Dict, not an error.
+`close(sock)` · `get(url)`→`{status, body, headers}` · `post(url, body)`→`{status, body, headers}` ·
+`request(method, url[, opts])`→`{status, body, headers}`.
+Network failures are `IOError`; a non-2xx HTTP response is a normal Dict, not an error.
+Response `headers` keys are lowercased. `request` `method` is `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS`
+(else `ValueError`); optional `opts` Dict takes `"headers"` (Str→Str) and `"body"` (Str→UTF-8 or Bytes→raw),
+any other key → `ValueError`, bad header/body type → `TypeError`.
 `send_bytes`/`recv_bytes` carry raw `Bytes` with no UTF-8 check — for binary bodies/uploads.
 
 ### `pack` — threads (pups) and channels (bowls)

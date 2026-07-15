@@ -41,7 +41,7 @@ pub use stdlib::fetch::{
 };
 pub use stdlib::howl::{
     howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_port, howl_post, howl_recv,
-    howl_recv_bytes, howl_recv_line, howl_send, howl_send_bytes,
+    howl_recv_bytes, howl_recv_line, howl_request, howl_send, howl_send_bytes,
 };
 pub use stdlib::hunt::{hunt_find, hunt_find_all, hunt_groups, hunt_replace, hunt_test};
 pub use stdlib::json::{json_emit, json_parse};

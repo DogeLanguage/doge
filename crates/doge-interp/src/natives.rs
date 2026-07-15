@@ -37,7 +37,11 @@ impl Interp {
                 self.callables.push(Rc::new(Callable::Native(Native {
                     name: format!("{}.{}", module.name, func.name),
                     runtime_fn: func.runtime_fn,
-                    arity: Arity::Exact(func.arity),
+                    arity: if func.optional {
+                        Arity::Range(func.arity, func.max_arity())
+                    } else {
+                        Arity::Exact(func.arity)
+                    },
                 })));
                 self.module_fn_ids
                     .insert((module.name.to_string(), func.name.to_string()), id);
@@ -65,6 +69,21 @@ pub(crate) fn call_native(native: &Native, args: Vec<Value>) -> DogeResult<Value
             0 | 1 => call_runtime(native.runtime_fn, &args),
             got => Err(function_arity_error(&native.name, 0, Some(1), got)),
         },
+        Arity::Range(min, max) => {
+            if args.len() < min || args.len() > max {
+                return Err(function_arity_error(
+                    &native.name,
+                    min,
+                    Some(max),
+                    args.len(),
+                ));
+            }
+            // Pad an omitted trailing optional argument with `none`, matching the
+            // compiled dispatcher, so the runtime function sees its full count.
+            let mut args = args;
+            args.resize(max, Value::None);
+            call_runtime(native.runtime_fn, &args)
+        }
     }
 }
 
@@ -131,6 +150,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "howl_close" => rt::howl_close(&a[0]),
         "howl_get" => rt::howl_get(&a[0]),
         "howl_post" => rt::howl_post(&a[0], &a[1]),
+        "howl_request" => rt::howl_request(&a[0], &a[1], &a[2]),
         "json_parse" => rt::json_parse(&a[0]),
         "json_emit" => rt::json_emit(&a[0]),
         "nap_now" => rt::nap_now(),
@@ -220,6 +240,7 @@ mod tests {
                 // One argument keeps `gib` from reading stdin: the wrongly-typed
                 // prompt errors out before any read.
                 Arity::ZeroOrOne => 1,
+                Arity::Range(min, _) => min,
             };
             let args = vec![Value::int(1); argc];
             if let Err(err) = call_native(native, args) {
