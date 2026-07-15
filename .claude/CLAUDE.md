@@ -10,7 +10,7 @@ Match the task against this table and do the listed action **before** reading co
 | If the task involves… | Then first… |
 | --- | --- |
 | Feature work — "add", "implement", "build", "create", "extend", "refactor" | Run `/function-index` |
-| The language surface — a keyword, grammar rule, operator, type, or semantic change | Read [docs/SYNTAX.md](../docs/SYNTAX.md) and [docs/GRAMMAR.md](../docs/GRAMMAR.md) — and update them in the same change |
+| The language surface — a keyword, grammar rule, operator, type, or semantic change | Read [docs/SYNTAX.md](../docs/SYNTAX.md) and [docs/GRAMMAR.md](../docs/GRAMMAR.md) — update them in the same change, and refresh the `writing-doge` skill (below) if a keyword, stdlib member, or CLI behaviour changed |
 | Compiler pipeline or crate boundaries (lexer/parser/checks/codegen/runtime) | Read [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
 | Error messages or diagnostics | Read [docs/ERRORS.md](../docs/ERRORS.md) — meme framing, precise content |
 | Adding or removing a crate or folder | Run `/maintaining-claude` afterwards |
@@ -22,7 +22,7 @@ Breaking any of these is never acceptable — including during debugging or spik
 
 1. **No `unsafe` anywhere** — not in the runtime, not in generated code, not "temporarily".
 2. **The runtime never panics on user-program errors** — every fallible operation returns `Result<Value, DogeError>` so `pls`/`oh no` can catch it. Panics are reserved for compiler bugs.
-3. **Language surface changes require a docs/ update in the same change** — keywords, grammar, semantics, and CLI behaviour must never drift from the spec ([docs/SYNTAX.md](../docs/SYNTAX.md), [docs/GRAMMAR.md](../docs/GRAMMAR.md), [docs/CLI.md](../docs/CLI.md)).
+3. **Language surface changes require a docs/ update in the same change** — keywords, grammar, semantics, and CLI behaviour must never drift from the spec ([docs/SYNTAX.md](../docs/SYNTAX.md), [docs/GRAMMAR.md](../docs/GRAMMAR.md), [docs/CLI.md](../docs/CLI.md)). The `writing-doge` skill (`.claude/skills/writing-doge/`) teaches agents to write `.doge`; when a keyword, stdlib member, or CLI command changes, update its `SKILL.md`/`references/stdlib.md` in the same change so it never drifts from the spec.
 4. **One source of truth for keywords** — a single keywords module in `doge-compiler` that the lexer, parser, and diagnostics all use. Never a second keyword list.
 5. **Generated Rust is thin glue** — behaviour lives in `doge-runtime`; codegen only wires calls together. If codegen is emitting logic, it belongs in the runtime.
 6. **Every language feature ships with a `.doge` example under `examples/`** that runs as an integration test — untested syntax doesn't exist.
@@ -178,7 +178,7 @@ Write for the developer maintaining this 12 months from now.
 **Definition of done — all must hold:**
 
 - `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --workspace` all green.
-- Language surface touched? docs/ updated in the same change (Hard Rule 3) and an `examples/*.doge` test added (Hard Rule 6).
+- Language surface touched? docs/ updated in the same change (Hard Rule 3) and an `examples/*.doge` test added (Hard Rule 6). Keyword, stdlib member, or CLI command changed? The `writing-doge` skill is refreshed too (Hard Rule 3).
 - New diagnostics follow the docs/ERRORS.md style: meme framing, file/line/caret, fix hint.
 - Crate added/removed or folder layout changed? Run `/maintaining-claude`.
 
