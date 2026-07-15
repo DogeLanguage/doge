@@ -67,7 +67,7 @@ pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> Dog
                 .iter()
                 .position(|element| values_equal(element, &target));
             match pos {
-                Some(p) => Ok(Value::Int(p as i64)),
+                Some(p) => Ok(Value::int(p)),
                 None => Err(DogeError::value_error("List.index_of: item not found")),
             }
         }

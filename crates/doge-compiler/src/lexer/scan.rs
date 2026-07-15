@@ -67,21 +67,15 @@ impl Lexer {
             return Ok(end);
         }
 
+        // `Int` is arbitrary precision, so a literal of any size is valid — there is
+        // no "too big to hold" whole number. The run is all ASCII digits, so it
+        // always parses.
         let text: String = chars[start..end].iter().collect();
-        match text.parse::<i64>() {
-            Ok(value) => {
-                self.push(TokenKind::Int(value), ln, col);
-                Ok(end)
-            }
-            Err(_) => Err(self
-                .diag(ln, col, "this whole number is too big to hold")
-                .with_headline("very big. much number.")
-                .with_hint(format!(
-                    "whole numbers must be between {} and {}",
-                    i64::MIN,
-                    i64::MAX
-                ))),
-        }
+        let value = text
+            .parse()
+            .expect("compiler bug: a digit run must parse as a BigInt");
+        self.push(TokenKind::Int(value), ln, col);
+        Ok(end)
     }
 
     /// Lex a single operator or punctuation token. Longer operators are checked

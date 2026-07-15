@@ -1,3 +1,6 @@
+use bigdecimal::{ToPrimitive, Zero};
+use num_bigint::BigInt;
+
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
@@ -15,30 +18,48 @@ fn normalize_index(i: i64, len: usize) -> DogeResult<usize> {
     }
 }
 
+/// Resolve an arbitrary-precision index. Any value too large to fit a machine
+/// index is, by definition, out of bounds for a real container — a catchable
+/// error, so an over-large `Int` index never panics.
+fn normalize_bigindex(i: &BigInt, len: usize) -> DogeResult<usize> {
+    match i.to_i64() {
+        Some(v) => normalize_index(v, len),
+        None => Err(DogeError::index_out_of_bounds(format!(
+            "index {i} is out of bounds for length {len}"
+        ))),
+    }
+}
+
 /// `container[index]`. List by Int, Dict by Str key, Str by character index
 /// (never byte index — `"héllo"[1] == "é"`).
 pub fn index_get(container: &Value, index: &Value) -> DogeResult {
     match (container, index) {
         (Value::List(items), Value::Int(i)) => {
             let items = items.borrow();
-            let idx = normalize_index(*i, items.len())?;
+            let idx = normalize_bigindex(i, items.len())?;
             Ok(items[idx].clone())
         }
         (Value::Str(s), Value::Int(i)) => {
             let chars: Vec<char> = s.chars().collect();
-            let idx = normalize_index(*i, chars.len())?;
+            let idx = normalize_bigindex(i, chars.len())?;
             Ok(Value::str(chars[idx].to_string()))
+        }
+        (Value::Bytes(b), Value::Int(i)) => {
+            let idx = normalize_bigindex(i, b.len())?;
+            Ok(Value::int(b[idx]))
         }
         (Value::Dict(d), Value::Str(k)) => d
             .borrow()
             .get(k.as_ref())
             .cloned()
             .ok_or_else(|| DogeError::key_error(format!("no such key: {k:?}"))),
-        (Value::List(_) | Value::Str(_), _) => Err(DogeError::type_error(format!(
-            "cannot index {} with {} (need an Int)",
-            container.describe(),
-            index.describe()
-        ))),
+        (Value::List(_) | Value::Str(_) | Value::Bytes(_), _) => {
+            Err(DogeError::type_error(format!(
+                "cannot index {} with {} (need an Int)",
+                container.describe(),
+                index.describe()
+            )))
+        }
         (Value::Dict(_), _) => Err(DogeError::type_error(format!(
             "cannot index a Dict with {} (keys are Str)",
             index.describe()
@@ -48,6 +69,7 @@ pub fn index_get(container: &Value, index: &Value) -> DogeResult {
         (
             Value::Int(_)
             | Value::Float(_)
+            | Value::Decimal(_)
             | Value::Bool(_)
             | Value::None
             | Value::Object(_)
@@ -72,7 +94,7 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
     match (container, index) {
         (Value::List(items), Value::Int(i)) => {
             let mut items = items.borrow_mut();
-            let idx = normalize_index(*i, items.len())?;
+            let idx = normalize_bigindex(i, items.len())?;
             items[idx] = value;
             Ok(())
         }
@@ -82,6 +104,9 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
         }
         (Value::Str(_), _) => Err(DogeError::type_error(
             "cannot assign into a Str (Str values are immutable)",
+        )),
+        (Value::Bytes(_), _) => Err(DogeError::type_error(
+            "cannot assign into a Bytes (Bytes values are immutable)",
         )),
         (Value::List(_), _) => Err(DogeError::type_error(format!(
             "cannot index a List with {} (need an Int)",
@@ -96,6 +121,7 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
         (
             Value::Int(_)
             | Value::Float(_)
+            | Value::Decimal(_)
             | Value::Bool(_)
             | Value::None
             | Value::Object(_)
@@ -119,7 +145,9 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
 fn slice_bound(what: &str, v: &Value) -> DogeResult<Option<i64>> {
     match v {
         Value::None => Ok(None),
-        Value::Int(n) => Ok(Some(*n)),
+        // Slice bounds clamp rather than erroring, so an `Int` past the machine
+        // range saturates to the corresponding end and clamps against the length.
+        Value::Int(n) => Ok(Some(bigint_to_bound(n))),
         _ => Err(DogeError::type_error(format!(
             "a slice {what} must be an Int, not {}",
             v.describe()
@@ -127,13 +155,26 @@ fn slice_bound(what: &str, v: &Value) -> DogeResult<Option<i64>> {
     }
 }
 
+/// A slice bound as an `i64`, saturating an out-of-range `Int` toward the end it
+/// points at (a huge positive value clamps to the length, a huge negative to the
+/// start).
+fn bigint_to_bound(n: &BigInt) -> i64 {
+    n.to_i64()
+        .unwrap_or(if n.sign() == num_bigint::Sign::Minus {
+            i64::MIN
+        } else {
+            i64::MAX
+        })
+}
+
 /// The slice step: `None` defaults to `1`, an explicit `0` is a catchable value
-/// error, and a non-Int is a type error.
+/// error, and a non-Int is a type error. A step past the machine range saturates
+/// (it selects at most one element either way).
 fn slice_step(v: &Value) -> DogeResult<i64> {
     match v {
         Value::None => Ok(1),
-        Value::Int(0) => Err(DogeError::value_error("a slice step cannot be zero")),
-        Value::Int(n) => Ok(*n),
+        Value::Int(n) if n.is_zero() => Err(DogeError::value_error("a slice step cannot be zero")),
+        Value::Int(n) => Ok(bigint_to_bound(n)),
         _ => Err(DogeError::type_error(format!(
             "a slice step must be an Int, not {}",
             v.describe()
@@ -212,11 +253,19 @@ pub fn slice_get(container: &Value, start: &Value, end: &Value, step: &Value) ->
                 .collect();
             Ok(Value::str(picked))
         }
+        Value::Bytes(b) => {
+            let picked: Vec<u8> = slice_indices(start, end, step, b.len())
+                .into_iter()
+                .map(|i| b[i])
+                .collect();
+            Ok(Value::bytes(picked))
+        }
         // Listed by variant rather than a wildcard, so a new sliceable Value
         // variant forces a decision here.
         Value::Dict(_)
         | Value::Int(_)
         | Value::Float(_)
+        | Value::Decimal(_)
         | Value::Bool(_)
         | Value::None
         | Value::Object(_)
@@ -241,6 +290,7 @@ pub fn iter_value(v: &Value) -> DogeResult<Vec<Value>> {
     match v {
         Value::List(items) => Ok(items.borrow().clone()),
         Value::Str(s) => Ok(s.chars().map(|c| Value::str(c.to_string())).collect()),
+        Value::Bytes(b) => Ok(b.iter().map(|&x| Value::int(x)).collect()),
         Value::Dict(entries) => Ok(entries
             .borrow()
             .iter()
@@ -250,6 +300,7 @@ pub fn iter_value(v: &Value) -> DogeResult<Vec<Value>> {
         // variant forces a decision here.
         Value::Int(_)
         | Value::Float(_)
+        | Value::Decimal(_)
         | Value::Bool(_)
         | Value::None
         | Value::Object(_)

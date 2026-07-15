@@ -179,6 +179,42 @@ pub const MODULES: &[Module] = &[
         consts: &[],
     },
     Module {
+        name: "hunt",
+        funcs: &[
+            ModuleFn {
+                name: "test",
+                arity: 2,
+                runtime_fn: "hunt_test",
+                hint: "hunt.test(pat, text)",
+            },
+            ModuleFn {
+                name: "find",
+                arity: 2,
+                runtime_fn: "hunt_find",
+                hint: "hunt.find(pat, text)",
+            },
+            ModuleFn {
+                name: "find_all",
+                arity: 2,
+                runtime_fn: "hunt_find_all",
+                hint: "hunt.find_all(pat, text)",
+            },
+            ModuleFn {
+                name: "groups",
+                arity: 2,
+                runtime_fn: "hunt_groups",
+                hint: "hunt.groups(pat, text)",
+            },
+            ModuleFn {
+                name: "replace",
+                arity: 3,
+                runtime_fn: "hunt_replace",
+                hint: "hunt.replace(pat, text, repl)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
         name: "fetch",
         funcs: &[
             ModuleFn {
@@ -200,6 +236,18 @@ pub const MODULES: &[Module] = &[
                 hint: "fetch.append(path, text)",
             },
             ModuleFn {
+                name: "read_bytes",
+                arity: 1,
+                runtime_fn: "fetch_read_bytes",
+                hint: "fetch.read_bytes(path)",
+            },
+            ModuleFn {
+                name: "write_bytes",
+                arity: 2,
+                runtime_fn: "fetch_write_bytes",
+                hint: "fetch.write_bytes(path, bytes)",
+            },
+            ModuleFn {
                 name: "exists",
                 arity: 1,
                 runtime_fn: "fetch_exists",
@@ -210,6 +258,60 @@ pub const MODULES: &[Module] = &[
                 arity: 1,
                 runtime_fn: "fetch_delete",
                 hint: "fetch.delete(path)",
+            },
+            ModuleFn {
+                name: "list",
+                arity: 1,
+                runtime_fn: "fetch_list",
+                hint: "fetch.list(path)",
+            },
+            ModuleFn {
+                name: "make_dir",
+                arity: 1,
+                runtime_fn: "fetch_make_dir",
+                hint: "fetch.make_dir(path)",
+            },
+            ModuleFn {
+                name: "remove_dir",
+                arity: 1,
+                runtime_fn: "fetch_remove_dir",
+                hint: "fetch.remove_dir(path)",
+            },
+            ModuleFn {
+                name: "rename",
+                arity: 2,
+                runtime_fn: "fetch_rename",
+                hint: "fetch.rename(from, to)",
+            },
+            ModuleFn {
+                name: "copy",
+                arity: 2,
+                runtime_fn: "fetch_copy",
+                hint: "fetch.copy(from, to)",
+            },
+            ModuleFn {
+                name: "stat",
+                arity: 1,
+                runtime_fn: "fetch_stat",
+                hint: "fetch.stat(path)",
+            },
+            ModuleFn {
+                name: "join",
+                arity: 2,
+                runtime_fn: "fetch_join",
+                hint: "fetch.join(a, b)",
+            },
+            ModuleFn {
+                name: "basename",
+                arity: 1,
+                runtime_fn: "fetch_basename",
+                hint: "fetch.basename(path)",
+            },
+            ModuleFn {
+                name: "ext",
+                arity: 1,
+                runtime_fn: "fetch_ext",
+                hint: "fetch.ext(path)",
             },
         ],
         consts: &[],
@@ -407,6 +509,16 @@ pub const MODULES: &[Module] = &[
                 hint: "pack.sniff(bowl)",
             },
         ],
+        consts: &[],
+    },
+    Module {
+        name: "chase",
+        funcs: &[ModuleFn {
+            name: "run",
+            arity: 3,
+            runtime_fn: "chase_run",
+            hint: "chase.run(cmd, args, stdin)",
+        }],
         consts: &[],
     },
     Module {

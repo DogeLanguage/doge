@@ -5,7 +5,12 @@ impl Codegen {
     /// call is routed through [`Codegen::fail`].
     pub(super) fn expr(&self, expr: &Expr, emit: &Emit) -> Result<String, Diagnostic> {
         match expr {
-            Expr::Int { value, .. } => Ok(format!("Value::Int({value}i64)")),
+            // A literal that fits an i64 emits the cheap `Value::int` fast path; one
+            // larger than i64 is reconstructed at runtime from its digit string.
+            Expr::Int { value, .. } => Ok(match i64::try_from(value) {
+                Ok(n) => format!("Value::int({n}i64)"),
+                Err(_) => format!("Value::int_lit(\"{value}\")"),
+            }),
             Expr::Float { value, .. } => Ok(format!("Value::Float({value:?}f64)")),
             Expr::Str { value, .. } => Ok(format!("Value::str(\"{}\")", escape_str(value))),
             Expr::Bool { value, .. } => Ok(format!("Value::Bool({value})")),

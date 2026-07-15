@@ -1,0 +1,26 @@
+# very run. much subprocess. wow output.
+so chase
+
+# Run a program and read its captured output and exit code.
+such hello = chase.run("printf", ["much wow"], none)
+bark hello["code"]  # 0
+bark hello["stdout"]  # much wow
+
+# Arguments are passed through, each its own Str.
+such greet = chase.run("printf", ["%s %s", "such", "doge"], none)
+bark greet["stdout"]  # such doge
+
+# Feed a program on its standard input.
+such echoed = chase.run("cat", [], "very input")
+bark echoed["stdout"]  # very input
+
+# A nonzero exit code comes back in the dict, not as an error.
+such fail = chase.run("false", [], none)
+bark fail["code"]  # 1
+
+# Failing to launch the program is a catchable IOError, never a crash.
+pls
+    chase.run("doge-no-such-program", [], none)
+oh no err!
+    bark err.type  # IOError
+wow

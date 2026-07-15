@@ -320,7 +320,7 @@ impl Codegen {
             BuiltinShape::Range => {
                 // `range` accepts one argument (0..n) or two (a..b).
                 "            if args.len() != 1 && args.len() != 2 { return Err(function_arity_error(\"range\", 1usize, Some(2usize), args.len())); }\n\
-                 \x20           if args.len() == 1 { range(&Value::Int(0i64), &args.remove(0)) } else { range(&args.remove(0), &args.remove(0)) }\n".to_string()
+                 \x20           if args.len() == 1 { range(&Value::int(0i64), &args.remove(0)) } else { range(&args.remove(0), &args.remove(0)) }\n".to_string()
             }
             BuiltinShape::Prompt => {
                 // `gib` accepts no argument (read a line) or one (a prompt first).

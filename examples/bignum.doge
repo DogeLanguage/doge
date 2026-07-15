@@ -1,0 +1,32 @@
+# such big. much precision. very wow.
+
+# Factorial of 30 — far past the i64 ceiling, kept exact to the last digit.
+such fact = 1
+for n in range(1, 31):
+    very fact = fact * n
+bark fact
+
+# 2 ** 100 stays an exact Int; exponentiation never overflows.
+bark 2 ** 100
+
+# A literal larger than i64 is valid and exact — no "too big" error.
+bark 123456789012345678901234567890 + 1
+
+# Overflow simply does not happen: i64::MAX + 1 grows instead of wrapping.
+such huge = 9223372036854775807 + 1
+bark huge
+
+# Arbitrary-precision bit shifting: 1 << 70 is a real number, not a wrap.
+bark 1 << 70
+
+# int() parses a whole number of any size from a Str.
+bark int("999999999999999999999999999999") + 1
+
+# A value too big to be a real index is a catchable error, never a crash:
+# overflow moved from arithmetic to the few spots a machine int is unavoidable.
+such xs = [1, 2, 3]
+pls
+    bark xs[99999999999999999999999]
+oh no err!
+    bark err.type
+wow

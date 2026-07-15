@@ -4,6 +4,9 @@ use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
 use std::thread::JoinHandle;
 
+use bigdecimal::{BigDecimal, Zero};
+use num_bigint::BigInt;
+
 use crate::error::{ErrorData, ErrorKind};
 use crate::ordered_map::OrderedMap;
 use crate::pack::{BowlHandle, Packed, PackedError};
@@ -16,9 +19,25 @@ pub type Cell = Rc<RefCell<Value>>;
 /// A dynamically typed Doge value.
 #[derive(Debug, Clone)]
 pub enum Value {
-    Int(i64),
+    /// An arbitrary-precision integer. Overflow never happens: an operation whose
+    /// result outgrows the machine word just keeps more digits, so `Int` behaves as
+    /// an unbounded integer to the user. The i64-sized fast path lives inside the
+    /// operators, not the type.
+    Int(BigInt),
     Float(f64),
+    /// An exact base-10 decimal, from `dec(...)`. Unlike `Float` (binary, inexact),
+    /// `Decimal` stores value as digits × 10^-scale, so `dec("0.1") + dec("0.2")` is
+    /// exactly `dec("0.3")` — the type for money and any exact fractional maths. It
+    /// mixes with `Int` (both exact) but not with `Float` (inexact): a `Float`/
+    /// `Decimal` arithmetic mix is a catchable `TypeError`.
+    Decimal(BigDecimal),
     Str(Rc<str>),
+    /// Raw binary data — an immutable, ref-counted byte string, the counterpart of
+    /// `Str` for bytes that are not text. Where `Str` is char-based (indexing and
+    /// `len` count characters), `Bytes` is byte-based: `bytes[i]` is an `Int`
+    /// 0–255 and `len` counts bytes. Produced by `bytes(...)` and the binary
+    /// `fetch` reads; decoded back to text with `.decode()`.
+    Bytes(Rc<[u8]>),
     Bool(bool),
     None,
     List(Rc<RefCell<Vec<Value>>>),
@@ -131,9 +150,37 @@ pub struct ObjectData {
 }
 
 impl Value {
+    /// Build an `Int` value from anything that converts into a `BigInt` — an
+    /// `i64`/`u8`/`usize` literal, or a computed `BigInt`. The single construction
+    /// helper so call sites never spell `BigInt::from` themselves.
+    pub fn int(n: impl Into<BigInt>) -> Value {
+        Value::Int(n.into())
+    }
+
+    /// Build an `Int` from the decimal-digit string codegen emits for an integer
+    /// literal too large to fit an `i64` token. The compiler only ever emits a
+    /// valid digit run here, so a parse failure is a compiler bug, not a user error.
+    pub fn int_lit(digits: &str) -> Value {
+        Value::Int(
+            digits
+                .parse()
+                .expect("compiler bug: emitted an invalid integer literal"),
+        )
+    }
+
+    /// Build a `Decimal` value from an exact `BigDecimal`.
+    pub fn decimal(d: BigDecimal) -> Value {
+        Value::Decimal(d)
+    }
+
     /// Build a `Str` value from anything string-like.
     pub fn str(s: impl AsRef<str>) -> Value {
         Value::Str(Rc::from(s.as_ref()))
+    }
+
+    /// Build a `Bytes` value from any byte slice.
+    pub fn bytes(b: impl AsRef<[u8]>) -> Value {
+        Value::Bytes(Rc::from(b.as_ref()))
     }
 
     /// Build a `List` value from a vector of elements.
@@ -246,9 +293,11 @@ impl Value {
     /// `false` are falsy; everything else is truthy.
     pub fn truthy(&self) -> bool {
         match self {
-            Value::Int(n) => *n != 0,
+            Value::Int(n) => !n.is_zero(),
             Value::Float(f) => *f != 0.0,
+            Value::Decimal(d) => !d.is_zero(),
             Value::Str(s) => !s.is_empty(),
+            Value::Bytes(b) => !b.is_empty(),
             Value::Bool(b) => *b,
             Value::None => false,
             Value::List(items) => !items.borrow().is_empty(),
@@ -269,7 +318,9 @@ impl Value {
         match self {
             Value::Int(_) => "Int",
             Value::Float(_) => "Float",
+            Value::Decimal(_) => "Decimal",
             Value::Str(_) => "Str",
+            Value::Bytes(_) => "Bytes",
             Value::Bool(_) => "Bool",
             Value::None => "None",
             Value::List(_) => "List",
@@ -303,17 +354,19 @@ mod tests {
 
     #[test]
     fn truthiness_follows_python() {
-        assert!(!Value::Int(0).truthy());
-        assert!(Value::Int(1).truthy());
+        assert!(!Value::int(0).truthy());
+        assert!(Value::int(1).truthy());
         assert!(!Value::Float(0.0).truthy());
         assert!(Value::Float(0.1).truthy());
+        assert!(!Value::decimal(BigDecimal::from(0)).truthy());
+        assert!(Value::decimal(BigDecimal::from(1)).truthy());
         assert!(!Value::str("").truthy());
         assert!(Value::str("dog").truthy());
         assert!(!Value::Bool(false).truthy());
         assert!(Value::Bool(true).truthy());
         assert!(!Value::None.truthy());
         assert!(!Value::list(vec![]).truthy());
-        assert!(Value::list(vec![Value::Int(1)]).truthy());
+        assert!(Value::list(vec![Value::int(1)]).truthy());
         assert!(!Value::dict(OrderedMap::new()).truthy());
         // An object is always truthy, even with no fields.
         assert!(Value::object(0, "Shibe").truthy());
@@ -323,8 +376,9 @@ mod tests {
 
     #[test]
     fn type_names_match_design() {
-        assert_eq!(Value::Int(1).type_name(), "Int");
+        assert_eq!(Value::int(1).type_name(), "Int");
         assert_eq!(Value::Float(1.0).type_name(), "Float");
+        assert_eq!(Value::decimal(BigDecimal::from(1)).type_name(), "Decimal");
         assert_eq!(Value::str("x").type_name(), "Str");
         assert_eq!(Value::Bool(true).type_name(), "Bool");
         assert_eq!(Value::None.type_name(), "None");
@@ -336,7 +390,7 @@ mod tests {
 
     #[test]
     fn describe_uses_the_right_article() {
-        assert_eq!(Value::Int(1).describe(), "an Int");
+        assert_eq!(Value::int(1).describe(), "an Int");
         assert_eq!(Value::str("x").describe(), "a Str");
         assert_eq!(Value::None.describe(), "a None");
     }
@@ -344,15 +398,18 @@ mod tests {
     #[test]
     fn dict_from_pairs_last_duplicate_wins() {
         let d = Value::dict_from_pairs(vec![
-            (Value::str("k"), Value::Int(1)),
-            (Value::str("k"), Value::Int(2)),
+            (Value::str("k"), Value::int(1)),
+            (Value::str("k"), Value::int(2)),
         ])
         .unwrap();
         match d {
             Value::Dict(entries) => {
                 let entries = entries.borrow();
                 assert_eq!(entries.len(), 1);
-                assert!(matches!(entries.get("k"), Some(Value::Int(2))));
+                match entries.get("k") {
+                    Some(Value::Int(n)) => assert_eq!(n, &BigInt::from(2)),
+                    _ => panic!("expected Int 2"),
+                }
             }
             _ => panic!("expected a dict"),
         }
@@ -360,7 +417,7 @@ mod tests {
 
     #[test]
     fn dict_from_pairs_rejects_non_str_key() {
-        let err = Value::dict_from_pairs(vec![(Value::Int(1), Value::Int(2))]).unwrap_err();
+        let err = Value::dict_from_pairs(vec![(Value::int(1), Value::int(2))]).unwrap_err();
         assert_eq!(err.kind, crate::error::ErrorKind::TypeError);
     }
 

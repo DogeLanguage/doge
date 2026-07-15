@@ -136,7 +136,7 @@ by the compiler's own published version once `doge` is installed — so a
 
 ## 3. Runtime model (`doge-runtime`)
 
-- `enum Value { Int(i64), Float(f64), Str(Rc<str>), Bool(bool), None, List(Rc<RefCell<Vec<Value>>>), Dict(Rc<RefCell<OrderedMap>>), Func(…), Object(…) }` — `OrderedMap` is an insertion-ordered string→`Value` map, so dict iteration and printing are deterministic.
+- `enum Value { Int(i64), Float(f64), Str(Rc<str>), Bytes(Rc<[u8]>), Bool(bool), None, List(Rc<RefCell<Vec<Value>>>), Dict(Rc<RefCell<OrderedMap>>), Func(…), Object(…) }` — `Bytes` is the byte-based counterpart of the char-based `Str`; `OrderedMap` is an insertion-ordered string→`Value` map, so dict iteration and printing are deterministic.
 - All fallible operations return `Result<Value, DogeError>`; generated code threads
   `?` through, and `pls`/`oh no` compiles to a `match` on the block's `Result`.
   No panics in the happy path; no `unsafe` anywhere.
@@ -198,7 +198,7 @@ fn main() -> std::process::ExitCode {
 
 fn run(env: &mut Env) -> DogeResult<()> {
     env.cur_line = 1;
-    env.v_age = Value::Int(7i64);
+    env.v_age = Value::int(7i64);
     env.cur_line = 2;
     let _ = bark(&add(Value::str("age is "), to_str(&env.v_age.clone()))?);
     Ok(())
@@ -245,7 +245,7 @@ rule, [ERRORS.md](ERRORS.md)):
   parent must live in the same file; the checker rejects an unknown parent or a
   cycle before codegen.
 - A stdlib member call emits its runtime function. `nerd.sqrt(16)` becomes
-  `nerd_sqrt(&Value::Int(16i64))`; a constant like `nerd.pi` inlines as
+  `nerd_sqrt(&Value::int(16i64))`; a constant like `nerd.pi` inlines as
   `Value::Float(std::f64::consts::PI)`. Arity and unknown-member errors are caught
   at compile time from a module table that mirrors the runtime.
 - The script's source lines are embedded as `static LINES`, so an uncaught

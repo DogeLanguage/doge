@@ -108,7 +108,7 @@ mod tests {
         assert!(
             matches!(strings_join(&parts, &Value::str(" ")).unwrap(), Value::Str(s) if &*s == "much wow")
         );
-        let mixed = Value::list(vec![Value::str("a"), Value::Int(1)]);
+        let mixed = Value::list(vec![Value::str("a"), Value::int(1)]);
         assert_eq!(
             strings_join(&mixed, &Value::str(" ")).unwrap_err().kind,
             ErrorKind::TypeError
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn non_str_subject_is_a_type_error() {
         assert_eq!(
-            strings_trim(&Value::Int(1)).unwrap_err().kind,
+            strings_trim(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }

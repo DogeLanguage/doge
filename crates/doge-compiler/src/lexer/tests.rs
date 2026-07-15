@@ -80,7 +80,7 @@ fn float_needs_a_digit_after_the_dot() {
     assert_eq!(toks[1], TokenKind::Float(1.5));
     // `1.foo` is Int then Dot then Ident, not a float.
     let toks = kinds("bark 1.foo\n");
-    assert_eq!(toks[1], TokenKind::Int(1));
+    assert_eq!(toks[1], TokenKind::Int(num_bigint::BigInt::from(1)));
     assert_eq!(toks[2], TokenKind::Dot);
     assert_eq!(toks[3], TokenKind::Ident("foo".into()));
 }
@@ -163,9 +163,14 @@ fn empty_hole_is_an_error() {
 }
 
 #[test]
-fn int_overflow_is_an_error() {
-    let err = lex("test.doge", "bark 99999999999999999999999\n").unwrap_err();
-    assert_eq!(err.headline, "very big. much number.");
+fn a_huge_int_literal_lexes_at_full_width() {
+    // `Int` is arbitrary precision, so a whole number past i64 is a valid literal,
+    // never the old "too big" error — it lexes to an Int token at full width.
+    let digits = "99999999999999999999999";
+    let toks = kinds(&format!("bark {digits}\n"));
+    assert!(toks.contains(&TokenKind::Int(
+        digits.parse::<num_bigint::BigInt>().unwrap()
+    )));
 }
 
 #[test]

@@ -106,7 +106,7 @@ pub fn howl_port(sock: &Value) -> DogeResult {
         SocketState::Closed => return Err(closed()),
     };
     match addr {
-        Ok(addr) => Ok(Value::Int(addr.port() as i64)),
+        Ok(addr) => Ok(Value::int(addr.port())),
         Err(err) => Err(DogeError::io_error(format!("cannot read the port: {err}"))),
     }
 }
@@ -280,7 +280,7 @@ fn response_dict(response: ureq::Response) -> DogeResult {
         .into_string()
         .map_err(|err| DogeError::io_error(format!("cannot read the response: {err}")))?;
     let mut entries = OrderedMap::new();
-    entries.insert("status".to_string(), Value::Int(status));
+    entries.insert("status".to_string(), Value::int(status));
     entries.insert("body".to_string(), Value::str(body));
     Ok(Value::dict(entries))
 }
@@ -302,20 +302,21 @@ fn line_to_value(bytes: Vec<u8>) -> DogeResult {
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
+    use bigdecimal::ToPrimitive;
     use std::thread;
 
     /// A listener bound to an OS-assigned loopback port, plus that port.
     fn loopback() -> (Value, u16) {
-        let listener = howl_listen(&Value::str("127.0.0.1"), &Value::Int(0)).unwrap();
+        let listener = howl_listen(&Value::str("127.0.0.1"), &Value::int(0)).unwrap();
         let port = match howl_port(&listener).unwrap() {
-            Value::Int(p) => p as u16,
+            Value::Int(p) => p.to_u16().unwrap(),
             _ => panic!("port is an Int"),
         };
         (listener, port)
     }
 
     fn recv_str(conn: &Value, n: i64) -> Option<String> {
-        match howl_recv(conn, &Value::Int(n)).unwrap() {
+        match howl_recv(conn, &Value::int(n)).unwrap() {
             Value::Str(s) => Some(s.to_string()),
             Value::None => None,
             other => panic!("recv gave {}", other.type_name()),
@@ -327,7 +328,7 @@ mod tests {
         let (listener, port) = loopback();
         // connect() succeeds into the backlog before accept(), so one thread can
         // drive both ends.
-        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
         let server = howl_accept(&listener).unwrap();
 
         howl_send(&client, &Value::str("much hello\n")).unwrap();
@@ -352,7 +353,7 @@ mod tests {
     #[test]
     fn recv_reassembles_a_split_multibyte_character() {
         let (listener, port) = loopback();
-        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
         let server = howl_accept(&listener).unwrap();
 
         // "é" is two UTF-8 bytes; reading one byte at a time must still yield the
@@ -364,7 +365,7 @@ mod tests {
     #[test]
     fn recv_reports_eof_as_none() {
         let (listener, port) = loopback();
-        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
         let server = howl_accept(&listener).unwrap();
         howl_close(&client).unwrap();
         assert_eq!(recv_str(&server, 16), None);
@@ -373,7 +374,7 @@ mod tests {
     #[test]
     fn wrong_socket_role_and_types_are_catchable() {
         let (listener, port) = loopback();
-        let client = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
         // accept on a connection, send on a listener: both TypeErrors.
         assert_eq!(howl_accept(&client).unwrap_err().kind, ErrorKind::TypeError);
         assert_eq!(
@@ -382,23 +383,23 @@ mod tests {
         );
         // Non-Str host, non-Socket receiver, zero recv size.
         assert_eq!(
-            howl_connect(&Value::Int(1), &Value::Int(port as i64))
+            howl_connect(&Value::int(1), &Value::int(port as i64))
                 .unwrap_err()
                 .kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            howl_send(&Value::Int(1), &Value::str("x"))
+            howl_send(&Value::int(1), &Value::str("x"))
                 .unwrap_err()
                 .kind,
             ErrorKind::TypeError
         );
         assert_eq!(
-            howl_recv(&client, &Value::Int(0)).unwrap_err().kind,
+            howl_recv(&client, &Value::int(0)).unwrap_err().kind,
             ErrorKind::ValueError
         );
         assert_eq!(
-            howl_listen(&Value::str("127.0.0.1"), &Value::Int(99999))
+            howl_listen(&Value::str("127.0.0.1"), &Value::int(99999))
                 .unwrap_err()
                 .kind,
             ErrorKind::ValueError
@@ -413,7 +414,7 @@ mod tests {
             howl_close(&listener).unwrap();
             port
         };
-        let err = howl_connect(&Value::str("127.0.0.1"), &Value::Int(port as i64)).unwrap_err();
+        let err = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::IOError);
     }
 
@@ -444,7 +445,9 @@ mod tests {
         match result {
             Value::Dict(entries) => {
                 let entries = entries.borrow();
-                assert!(matches!(entries.get("status"), Some(Value::Int(404))));
+                assert!(entries
+                    .get("status")
+                    .is_some_and(|v| crate::values_equal(v, &Value::int(404))));
                 assert!(
                     matches!(entries.get("body"), Some(Value::Str(s)) if &**s == "much not found")
                 );

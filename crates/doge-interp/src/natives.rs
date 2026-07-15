@@ -1,5 +1,5 @@
 //! Registration and dispatch of the runtime natives — the always-in-scope
-//! builtins (`len`, `str`, `int`, `float`, `range`) and the stdlib module
+//! builtins (`len`, `str`, `int`, `float`, `bytes`, `range`) and the stdlib module
 //! functions (`nerd.*`, `strings.*`). Registration is driven straight from the
 //! compiler's `BUILTINS` and `MODULES` tables, so names and arities can never
 //! drift; only the runtime-function dispatch below is written by hand, and a test
@@ -57,7 +57,7 @@ pub(crate) fn call_native(native: &Native, args: Vec<Value>) -> DogeResult<Value
             call_runtime(native.runtime_fn, &args)
         }
         Arity::OneOrTwo => match args.len() {
-            1 => call_runtime(native.runtime_fn, &[Value::Int(0), args[0].clone()]),
+            1 => call_runtime(native.runtime_fn, &[Value::int(0), args[0].clone()]),
             2 => call_runtime(native.runtime_fn, &args),
             got => Err(function_arity_error(&native.name, 1, Some(2), got)),
         },
@@ -76,6 +76,8 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "to_str" => Ok(rt::to_str(&a[0])),
         "to_int" => rt::to_int(&a[0]),
         "to_float" => rt::to_float(&a[0]),
+        "to_bytes" => rt::to_bytes(&a[0]),
+        "to_decimal" => rt::to_decimal(&a[0]),
         "range" => rt::range(&a[0], &a[1]),
         "gib" => rt::gib(a.first()),
         "nerd_abs" => rt::nerd_abs(&a[0]),
@@ -93,11 +95,28 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "strings_join" => rt::strings_join(&a[0], &a[1]),
         "strings_contains" => rt::strings_contains(&a[0], &a[1]),
         "strings_replace" => rt::strings_replace(&a[0], &a[1], &a[2]),
+        "hunt_test" => rt::hunt_test(&a[0], &a[1]),
+        "hunt_find" => rt::hunt_find(&a[0], &a[1]),
+        "hunt_find_all" => rt::hunt_find_all(&a[0], &a[1]),
+        "hunt_groups" => rt::hunt_groups(&a[0], &a[1]),
+        "hunt_replace" => rt::hunt_replace(&a[0], &a[1], &a[2]),
         "fetch_read" => rt::fetch_read(&a[0]),
         "fetch_write" => rt::fetch_write(&a[0], &a[1]),
         "fetch_append" => rt::fetch_append(&a[0], &a[1]),
+        "fetch_read_bytes" => rt::fetch_read_bytes(&a[0]),
+        "fetch_write_bytes" => rt::fetch_write_bytes(&a[0], &a[1]),
         "fetch_exists" => rt::fetch_exists(&a[0]),
         "fetch_delete" => rt::fetch_delete(&a[0]),
+        "fetch_list" => rt::fetch_list(&a[0]),
+        "fetch_make_dir" => rt::fetch_make_dir(&a[0]),
+        "fetch_remove_dir" => rt::fetch_remove_dir(&a[0]),
+        "fetch_rename" => rt::fetch_rename(&a[0], &a[1]),
+        "fetch_copy" => rt::fetch_copy(&a[0], &a[1]),
+        "fetch_stat" => rt::fetch_stat(&a[0]),
+        "fetch_join" => rt::fetch_join(&a[0], &a[1]),
+        "fetch_basename" => rt::fetch_basename(&a[0]),
+        "fetch_ext" => rt::fetch_ext(&a[0]),
+        "chase_run" => rt::chase_run(&a[0], &a[1], &a[2]),
         "env_args" => rt::env_args(),
         "env_get" => rt::env_get(&a[0]),
         "howl_listen" => rt::howl_listen(&a[0], &a[1]),
@@ -196,7 +215,7 @@ mod tests {
                 // prompt errors out before any read.
                 Arity::ZeroOrOne => 1,
             };
-            let args = vec![Value::Int(1); argc];
+            let args = vec![Value::int(1); argc];
             if let Err(err) = call_native(native, args) {
                 assert!(
                     !err.message.starts_with("interp bug"),

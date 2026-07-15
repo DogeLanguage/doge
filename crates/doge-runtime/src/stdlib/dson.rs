@@ -8,6 +8,8 @@
 
 use std::fmt::Write;
 
+use num_bigint::BigInt;
+
 use crate::error::{DogeError, DogeResult};
 use crate::ordered_map::OrderedMap;
 use crate::stdlib::serialize::{escape_str, too_deep, unsupported, MAX_DEPTH};
@@ -58,8 +60,10 @@ fn emit(value: &Value, out: &mut String, depth: usize) -> Result<(), DogeError> 
     match value {
         Value::None => out.push_str("empty"),
         Value::Bool(b) => out.push_str(if *b { "yes" } else { "no" }),
-        Value::Int(n) => emit_int(*n, out),
+        Value::Int(n) => emit_int(n, out),
         Value::Float(x) => emit_float(*x, out)?,
+        // DSON numbers are octal; an exact base-10 Decimal has no faithful octal
+        // form, so it joins objects/functions as an unserializable value (below).
         Value::Str(s) => escape_str(s, out, dson_unicode),
         Value::List(items) => {
             let items = items.borrow();
@@ -98,13 +102,10 @@ fn emit(value: &Value, out: &mut String, depth: usize) -> Result<(), DogeError> 
     Ok(())
 }
 
-/// An Int as signed octal (`-` then the magnitude's octal digits).
-fn emit_int(n: i64, out: &mut String) {
-    if n < 0 {
-        let _ = write!(out, "-{:o}", n.unsigned_abs());
-    } else {
-        let _ = write!(out, "{n:o}");
-    }
+/// An Int as signed octal. `to_str_radix` already carries a leading `-` for a
+/// negative value, and it handles arbitrary precision.
+fn emit_int(n: &BigInt, out: &mut String) {
+    out.push_str(&n.to_str_radix(8));
 }
 
 /// A finite Float as its exact octal expansion, always with a fractional part
@@ -376,9 +377,7 @@ impl Lexer<'_> {
         }
 
         if !is_float {
-            if let Some(n) = octal_to_i64(&int_digits, neg) {
-                return Ok(Tok::Num(Value::Int(n)));
-            }
+            return Ok(Tok::Num(Value::Int(octal_to_bigint(&int_digits, neg))));
         }
         Ok(Tok::Num(Value::Float(octal_to_f64(
             &int_digits,
@@ -402,13 +401,18 @@ impl Lexer<'_> {
 }
 
 /// Fold octal digits into a signed `i64`, or `None` if they overflow its range.
-fn octal_to_i64(digits: &[u32], neg: bool) -> Option<i64> {
-    let mut acc: i128 = 0;
+/// Combine octal integer digits into an arbitrary-precision `BigInt` (no overflow
+/// — a bare integer of any size parses exactly).
+fn octal_to_bigint(digits: &[u32], neg: bool) -> BigInt {
+    let mut acc = BigInt::from(0);
     for &d in digits {
-        acc = acc.checked_mul(8)?.checked_add(d as i128)?;
+        acc = acc * 8 + d;
     }
-    let signed = if neg { -acc } else { acc };
-    i64::try_from(signed).ok()
+    if neg {
+        -acc
+    } else {
+        acc
+    }
 }
 
 /// Combine octal integer digits, octal fraction digits, and a base-8 exponent
@@ -541,6 +545,7 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
+    use crate::ops::values_equal;
 
     fn parse(text: &str) -> DogeResult {
         dson_parse(&Value::str(text))
@@ -562,8 +567,8 @@ mod tests {
 
     #[test]
     fn numbers_are_octal() {
-        assert!(matches!(parse("17620").unwrap(), Value::Int(8080)));
-        assert!(matches!(parse("-12").unwrap(), Value::Int(-10)));
+        assert!(values_equal(&parse("17620").unwrap(), &Value::int(8080)));
+        assert!(values_equal(&parse("-12").unwrap(), &Value::int(-10)));
         // 4very2 = 4 * 8^2 = 256.
         assert!(matches!(parse("4very2").unwrap(), Value::Float(x) if x == 256.0));
         // 1very-1 = 1 * 8^-1 = 0.125.
@@ -576,7 +581,7 @@ mod tests {
         assert!(matches!(parse("0.4").unwrap(), Value::Float(x) if x == 0.5));
         assert_eq!(emit_str(&Value::Float(0.5)), "0.4");
         assert_eq!(emit_str(&Value::Float(2.5)), "2.4");
-        assert_eq!(emit_str(&Value::Int(8080)), "17620");
+        assert_eq!(emit_str(&Value::int(8080)), "17620");
     }
 
     #[test]
@@ -651,7 +656,7 @@ mod tests {
     #[test]
     fn a_non_str_argument_to_parse_is_a_type_error() {
         assert_eq!(
-            dson_parse(&Value::Int(1)).unwrap_err().kind,
+            dson_parse(&Value::int(1)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }

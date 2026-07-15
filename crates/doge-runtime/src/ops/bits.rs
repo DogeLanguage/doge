@@ -1,11 +1,14 @@
+use bigdecimal::Signed;
+use num_bigint::BigInt;
+
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
 
 /// The two Int operands of a bitwise binary operator, or a catchable type error
 /// naming both values — bitwise operators are Int-only.
-fn int_pair(sym: &str, a: &Value, b: &Value) -> DogeResult<(i64, i64)> {
+fn int_pair<'a>(sym: &str, a: &'a Value, b: &'a Value) -> DogeResult<(&'a BigInt, &'a BigInt)> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok((*x, *y)),
+        (Value::Int(x), Value::Int(y)) => Ok((x, y)),
         _ => Err(DogeError::type_error(format!(
             "cannot {sym} {} and {} (bitwise operators need Ints)",
             a.describe(),
@@ -14,75 +17,75 @@ fn int_pair(sym: &str, a: &Value, b: &Value) -> DogeResult<(i64, i64)> {
     }
 }
 
-/// A shift count as a `u32`: a negative count is a catchable value error, since
-/// shifting by a negative amount has no meaning.
-fn shift_count(y: i64) -> DogeResult<u32> {
-    u32::try_from(y).map_err(|_| {
-        DogeError::value_error(format!(
+/// A shift count as a `usize`: a negative count is a catchable value error, and a
+/// count too large to address is one too (a left shift by it could never fit in
+/// memory). `Int` is arbitrary precision, so a *left* shift never drops bits —
+/// only the count itself can be out of range.
+fn shift_count(y: &BigInt) -> DogeResult<usize> {
+    if y.is_negative() {
+        return Err(DogeError::value_error(format!(
             "cannot shift by {y} — the shift count must be 0 or more"
+        )));
+    }
+    usize::try_from(y).map_err(|_| {
+        DogeError::value_error(format!(
+            "cannot shift by {y} — the shift count is too large"
         ))
     })
-}
-
-fn shift_overflow(x: i64, y: i64) -> DogeError {
-    DogeError::overflow(format!("{x} << {y} overflowed the Int range"))
 }
 
 /// `&` — bitwise AND.
 pub fn bitand(a: Value, b: Value) -> DogeResult {
     let (x, y) = int_pair("&", &a, &b)?;
-    Ok(Value::Int(x & y))
+    Ok(Value::int(x & y))
 }
 
 /// `|` — bitwise OR.
 pub fn bitor(a: Value, b: Value) -> DogeResult {
     let (x, y) = int_pair("|", &a, &b)?;
-    Ok(Value::Int(x | y))
+    Ok(Value::int(x | y))
 }
 
 /// `^` — bitwise XOR.
 pub fn bitxor(a: Value, b: Value) -> DogeResult {
     let (x, y) = int_pair("^", &a, &b)?;
-    Ok(Value::Int(x ^ y))
+    Ok(Value::int(x ^ y))
 }
 
-/// `<<` — left shift. Losing significant bits (or a count of 64 or more) is a
-/// catchable overflow error, never a silent wraparound.
+/// `<<` — left shift. `Int` is arbitrary precision, so this never drops
+/// significant bits; only a negative or too-large shift count is a catchable error.
 pub fn shl(a: Value, b: Value) -> DogeResult {
     let (x, y) = int_pair("<<", &a, &b)?;
     let n = shift_count(y)?;
-    if n >= i64::BITS {
-        return Err(shift_overflow(x, y));
-    }
-    let result = x << n;
-    // The shift is only lossless when it shifts back to the original value.
-    if result >> n != x {
-        return Err(shift_overflow(x, y));
-    }
-    Ok(Value::Int(result))
+    Ok(Value::int(x << n))
 }
 
-/// `>>` — arithmetic right shift. A count of 64 or more saturates to `0` for a
-/// non-negative value and `-1` for a negative one, matching the sign fill.
+/// `>>` — arithmetic (sign-preserving) right shift. A count larger than the value
+/// has bits saturates to the sign fill: `0` for a non-negative value, `-1` for a
+/// negative one.
 pub fn shr(a: Value, b: Value) -> DogeResult {
     let (x, y) = int_pair(">>", &a, &b)?;
-    let n = shift_count(y)?;
-    let result = if n >= i64::BITS {
-        if x < 0 {
-            -1
+    if y.is_negative() {
+        return Err(DogeError::value_error(format!(
+            "cannot shift by {y} — the shift count must be 0 or more"
+        )));
+    }
+    // A count that doesn't fit a `usize` shifts every bit out; the result is the
+    // sign fill without materializing an absurd shift.
+    match usize::try_from(y) {
+        Ok(n) => Ok(Value::int(x >> n)),
+        Err(_) => Ok(Value::int(if x.is_negative() {
+            BigInt::from(-1)
         } else {
-            0
-        }
-    } else {
-        x >> n
-    };
-    Ok(Value::Int(result))
+            BigInt::from(0)
+        })),
+    }
 }
 
 /// `~` — bitwise NOT (Int-only).
 pub fn bitnot(a: Value) -> DogeResult {
     match &a {
-        Value::Int(n) => Ok(Value::Int(!n)),
+        Value::Int(n) => Ok(Value::int(!n)),
         _ => Err(DogeError::type_error(format!(
             "cannot ~ {} (bitwise NOT needs an Int)",
             a.describe()
@@ -94,44 +97,53 @@ pub fn bitnot(a: Value) -> DogeResult {
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
+    use crate::ops::compare::values_equal;
 
     fn int(n: i64) -> Value {
-        Value::Int(n)
+        Value::int(n)
     }
 
     #[test]
     fn basic_bitwise() {
-        assert!(matches!(
-            bitand(int(0b1100), int(0b1010)).unwrap(),
-            Value::Int(0b1000)
+        assert!(values_equal(
+            &bitand(int(0b1100), int(0b1010)).unwrap(),
+            &int(0b1000)
         ));
-        assert!(matches!(
-            bitor(int(0b1100), int(0b1010)).unwrap(),
-            Value::Int(0b1110)
+        assert!(values_equal(
+            &bitor(int(0b1100), int(0b1010)).unwrap(),
+            &int(0b1110)
         ));
-        assert!(matches!(
-            bitxor(int(0b1100), int(0b1010)).unwrap(),
-            Value::Int(0b0110)
+        assert!(values_equal(
+            &bitxor(int(0b1100), int(0b1010)).unwrap(),
+            &int(0b0110)
         ));
-        assert!(matches!(bitnot(int(0)).unwrap(), Value::Int(-1)));
-        assert!(matches!(bitnot(int(5)).unwrap(), Value::Int(-6)));
+        assert!(values_equal(&bitnot(int(0)).unwrap(), &int(-1)));
+        assert!(values_equal(&bitnot(int(5)).unwrap(), &int(-6)));
     }
 
     #[test]
     fn shifts() {
-        assert!(matches!(shl(int(1), int(4)).unwrap(), Value::Int(16)));
-        assert!(matches!(shr(int(16), int(4)).unwrap(), Value::Int(1)));
+        assert!(values_equal(&shl(int(1), int(4)).unwrap(), &int(16)));
+        assert!(values_equal(&shr(int(16), int(4)).unwrap(), &int(1)));
         // Arithmetic right shift keeps the sign.
-        assert!(matches!(shr(int(-8), int(1)).unwrap(), Value::Int(-4)));
+        assert!(values_equal(&shr(int(-8), int(1)).unwrap(), &int(-4)));
         // A huge right-shift saturates to the sign fill.
-        assert!(matches!(shr(int(-8), int(200)).unwrap(), Value::Int(-1)));
-        assert!(matches!(shr(int(8), int(200)).unwrap(), Value::Int(0)));
+        assert!(values_equal(&shr(int(-8), int(200)).unwrap(), &int(-1)));
+        assert!(values_equal(&shr(int(8), int(200)).unwrap(), &int(0)));
+    }
+
+    #[test]
+    fn left_shift_grows_instead_of_overflowing() {
+        // `1 << 64` used to overflow i64; with arbitrary precision it is 2^64.
+        let two_pow_64: BigInt = BigInt::from(1) << 64u32;
+        assert!(values_equal(
+            &shl(int(1), int(64)).unwrap(),
+            &Value::int(two_pow_64)
+        ));
     }
 
     #[test]
     fn shift_errors() {
-        assert_eq!(shl(int(1), int(64)).unwrap_err().kind, ErrorKind::Overflow);
-        assert_eq!(shl(int(1), int(63)).unwrap_err().kind, ErrorKind::Overflow);
         assert_eq!(
             shl(int(-1), int(-1)).unwrap_err().kind,
             ErrorKind::ValueError

@@ -1,11 +1,19 @@
+use std::str::FromStr;
+
+use bigdecimal::BigDecimal;
+use num_bigint::BigInt;
+
 use super::*;
 use crate::error::{DogeError, ErrorKind};
 
 fn int(n: i64) -> Value {
-    Value::Int(n)
+    Value::int(n)
 }
 fn float(f: f64) -> Value {
     Value::Float(f)
+}
+fn dec(s: &str) -> Value {
+    Value::decimal(BigDecimal::from_str(s).unwrap())
 }
 
 #[test]
@@ -17,25 +25,23 @@ fn division_always_float() {
 
 #[test]
 fn floordiv_is_integer_division() {
-    assert!(matches!(floordiv(int(5), int(2)).unwrap(), Value::Int(2)));
+    assert!(values_equal(&floordiv(int(5), int(2)).unwrap(), &int(2)));
     // Floors toward negative infinity, Python-style, not toward zero.
-    assert!(matches!(floordiv(int(-7), int(2)).unwrap(), Value::Int(-4)));
-    assert!(matches!(floordiv(int(7), int(-2)).unwrap(), Value::Int(-4)));
+    assert!(values_equal(&floordiv(int(-7), int(2)).unwrap(), &int(-4)));
+    assert!(values_equal(&floordiv(int(7), int(-2)).unwrap(), &int(-4)));
 }
 
 #[test]
 fn floordiv_and_rem_are_consistent() {
     // a == (a // b) * b + (a % b) for the tricky negative cases.
     for (a, b) in [(-7, 2), (7, -2), (-7, -2), (7, 2)] {
-        let q = match floordiv(int(a), int(b)).unwrap() {
-            Value::Int(n) => n,
-            _ => unreachable!(),
-        };
-        let r = match rem(int(a), int(b)).unwrap() {
-            Value::Int(n) => n,
-            _ => unreachable!(),
-        };
-        assert_eq!(a, q * b + r, "identity failed for {a} // {b}");
+        let q = floordiv(int(a), int(b)).unwrap();
+        let r = rem(int(a), int(b)).unwrap();
+        let rhs = add(mul(q, int(b)).unwrap(), r).unwrap();
+        assert!(
+            values_equal(&int(a), &rhs),
+            "identity failed for {a} // {b}"
+        );
     }
 }
 
@@ -46,10 +52,18 @@ fn mixed_int_float_promotion() {
 }
 
 #[test]
-fn overflow_is_catchable_error() {
-    // i64::MAX + 1 is an error a program can catch, never a silent wrap.
-    let err = add(int(i64::MAX), int(1)).unwrap_err();
-    assert_eq!(err.kind, ErrorKind::Overflow);
+fn int_grows_past_i64_instead_of_overflowing() {
+    // i64::MAX + 1 no longer overflows — Int is arbitrary precision, so it simply
+    // keeps more digits. Never a silent wrap, and never an error.
+    let expected = Value::int(BigInt::from(i64::MAX) + 1);
+    assert!(values_equal(
+        &add(int(i64::MAX), int(1)).unwrap(),
+        &expected
+    ));
+    // A product far past the range is exact, too.
+    let big = mul(int(i64::MAX), int(i64::MAX)).unwrap();
+    let expected = Value::int(BigInt::from(i64::MAX) * BigInt::from(i64::MAX));
+    assert!(values_equal(&big, &expected));
 }
 
 #[test]
@@ -64,6 +78,57 @@ fn division_by_zero_is_catchable() {
     );
     assert_eq!(
         rem(int(1), int(0)).unwrap_err().kind,
+        ErrorKind::DivisionByZero
+    );
+}
+
+#[test]
+fn decimals_are_exact_and_promote_with_ints() {
+    // The canonical binary-float failure `0.1 + 0.2 != 0.3` holds exactly here.
+    assert!(values_equal(
+        &add(dec("0.1"), dec("0.2")).unwrap(),
+        &dec("0.3")
+    ));
+    assert!(values_equal(
+        &sub(dec("1.00"), dec("0.25")).unwrap(),
+        &dec("0.75")
+    ));
+    assert!(values_equal(
+        &mul(dec("1.5"), dec("2")).unwrap(),
+        &dec("3.0")
+    ));
+    assert!(values_equal(
+        &div(dec("1"), dec("4")).unwrap(),
+        &dec("0.25")
+    ));
+    // Int and Decimal are both exact, so they promote to Decimal.
+    assert!(values_equal(&add(int(1), dec("0.5")).unwrap(), &dec("1.5")));
+    assert!(values_equal(&mul(dec("0.1"), int(3)).unwrap(), &dec("0.3")));
+    // Trailing zeros don't affect equality — comparison is by value.
+    assert!(values_equal(&dec("0.10"), &dec("0.1")));
+}
+
+#[test]
+fn mixing_float_and_decimal_is_a_type_error() {
+    // Silently joining an exact Decimal with an inexact Float would corrupt it.
+    assert_eq!(
+        add(dec("0.1"), float(0.2)).unwrap_err().kind,
+        ErrorKind::TypeError
+    );
+    assert_eq!(
+        mul(float(2.0), dec("1.5")).unwrap_err().kind,
+        ErrorKind::TypeError
+    );
+    assert_eq!(
+        div(dec("1"), float(2.0)).unwrap_err().kind,
+        ErrorKind::TypeError
+    );
+}
+
+#[test]
+fn decimal_division_by_zero_is_catchable() {
+    assert_eq!(
+        div(dec("1"), dec("0")).unwrap_err().kind,
         ErrorKind::DivisionByZero
     );
 }
@@ -111,6 +176,8 @@ fn errors_are_equal_by_type_message_and_location() {
 fn equality_cross_numeric() {
     assert!(values_equal(&int(1), &float(1.0)));
     assert!(!values_equal(&int(1), &float(1.5)));
+    // Int and Decimal compare by value across types.
+    assert!(values_equal(&int(2), &dec("2")));
     // Different types are simply unequal, never an error.
     assert!(!values_equal(&int(1), &Value::str("1")));
 }
@@ -128,6 +195,8 @@ fn objects_are_equal_only_by_identity() {
 #[test]
 fn ordering_across_numbers_and_strings() {
     assert!(matches!(lt(int(1), float(1.5)).unwrap(), Value::Bool(true)));
+    // Decimals order against ints too.
+    assert!(matches!(lt(dec("1.5"), int(2)).unwrap(), Value::Bool(true)));
     assert!(matches!(
         gt(Value::str("cheems"), Value::str("bonk")).unwrap(),
         Value::Bool(true)
@@ -224,8 +293,8 @@ fn string_indexing_is_char_based() {
 #[test]
 fn negative_indices_count_from_the_end() {
     let xs = Value::list(vec![int(10), int(20), int(30)]);
-    assert!(matches!(index_get(&xs, &int(-1)).unwrap(), Value::Int(30)));
-    assert!(matches!(index_get(&xs, &int(-3)).unwrap(), Value::Int(10)));
+    assert!(values_equal(&index_get(&xs, &int(-1)).unwrap(), &int(30)));
+    assert!(values_equal(&index_get(&xs, &int(-3)).unwrap(), &int(10)));
 }
 
 #[test]
@@ -237,6 +306,12 @@ fn oob_index_is_catchable_error() {
     );
     assert_eq!(
         index_get(&xs, &int(-3)).unwrap_err().kind,
+        ErrorKind::IndexOutOfBounds
+    );
+    // An index too large to even be a machine index is out of bounds, not a panic.
+    let huge = Value::int(BigInt::from(i64::MAX) * 2);
+    assert_eq!(
+        index_get(&xs, &huge).unwrap_err().kind,
         ErrorKind::IndexOutOfBounds
     );
 }
@@ -259,13 +334,13 @@ fn missing_dict_key_is_catchable_error() {
 fn index_set_mutates_list_and_dict() {
     let xs = Value::list(vec![int(1), int(2)]);
     index_set(&xs, &int(0), int(99)).unwrap();
-    assert!(matches!(index_get(&xs, &int(0)).unwrap(), Value::Int(99)));
+    assert!(values_equal(&index_get(&xs, &int(0)).unwrap(), &int(99)));
 
     let d = Value::dict(crate::ordered_map::OrderedMap::new());
     index_set(&d, &Value::str("k"), int(7)).unwrap();
-    assert!(matches!(
-        index_get(&d, &Value::str("k")).unwrap(),
-        Value::Int(7)
+    assert!(values_equal(
+        &index_get(&d, &Value::str("k")).unwrap(),
+        &int(7)
     ));
 
     // Strings are immutable — a catchable type error, not a panic.
@@ -279,9 +354,12 @@ fn index_set_mutates_list_and_dict() {
 
 #[test]
 fn negation_and_not() {
-    assert!(matches!(neg(int(5)).unwrap(), Value::Int(-5)));
+    assert!(values_equal(&neg(int(5)).unwrap(), &int(-5)));
     assert!(matches!(neg(float(2.5)).unwrap(), Value::Float(f) if f == -2.5));
-    assert_eq!(neg(int(i64::MIN)).unwrap_err().kind, ErrorKind::Overflow);
+    assert!(values_equal(&neg(dec("2.5")).unwrap(), &dec("-2.5")));
+    // Negating i64::MIN no longer overflows — it grows past the range.
+    let expected = Value::int(-BigInt::from(i64::MIN));
+    assert!(values_equal(&neg(int(i64::MIN)).unwrap(), &expected));
     assert!(matches!(not_(int(0)).unwrap(), Value::Bool(true)));
     assert!(matches!(
         not_(Value::str("dog")).unwrap(),
@@ -341,8 +419,8 @@ fn unpack_value_splits_a_list_of_exact_length() {
     let xs = Value::list(vec![int(1), int(2), int(3)]);
     let out = unpack_value(&xs, 3, false).unwrap();
     assert_eq!(out.len(), 3);
-    assert!(matches!(out[0], Value::Int(1)));
-    assert!(matches!(out[2], Value::Int(3)));
+    assert!(values_equal(&out[0], &int(1)));
+    assert!(values_equal(&out[2], &int(3)));
 }
 
 #[test]
@@ -363,12 +441,12 @@ fn unpack_value_collects_the_rest_into_a_trailing_list() {
     let xs = Value::list(vec![int(1), int(2), int(3), int(4)]);
     let out = unpack_value(&xs, 2, true).unwrap();
     assert_eq!(out.len(), 3);
-    assert!(matches!(out[0], Value::Int(1)));
+    assert!(values_equal(&out[0], &int(1)));
     match &out[2] {
         Value::List(rest) => {
             let rest = rest.borrow();
             assert_eq!(rest.len(), 2);
-            assert!(matches!(rest[0], Value::Int(3)));
+            assert!(values_equal(&rest[0], &int(3)));
         }
         other => panic!("expected a collector list, got {other:?}"),
     }
@@ -410,11 +488,17 @@ fn unpack_value_rejects_a_non_iterable() {
 }
 
 #[test]
-fn pow_keeps_ints_and_checks_overflow() {
-    assert!(matches!(pow(int(2), int(10)).unwrap(), Value::Int(1024)));
-    assert!(matches!(pow(int(5), int(0)).unwrap(), Value::Int(1)));
-    // A result past the i64 range is a catchable overflow, never a wraparound.
-    assert_eq!(pow(int(2), int(64)).unwrap_err().kind, ErrorKind::Overflow);
+fn pow_keeps_ints_and_grows_past_i64() {
+    assert!(values_equal(&pow(int(2), int(10)).unwrap(), &int(1024)));
+    assert!(values_equal(&pow(int(5), int(0)).unwrap(), &int(1)));
+    // A result past the i64 range is exact, never a wraparound or an error.
+    let expected = Value::int(BigInt::from(2).pow(64));
+    assert!(values_equal(&pow(int(2), int(64)).unwrap(), &expected));
+    // Decimals raise to a non-negative Int exponent exactly.
+    assert!(values_equal(
+        &pow(dec("1.5"), int(2)).unwrap(),
+        &dec("2.25")
+    ));
 }
 
 #[test]

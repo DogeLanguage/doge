@@ -378,7 +378,7 @@ impl Codegen {
             }
             BuiltinShape::Range if args.len() == 1 => Ok(self.fail(
                 emit,
-                format!("range(&Value::Int(0i64), &{})", self.expr(&args[0], emit)?),
+                format!("range(&Value::int(0i64), &{})", self.expr(&args[0], emit)?),
             )),
             BuiltinShape::Range => Ok(self.fail(
                 emit,

@@ -9,6 +9,8 @@
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bigdecimal::ToPrimitive;
+
 use crate::error::{DogeError, DogeResult};
 use crate::stdlib::str_arg;
 use crate::value::Value;
@@ -25,7 +27,9 @@ static MONO_ORIGIN: OnceLock<Instant> = OnceLock::new();
 /// Shared by `rest`/`stamp`, which both accept an Int or a Float.
 fn numeric(fname: &str, v: &Value) -> DogeResult<f64> {
     match v {
-        Value::Int(n) => Ok(*n as f64),
+        Value::Int(n) => n
+            .to_f64()
+            .ok_or_else(|| DogeError::overflow(format!("{n} is too large for nap.{fname}"))),
         Value::Float(f) => Ok(*f),
         _ => Err(DogeError::type_error(format!(
             "nap.{fname} needs a number, got {}",
@@ -195,7 +199,7 @@ mod tests {
     use crate::error::ErrorKind;
 
     fn stamp(secs: i64) -> String {
-        match nap_stamp(&Value::Int(secs)).unwrap() {
+        match nap_stamp(&Value::int(secs)).unwrap() {
             Value::Str(s) => s.to_string(),
             other => panic!("expected a Str, got {other:?}"),
         }
@@ -256,7 +260,7 @@ mod tests {
     #[test]
     fn rest_rejects_bad_durations() {
         assert_eq!(
-            nap_rest(&Value::Int(-1)).unwrap_err().kind,
+            nap_rest(&Value::int(-1)).unwrap_err().kind,
             ErrorKind::ValueError
         );
         assert_eq!(
@@ -271,7 +275,7 @@ mod tests {
 
     #[test]
     fn rest_zero_returns_none() {
-        assert!(matches!(nap_rest(&Value::Int(0)).unwrap(), Value::None));
+        assert!(matches!(nap_rest(&Value::int(0)).unwrap(), Value::None));
     }
 
     #[test]
@@ -314,7 +318,7 @@ mod tests {
             ErrorKind::TypeError
         );
         assert_eq!(
-            nap_parse(&Value::Int(0)).unwrap_err().kind,
+            nap_parse(&Value::int(0)).unwrap_err().kind,
             ErrorKind::TypeError
         );
     }

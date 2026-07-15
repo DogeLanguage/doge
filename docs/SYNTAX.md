@@ -79,9 +79,11 @@ Dynamic value types (all runtime-checked):
 
 | Type | Literal examples |
 |---|---|
-| Int | `42`, `-7` (i64) |
+| Int | `42`, `-7` (arbitrary precision — an Int never overflows, it just grows) |
 | Float | `3.14` (f64) |
+| Decimal | exact base-10 from `dec("19.99")` — no literal; for money and any exact fractional maths (see §3 and [STDLIB.md](STDLIB.md)) |
 | Str | `"much wow"` (double quotes, `\n` escapes, `{expr}` interpolation) |
+| Bytes | raw binary data from `bytes(...)` or a binary `fetch` read — no literal; byte-based, so `b[i]` is an Int 0–255 and `len` counts bytes (see [STDLIB.md](STDLIB.md)) |
 | Bool | `true`, `false` |
 | None | `none` |
 | List | `["kabosu", "cheems"]` |
@@ -102,16 +104,17 @@ Python (empty string/list/dict, `0`, `none`, `false` are falsy).
 `**` is exponentiation: `2 ** 10` is `1024`. It is right-associative
 (`2 ** 3 ** 2` is `2 ** 9`) and binds tighter than a unary minus on its left, so
 `-2 ** 2` is `-(2 ** 2)` — but its exponent may be a unary expression, so
-`2 ** -1` is `0.5`. `Int ** <non-negative Int>` stays an Int (and overflow is a
-catchable error); a negative exponent or any Float operand yields a Float, and
+`2 ** -1` is `0.5`. `Int ** <non-negative Int>` stays an Int (arbitrary precision,
+so it never overflows); a negative exponent or any Float operand yields a Float, and
 `0 ** <negative>` is a catchable division by zero.
 
 The bitwise operators `& | ^ << >>` and unary `~` work on Ints only (anything
 else is a catchable type error). Their precedence follows Python: loosest to
 tightest `|`, `^`, `&`, then the shifts `<< >>`, all sitting between the
-comparisons and `+`/`-`. `>>` is an arithmetic (sign-preserving) shift; a `<<`
-that would drop significant bits, or any shift by a negative or ≥64 count, is a
-catchable error rather than a silent wraparound.
+comparisons and `+`/`-`. `>>` is an arithmetic (sign-preserving) shift. Because an
+Int is arbitrary precision, `<<` never drops significant bits — `1 << 70` is a real
+number, not a wraparound. Only a negative shift count, or one too large to
+address, is a catchable error.
 
 **Negative indexing and slicing.** An index may be negative, counting from the
 end: `xs[-1]` is the last element and `"kabosu"[-1]` is `"u"`. A slice
@@ -184,15 +187,32 @@ bark "bos" in "kabosu"                # true — substring
 
 Numeric semantics: `/` always
 returns a Float, `//` is integer division, Int and Float mix freely with automatic
-promotion, and overflow is a catchable runtime error. String indexing and `len()`
-count characters, not bytes.
+promotion. An **Int is arbitrary precision** — arithmetic never overflows, it just
+keeps more digits (`2 ** 200`, a 60-digit factorial, and a literal larger than a
+machine word are all exact). The one place a whole number must still fit a machine
+int is where the runtime unavoidably needs one — a list/string index, a shift count,
+a `range` bound — and a value too large there is a **catchable** error (`IndexOutOfBounds`
+or `ValueError`), never a crash. String indexing and `len()` count characters, not
+bytes — `Bytes` is the byte-based counterpart, where indexing and `len()` count bytes.
 
-Builtins (always in scope, no import): `len(x)` (character/element count),
-`str(x)`, `int(x)`, `float(x)` (conversions), `range`, and `gib` (read a line of
-input). `range(n)` yields the Ints `0 … n-1` as a List; `range(a, b)` yields
-`a … b-1`; both bounds must be Ints and the List is empty when the end is not past
-the start. `gib()` reads one line from standard input as a Str (`none` at end of
-input); `gib("prompt")` prints the prompt first. Details in [STDLIB.md](STDLIB.md).
+**Decimal** is the exact base-10 companion to `Float`, for money and any maths that
+must be exact: `dec("0.1") + dec("0.2")` is exactly `dec("0.3")`, where the binary
+`Float` `0.1 + 0.2` is not. A Decimal is built with the `dec(...)` builtin (no
+literal), prints at its own scale (`dec("0.10")` shows `0.10`), and compares by value
+(`dec("0.10") == dec("0.1")`). It mixes with `Int` — both are exact, so `1 + dec("0.5")`
+is `dec("1.5")` — but **not** with `Float`: mixing an exact Decimal with an inexact
+Float in arithmetic is a catchable `TypeError` (convert one with `dec()`/`float()`).
+`Decimal / Decimal` stays a Decimal, exact when the division terminates.
+
+Builtins (always in scope, no import): `len(x)` (character/byte/element count),
+`str(x)`, `int(x)`, `float(x)`, `bytes(x)`, `dec(x)` (conversions), `range`, and `gib`
+(read a line of input). `int(x)` parses a whole number of any size and truncates a
+Float/Decimal toward zero; `dec(x)` is exact from a Str/Int (and from a Float via its
+shortest decimal form, so `dec(0.1)` is `0.1`). `range(n)` yields the Ints `0 … n-1`
+as a List; `range(a, b)` yields `a … b-1`; both bounds must be Ints and the List is
+empty when the end is not past the start. `gib()` reads one line from standard input
+as a Str (`none` at end of input); `gib("prompt")` prints the prompt first. Details in
+[STDLIB.md](STDLIB.md).
 
 ## 4. Variables and constants
 
@@ -374,7 +394,7 @@ oh no err!
     bark "very error: " + err
 ```
 
-- `pls` opens the try block bare, with no `:`. `oh no <name>!` binds the error and
+- `pls` opens the try block bare. `oh no <name>!` binds the error and
   opens the handler; the header ends with `!` instead of `:`.
 - Errors are structured values. `oh no err!` binds `err` to an `Error` carrying
   four fields:
@@ -544,8 +564,8 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available built-in modules (`nerd`, `strings`, `fetch`, `env`, `howl`, `pack`,
-`json`, `dson`, `nap`, `roll`) are documented in [STDLIB.md](STDLIB.md). There is
+The available built-in modules (`nerd`, `strings`, `hunt`, `fetch`, `env`, `howl`,
+`pack`, `json`, `dson`, `nap`, `roll`) are documented in [STDLIB.md](STDLIB.md). There is
 no `math` module; the math module is `nerd`.
 List and dict operations are methods on the value (`xs.append(1)`), not a module.
 

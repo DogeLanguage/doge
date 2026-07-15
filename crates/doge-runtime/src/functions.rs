@@ -56,12 +56,12 @@ mod tests {
 
     #[test]
     fn cell_round_trips_and_shares() {
-        let cell: Cell = Rc::new(std::cell::RefCell::new(Value::Int(1)));
-        assert!(matches!(cell_get(&cell), Value::Int(1)));
+        let cell: Cell = Rc::new(std::cell::RefCell::new(Value::int(1)));
+        assert!(crate::values_equal(&cell_get(&cell), &Value::int(1)));
         let shared = Rc::clone(&cell);
-        cell_set(&cell, Value::Int(2));
+        cell_set(&cell, Value::int(2));
         // The write is visible through the shared handle.
-        assert!(matches!(cell_get(&shared), Value::Int(2)));
+        assert!(crate::values_equal(&cell_get(&shared), &Value::int(2)));
     }
 
     #[test]
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn calling_a_non_function_is_a_catchable_type_error() {
-        let err = callee_function(&Value::Int(1)).unwrap_err();
+        let err = callee_function(&Value::int(1)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::TypeError);
         assert_eq!(err.message, "cannot call an Int — it is not a function");
     }

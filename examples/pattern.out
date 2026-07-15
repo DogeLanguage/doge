@@ -1,0 +1,10 @@
+true
+false
+42
+none
+["1", "22", "333"]
+["doge@shibe", "doge", "shibe"]
+none
+a#b#c
+shibe.doge
+ValueError

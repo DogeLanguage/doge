@@ -1,0 +1,27 @@
+so hunt
+
+# test — does the pattern match anywhere?
+bark hunt.test("^woof", "woof woof")
+bark hunt.test("^woof", "much bark")
+
+# find — the first matching substring, or none.
+bark hunt.find("[0-9]+", "order 42 now")
+bark hunt.find("[0-9]+", "no digits here")
+
+# find_all — every match, in order.
+bark hunt.find_all("[0-9]+", "1 and 22 and 333")
+
+# groups — the whole match then each capture group.
+bark hunt.groups("(\\w+)@(\\w+)", "doge@shibe")
+bark hunt.groups("(\\w+)@(\\w+)", "no at sign")
+
+# replace — swap every match, with $n backrefs.
+bark hunt.replace("[0-9]+", "a1b22c", "#")
+bark hunt.replace("(\\w+)@(\\w+)", "doge@shibe", "$2.$1")
+
+# An invalid pattern is catchable, never a crash.
+pls
+    hunt.find("[", "text")
+oh no err!
+    bark err.type
+wow

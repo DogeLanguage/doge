@@ -12,3 +12,7 @@ keywords = ["doge", "language", "compiler", "parser"]
 categories = ["compilers"]
 
 [dependencies]
+# Arbitrary-precision integer literals: `Int` is arbitrary precision, so an integer
+# literal in source may exceed `i64` and must be carried through the token/AST at
+# full width. Same crate the runtime uses, already in the workspace lockfile.
+num-bigint = "0.4"

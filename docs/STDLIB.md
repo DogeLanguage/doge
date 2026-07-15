@@ -8,10 +8,12 @@ implemented in Rust inside `doge-runtime`.
 
 | Builtin | Meaning |
 |---|---|
-| `len(x)` | character count of a Str, element count of a List/Dict |
+| `len(x)` | character count of a Str, byte count of a Bytes, element count of a List/Dict |
 | `str(x)` | convert to Str (the same display form `bark` prints) |
-| `int(x)` | convert to Int |
+| `int(x)` | convert to Int: a whole number of any size from a Str, a Float/Decimal truncated toward zero, a Bool to 0/1 |
 | `float(x)` | convert to Float |
+| `dec(x)` | convert to an exact Decimal: a Str/Int exactly, a Float via its shortest decimal form (so `dec(0.1)` is `0.1`, not binary noise), a Decimal unchanged |
+| `bytes(x)` | convert to Bytes: a Str is UTF-8-encoded, a List of Ints (each 0–255) becomes those bytes, a Bytes is returned unchanged |
 | `range(n)` / `range(a, b)` | a List of Ints `0 … n-1`, or `a … b-1` |
 | `gib()` / `gib("prompt")` | read one line from standard input as a Str, or `none` at end of input |
 
@@ -77,13 +79,74 @@ updates its value but keeps its original position.
 Methods are not first-class values — `such f = xs.append` is a catchable runtime
 error, since `xs.append` reads a (non-existent) field before the call.
 
+### Bytes
+
+`Bytes` is raw binary data — the byte-based counterpart of the char-based `Str`,
+for data that is not text (file contents, hashes, binary formats). Build one with
+`bytes(x)`; there is no literal. It is immutable, like `Str`.
+
+Where `Str` operations count characters, `Bytes` operations count bytes: `len(b)`
+is the byte count and `b[i]` is an `Int` 0–255. Iterating a `Bytes` yields those
+Ints, `int in b` tests byte membership (and `bytes in b` a contiguous sub-slice),
+`b + b` concatenates, slicing yields a `Bytes`, and `==`/ordering compare
+byte-wise. Printing (and `str(b)`) shows the `b"..."` form — printable ASCII
+literally, other bytes as `\xNN`.
+
+| Method | Returns | Meaning |
+|---|---|---|
+| `hex()` | `Str` | the bytes as lowercase hexadecimal (`bytes("hi").hex()` is `"6869"`) |
+| `decode()` | `Str` | the bytes decoded as UTF-8 text; invalid UTF-8 is a catchable `ValueError` |
+
+```doge
+such raw = bytes("hi")     # b"hi"
+bark len(raw)              # 2
+bark raw.hex()             # 6869
+bark raw.decode()          # hi
+```
+
+### Decimal
+
+`Decimal` is exact base-10 arithmetic — the companion to `Float` for money and any
+calculation that must be exact rather than the nearest binary approximation. Build
+one with `dec(x)`; there is no literal. It has no methods (operators do the work).
+
+A `Decimal` is exact and arbitrary precision. It participates in the ordinary
+operators, with two rules that keep exactness honest:
+
+- **Int and Decimal mix** (both are exact), promoting to `Decimal`: `1 + dec("0.5")`
+  is `dec("1.5")`.
+- **Float and Decimal do not mix** in arithmetic — silently folding an inexact
+  `Float` into an exact `Decimal` would corrupt it, so it is a catchable `TypeError`.
+  Convert one side first (`dec(x)` or `float(x)`). Comparison still works across all
+  three numeric types.
+
+`Decimal / Decimal` is a `Decimal` (exact when the division terminates, otherwise
+rounded to a fixed scale). `//` and `%` follow the same floor/modulo rules as Ints,
+and `Decimal ** <non-negative Int>` stays an exact Decimal. Printing keeps the value's
+own scale (`dec("0.10")` shows `0.10`), while equality is by value (`dec("0.10") ==
+dec("0.1")`). `int(d)` truncates toward zero; `float(d)` rounds to the nearest Float.
+
+```doge
+bark dec("0.1") + dec("0.2")   # 0.3      (Float 0.1 + 0.2 is 0.30000000000000004)
+such price = dec("19.99")
+bark price * 3                 # 59.97
+bark dec("1") / dec("4")       # 0.25
+bark dec("0.10") == dec("0.1") # true
+```
+
+`dec` and `json`/`dson`: `json.emit` writes a Decimal as a bare JSON number (JSON has
+no decimal type, so a round-trip through `json.parse` returns a Float). `dson` numbers
+are octal and so have no faithful Decimal form — `dson.emit` of a Decimal is a
+catchable `TypeError`, like any other unserializable value.
+
 ## Modules
 
 | Module | Members |
 |---|---|
 | `nerd` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `min`, `max`, `pow`; constants `pi`, `e` |
 | `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `replace` |
-| `fetch` | `read`, `write`, `append`, `exists`, `delete` — file I/O |
+| `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
+| `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
 | `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
@@ -91,31 +154,95 @@ error, since `xs.append` reads a (non-existent) field before the call.
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
 | `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
 | `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
+| `chase` | `run` — run an external program and capture its output |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
 from a module table in the compiler that mirrors the runtime.
 
+### `hunt` — regular expressions
+
+Pattern matching over a Str: the dog hunts a pattern through the text. Every member
+takes the pattern as its first argument and the text to search as its second; both
+must be a Str, or it is a catchable `TypeError`. An invalid pattern is a catchable
+`ValueError` (`err.type == "ValueError"`), never a crash. Matches come back as the
+matching *substrings*, so character indexing is never a concern.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `test(pat, text)` | `Bool` | whether `pat` matches anywhere in `text` |
+| `find(pat, text)` | `Str` or `none` | the first substring that matches, or `none` when there is no match |
+| `find_all(pat, text)` | `List` of `Str` | every non-overlapping match, in order (an empty List when none) |
+| `groups(pat, text)` | `List` or `none` | the capture groups of the first match — group 0 (the whole match) first; a group that did not participate is `none`. `none` overall when `pat` does not match |
+| `replace(pat, text, repl)` | `Str` | every match replaced by `repl`, which may reference groups as `$1` or `${name}` |
+
+The pattern syntax is the standard one (character classes `[0-9]`, anchors `^`/`$`,
+quantifiers `*`/`+`/`?`, groups `(...)`, alternation `|`); the engine matches in
+linear time, so no pattern can hang the program. A backslash escape like `\d` or
+`\w` must be written `\\d` / `\\w` in a Doge string literal, since a bare backslash
+is a string escape (only `\n`, `\t`, `\"`, `\\`, `\{`, `\}` are known) — the
+character classes `[0-9]`, `[a-z]` and the like need no backslash and read fine.
+
+```doge
+so hunt
+
+bark hunt.test("^woof", "woof woof")           # true
+bark hunt.find("[0-9]+", "order 42 now")       # 42
+bark hunt.find_all("[0-9]+", "1 22 333")       # ["1", "22", "333"]
+bark hunt.groups("(\\w+)@(\\w+)", "doge@shibe") # ["doge@shibe", "doge", "shibe"]
+bark hunt.replace("[0-9]+", "a1b22c", "#")     # a#b#c
+
+# A no-match lookup is `none`, and a bad pattern is catchable.
+bark hunt.find("nope", "text")                 # none
+pls
+    hunt.find("[", "text")
+oh no err!
+    bark err.type                              # ValueError
+wow
+```
+
 ### `fetch` — file I/O
 
-Every path (and, for writes, the text) must be a Str; anything else is a catchable
-`TypeError`. Every OS failure — a missing file, a permission problem, bytes that
-are not valid text — is a catchable `IOError` (`err.type == "IOError"`), never a
-crash.
+Every path must be a Str, the text operations take/return a Str, and the binary
+operations take/return `Bytes`; anything else is a catchable `TypeError`. Every OS
+failure — a missing file, a permission problem — is a catchable `IOError`
+(`err.type == "IOError"`), never a crash. Read a file whose bytes are not valid
+text with `read` and it is an `IOError`; use `read_bytes` for binary files.
 
 | Member | Returns | Meaning |
 |---|---|---|
 | `read(path)` | `Str` | the whole file as text (missing file or non-text bytes are an `IOError`) |
 | `write(path, text)` | `none` | replace the file's contents with `text`, creating it if needed |
 | `append(path, text)` | `none` | add `text` to the end of the file, creating it if needed |
+| `read_bytes(path)` | `Bytes` | the whole file as raw bytes, for binary data (a missing file is an `IOError`) |
+| `write_bytes(path, bytes)` | `none` | replace the file's contents with raw `bytes`, creating it if needed |
 | `exists(path)` | `Bool` | whether anything exists at `path` |
 | `delete(path)` | `none` | remove the file (a missing file is an `IOError`) |
+| `list(path)` | `List` of `Str` | the entry names in a directory, sorted (a missing path or non-directory is an `IOError`) |
+| `make_dir(path)` | `none` | create the directory and any missing parents; already existing is not an error |
+| `remove_dir(path)` | `none` | remove the directory and everything inside it (a missing path is an `IOError`) |
+| `rename(from, to)` | `none` | move or rename a file or directory, replacing `to` if it exists |
+| `copy(from, to)` | `none` | copy a file's contents to `to`, creating or replacing it |
+| `stat(path)` | `Dict` | metadata about `path` (a missing path is an `IOError`) |
+| `join(a, b)` | `Str` | join two path segments with `/` (an absolute `b` replaces `a`) |
+| `basename(path)` | `Str` | the final component of a path (`"a/b/c.txt"` → `"c.txt"`) |
+| `ext(path)` | `Str` | the extension including the leading dot (`"c.txt"` → `".txt"`), or `""` when none |
+
+`stat` returns a Dict with three keys: `size` (an `Int` byte count), `modified`
+(a `Float` of Unix seconds, negative before the epoch), and `is_dir` (a `Bool`).
+`join`, `basename`, and `ext` never touch the filesystem — they are pure string
+operations on the path, so they only ever raise a `TypeError`, never an `IOError`.
 
 ```doge
 so fetch
 fetch.write("notes.txt", "much wow")
 fetch.append("notes.txt", "\nsuch file")
 bark fetch.read("notes.txt")
+
+fetch.make_dir("logs")
+bark fetch.stat("notes.txt")["size"]
+bark fetch.join("logs", "run.txt")
+fetch.remove_dir("logs")
 ```
 
 ### `env` — arguments and environment
@@ -414,6 +541,48 @@ pls
     roll.choice([])
 oh no err!
     bark err.type                    # ValueError
+```
+
+### `chase` — subprocess
+
+Run another program. `chase.run` launches a command, waits for it to finish, and
+gives back a Dict of what happened. Both output streams are always captured (the
+child never writes to your terminal), and failing to launch the program — a missing
+binary, a permission problem — is a catchable `IOError` (`err.type == "IOError"`),
+never a crash.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `run(cmd, args, stdin)` | `Dict` | run `cmd` with the Str `args`, optionally feeding `stdin`, then give back `{"code": Int, "stdout": Str, "stderr": Str}` |
+
+`cmd` is a Str program name or path; `args` is a `List` of `Str`; `stdin` is a Str
+to feed the program on its standard input, or `none` to feed it nothing. A wrong
+type for any of them — a non-Str `cmd`, an `args` that is not a List of Str, a
+`stdin` that is neither a Str nor `none` — is a catchable `TypeError`, checked
+before anything is launched.
+
+The result Dict is always `{"code", "stdout", "stderr"}`: `code` is the program's
+exit status (`0` on success, `-1` when it was terminated by a signal), and `stdout`
+and `stderr` are its captured output as text. Output that is not valid text is an
+`IOError`, as with `fetch.read`. Feeding `stdin` to a program that ignores it (or
+exits early) is fine — it is not an error — and `chase.run` never hangs, however
+much a program reads or writes.
+
+```doge
+so chase
+
+such hello = chase.run("echo", ["much", "wow"], none)
+bark hello["code"]                   # 0
+bark hello["stdout"]                 # much wow
+
+# Feed a program on its standard input.
+such shout = chase.run("cat", [], "such input\n")
+bark shout["stdout"]                 # such input
+
+pls
+    chase.run("doge-no-such-program", [], none)
+oh no err!
+    bark err.type                    # IOError
 ```
 
 A `so <name>` import that is not a stdlib module resolves to the user file

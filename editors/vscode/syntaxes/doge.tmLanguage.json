@@ -8,6 +8,9 @@
     { "include": "#numbers" },
     { "include": "#constants" },
     { "include": "#control" },
+    { "include": "#modules" },
+    { "include": "#builtins" },
+    { "include": "#self" },
     { "include": "#doge-keywords" },
     { "include": "#operators" }
   ],
@@ -29,8 +32,13 @@
           "beginCaptures": { "0": { "name": "punctuation.definition.interpolation.begin.doge" } },
           "endCaptures": { "0": { "name": "punctuation.definition.interpolation.end.doge" } },
           "patterns": [
+            { "include": "#strings" },
             { "include": "#numbers" },
             { "include": "#constants" },
+            { "include": "#control" },
+            { "include": "#modules" },
+            { "include": "#builtins" },
+            { "include": "#self" },
             { "include": "#operators" }
           ]
         }
@@ -48,12 +56,27 @@
       "match": "\\b(if|elif|else|for|while|in|return|continue|and|or|not)\\b",
       "name": "keyword.control.doge"
     },
+    "modules": {
+      "match": "\\b(nerd|strings|hunt|fetch|env|howl|json|dson|nap|pack|chase|roll)\\b(?:\\s*\\.\\s*([A-Za-z_][A-Za-z0-9_]*))?",
+      "captures": {
+        "1": { "name": "support.class.module.doge" },
+        "2": { "name": "support.function.method.doge" }
+      }
+    },
+    "builtins": {
+      "match": "(?<!\\.)\\b(len|str|int|float|bytes|dec|range|gib)\\b(?=\\s*\\()",
+      "name": "support.function.builtin.doge"
+    },
+    "self": {
+      "match": "\\bself\\b",
+      "name": "variable.language.self.doge"
+    },
     "doge-keywords": {
       "match": "\\b(such|much|many|so|very|super|pls|bark|bonk|bork|amaze|wow)\\b|\\boh\\s+no\\b",
       "name": "keyword.other.doge"
     },
     "operators": {
-      "match": "\\*\\*=?|//=?|<<=?|>>=?|[+\\-*/%&|^<>=!]=?|~|[:,\\[\\]().]",
+      "match": "\\*\\*=?|//=?|<<=?|>>=?|[+\\-*/%&|^<>=!]=?|~|[:,\\[\\]().{}]",
       "name": "keyword.operator.doge"
     }
   }

@@ -1,0 +1,39 @@
+# such tree. much files. very fetch.
+so fetch
+
+# Build a small directory tree in the scratch cwd (make_dir makes the parent too).
+fetch.make_dir("den/pups")
+
+# Write a couple of files, then list the directory — list is sorted, so stable.
+fetch.write("den/pups/a.txt", "much")
+fetch.write("den/pups/b.txt", "wow")
+bark fetch.list("den/pups")
+
+# Metadata: size and kind are exact; the modified time just has to be a real clock.
+such info = fetch.stat("den/pups/a.txt")
+bark info["size"]
+bark info["is_dir"]
+bark info["modified"] > 0
+
+# Rename then copy — the contents follow the file.
+fetch.rename("den/pups/a.txt", "den/pups/c.txt")
+fetch.copy("den/pups/c.txt", "den/pups/d.txt")
+bark fetch.read("den/pups/d.txt")
+bark fetch.list("den/pups")
+
+# Path helpers are pure string ops — no file needs to exist.
+bark fetch.join("den", "pups")
+bark fetch.basename("den/pups/c.txt")
+bark fetch.ext("den/pups/c.txt")
+bark fetch.ext("den/pups/README")
+
+# A missing path is a catchable IOError, never a crash.
+pls
+    bark fetch.stat("den/ghost.txt")
+oh no err!
+    bark err.type
+
+# Clean up the whole tree.
+fetch.remove_dir("den")
+bark fetch.exists("den")
+wow

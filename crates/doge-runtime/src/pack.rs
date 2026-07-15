@@ -17,6 +17,9 @@
 use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 
+use bigdecimal::BigDecimal;
+use num_bigint::BigInt;
+
 use crate::error::{DogeError, DogeResult, ErrorKind, ErrorLocation};
 use crate::ordered_map::OrderedMap;
 use crate::value::{ObjectData, SocketData, SocketState, Value};
@@ -43,9 +46,11 @@ pub enum PackMode {
 /// another thread. Built by [`pack_value`], consumed by [`unpack_packed`].
 #[derive(Debug)]
 pub enum Packed {
-    Int(i64),
+    Int(BigInt),
     Float(f64),
+    Decimal(BigDecimal),
     Str(String),
+    Bytes(Vec<u8>),
     Bool(bool),
     None,
     List(Vec<Packed>),
@@ -169,9 +174,11 @@ fn pack_at(value: &Value, mode: PackMode, depth: usize) -> DogeResult<Packed> {
     }
     let next = depth + 1;
     Ok(match value {
-        Value::Int(n) => Packed::Int(*n),
+        Value::Int(n) => Packed::Int(n.clone()),
         Value::Float(f) => Packed::Float(*f),
+        Value::Decimal(d) => Packed::Decimal(d.clone()),
         Value::Str(s) => Packed::Str(s.to_string()),
+        Value::Bytes(b) => Packed::Bytes(b.to_vec()),
         Value::Bool(b) => Packed::Bool(*b),
         Value::None => Packed::None,
         Value::List(items) => {
@@ -250,7 +257,9 @@ pub fn unpack_packed(packed: Packed) -> Value {
     match packed {
         Packed::Int(n) => Value::Int(n),
         Packed::Float(f) => Value::Float(f),
+        Packed::Decimal(d) => Value::Decimal(d),
         Packed::Str(s) => Value::str(s),
+        Packed::Bytes(b) => Value::bytes(b),
         Packed::Bool(b) => Value::Bool(b),
         Packed::None => Value::None,
         Packed::List(items) => Value::list(items.into_iter().map(unpack_packed).collect()),
@@ -334,10 +343,11 @@ mod tests {
     #[test]
     fn scalars_and_collections_survive_a_round_trip() {
         let mut map = OrderedMap::new();
-        map.insert("k".to_string(), Value::Int(1));
+        map.insert("k".to_string(), Value::int(1));
         let value = Value::list(vec![
-            Value::Int(7),
+            Value::int(7),
             Value::Float(2.5),
+            Value::decimal(bigdecimal::BigDecimal::from(3)),
             Value::str("wow"),
             Value::Bool(true),
             Value::None,
@@ -348,11 +358,11 @@ mod tests {
 
     #[test]
     fn a_copy_shares_nothing_with_the_original() {
-        let inner = Value::list(vec![Value::Int(1)]);
+        let inner = Value::list(vec![Value::int(1)]);
         let copy = round_trip(&inner);
         // Mutating the copy must not touch the original — the trip severed sharing.
         if let Value::List(items) = &copy {
-            items.borrow_mut().push(Value::Int(2));
+            items.borrow_mut().push(Value::int(2));
         }
         let Value::List(original) = &inner else {
             unreachable!()

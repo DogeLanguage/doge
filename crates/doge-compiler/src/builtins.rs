@@ -1,5 +1,5 @@
 //! The compiler-side view of the always-in-scope builtins (`len`, `str`, `int`,
-//! `float`, `range`): the runtime function each call wires to, the argument
+//! `float`, `bytes`, `range`): the runtime function each call wires to, the argument
 //! counts it accepts, and how its call is emitted. Mirrors the runtime `builtins`
 //! (like [`crate::stdlib`] mirrors the runtime `stdlib`) — a builtin here must
 //! have a matching function there. This one table is the single source the
@@ -86,6 +86,20 @@ pub const BUILTINS: &[BuiltinFn] = &[
         arities: &[1],
         shape: BuiltinShape::Fallible,
         hint: "float(thing)",
+    },
+    BuiltinFn {
+        name: "bytes",
+        runtime_fn: "to_bytes",
+        arities: &[1],
+        shape: BuiltinShape::Fallible,
+        hint: "bytes(thing)",
+    },
+    BuiltinFn {
+        name: "dec",
+        runtime_fn: "to_decimal",
+        arities: &[1],
+        shape: BuiltinShape::Fallible,
+        hint: "dec(thing)",
     },
     BuiltinFn {
         name: "range",

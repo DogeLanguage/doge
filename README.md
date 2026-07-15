@@ -11,12 +11,12 @@
   <img src="https://img.shields.io/badge/wow-555" alt="wow">
 </p>
 
-Doge is a dynamically typed scripting language that reads alot like Python and runs as a native binary. Scripts transpile to Rust and compile ahead of time, so you write clear, low-ceremony code and ship real performance:
+Doge is a dynamically typed scripting language with the ergonomics of a high-level scripting language and the performance of a compiled one. Scripts transpile to Rust and build ahead of time, so you write clear, low-ceremony code and ship a fast native binary:
 
 - **Native, cached builds** — a `.doge` script becomes Rust source and compiles to a native executable. Builds are content-hashed and cached, so an unchanged script runs instantly.
 - **No sharp edges** — one string type with character-based indexing, automatic int/float promotion, and reference-counted values with no GC, no `unsafe`, and no ownership rules to learn.
-- **Errors you can catch** — every runtime fault is recoverable with `pls`/`oh no`, and diagnostics point at the exact line with a concrete fix — never a raw Rust error.
-- **Doge-speak grammar** — keywords borrow from the meme where it reads well (`such` to declare, `much` for parameters, `bark` to print, `wow` to close a block) and stay universal (`if`, `for`, `while`) where convention wins.
+- **Robust by default** — every runtime fault is recoverable with `pls`/`oh no`, so a single bad value never takes down the program, and static checks catch mistakes before a build even starts.
+- **Diagnostics that help** — errors point at the exact line with a caret and a concrete fix hint. You debug Doge, not Rust.
 
 ## Example
 

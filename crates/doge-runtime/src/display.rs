@@ -13,12 +13,30 @@ fn receiver_label(v: &Value) -> String {
 }
 
 /// String form of a value as it appears *nested* inside a container: strings
-/// gain quotes, everything else prints as it would on its own.
+/// gain quotes, everything else prints as it would on its own (the `b"..."` form
+/// bytes already print in is self-quoting, so it needs no nested special case).
 fn repr(v: &Value) -> String {
     match v {
         Value::Str(s) => format!("\"{s}\""),
         other => other.to_string(),
     }
+}
+
+/// The printable `b"..."` form of raw bytes: printable ASCII shown literally
+/// (with `"` and `\` escaped), every other byte as a `\xNN` hex escape. Total and
+/// UTF-8-safe, so `bark` and `str(bytes)` can render any bytes without decoding.
+fn bytes_repr(bytes: &[u8]) -> String {
+    let mut out = String::from("b\"");
+    for &byte in bytes {
+        match byte {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            0x20..=0x7e => out.push(byte as char),
+            _ => out.push_str(&format!("\\x{byte:02x}")),
+        }
+    }
+    out.push('"');
+    out
 }
 
 impl fmt::Display for Value {
@@ -34,7 +52,11 @@ impl fmt::Display for Value {
                     write!(f, "{x}")
                 }
             }
+            // A Decimal prints at its own scale, so `dec("0.10")` shows "0.10" —
+            // the exact value the user wrote, trailing zeros and all.
+            Value::Decimal(d) => write!(f, "{d}"),
             Value::Str(s) => write!(f, "{s}"),
+            Value::Bytes(b) => write!(f, "{}", bytes_repr(b)),
             Value::Bool(b) => write!(f, "{b}"),
             Value::None => write!(f, "none"),
             Value::List(items) => {
@@ -71,7 +93,7 @@ mod tests {
 
     #[test]
     fn scalars_format_python_style() {
-        assert_eq!(Value::Int(7).to_string(), "7");
+        assert_eq!(Value::int(7).to_string(), "7");
         assert_eq!(Value::Float(2.5).to_string(), "2.5");
         assert_eq!(Value::Float(3.0).to_string(), "3.0");
         assert_eq!(Value::str("kabosu").to_string(), "kabosu");
@@ -80,9 +102,19 @@ mod tests {
     }
 
     #[test]
+    fn decimals_print_at_their_own_scale() {
+        use std::str::FromStr;
+        // Trailing zeros are kept — the exact value the user wrote.
+        let d = Value::decimal(bigdecimal::BigDecimal::from_str("0.10").unwrap());
+        assert_eq!(d.to_string(), "0.10");
+        // Nested in a container, a Decimal is bare (it is not a Str).
+        assert_eq!(Value::list(vec![d]).to_string(), "[0.10]");
+    }
+
+    #[test]
     fn strings_are_bare_at_top_level_but_quoted_when_nested() {
         assert_eq!(Value::str("wow").to_string(), "wow");
-        let list = Value::list(vec![Value::str("a"), Value::Int(1)]);
+        let list = Value::list(vec![Value::str("a"), Value::int(1)]);
         assert_eq!(list.to_string(), "[\"a\", 1]");
     }
 
@@ -90,7 +122,7 @@ mod tests {
     fn dict_formats_with_quoted_keys_in_insertion_order() {
         let mut map = crate::ordered_map::OrderedMap::new();
         map.insert("name".to_string(), Value::str("kabosu"));
-        map.insert("age".to_string(), Value::Int(7));
+        map.insert("age".to_string(), Value::int(7));
         assert_eq!(
             Value::dict(map).to_string(),
             "{\"name\": \"kabosu\", \"age\": 7}"
@@ -121,6 +153,21 @@ mod tests {
         assert_eq!(
             Value::bound_method(list, "append").to_string(),
             "<method List.append>"
+        );
+    }
+
+    #[test]
+    fn bytes_print_in_b_quote_form_with_hex_escapes() {
+        assert_eq!(Value::bytes("hi").to_string(), "b\"hi\"");
+        // Non-printable and high bytes become \xNN; quotes and backslashes escape.
+        assert_eq!(
+            Value::bytes([0x00, 0xff, b'"', b'\\']).to_string(),
+            "b\"\\x00\\xff\\\"\\\\\""
+        );
+        // Self-quoting, so it stays the same nested in a container.
+        assert_eq!(
+            Value::list(vec![Value::bytes("hi")]).to_string(),
+            "[b\"hi\"]"
         );
     }
 

@@ -74,13 +74,14 @@ impl OrderedMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bigdecimal::ToPrimitive;
 
     #[test]
     fn insertion_order_is_preserved() {
         let mut m = OrderedMap::new();
-        m.insert("b".to_string(), Value::Int(1));
-        m.insert("a".to_string(), Value::Int(2));
-        m.insert("c".to_string(), Value::Int(3));
+        m.insert("b".to_string(), Value::int(1));
+        m.insert("a".to_string(), Value::int(2));
+        m.insert("c".to_string(), Value::int(3));
         let keys: Vec<&str> = m.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, ["b", "a", "c"]);
     }
@@ -88,14 +89,14 @@ mod tests {
     #[test]
     fn reinsert_keeps_position_but_updates_value() {
         let mut m = OrderedMap::new();
-        m.insert("x".to_string(), Value::Int(1));
-        m.insert("y".to_string(), Value::Int(2));
-        m.insert("x".to_string(), Value::Int(9));
+        m.insert("x".to_string(), Value::int(1));
+        m.insert("y".to_string(), Value::int(2));
+        m.insert("x".to_string(), Value::int(9));
         assert_eq!(m.len(), 2);
         let entries: Vec<(&str, i64)> = m
             .iter()
             .map(|(k, v)| match v {
-                Value::Int(n) => (k.as_str(), *n),
+                Value::Int(n) => (k.as_str(), n.to_i64().unwrap()),
                 _ => panic!("expected an Int"),
             })
             .collect();
@@ -105,10 +106,12 @@ mod tests {
     #[test]
     fn remove_preserves_remaining_order() {
         let mut m = OrderedMap::new();
-        m.insert("a".to_string(), Value::Int(1));
-        m.insert("b".to_string(), Value::Int(2));
-        m.insert("c".to_string(), Value::Int(3));
-        assert!(matches!(m.remove("b"), Some(Value::Int(2))));
+        m.insert("a".to_string(), Value::int(1));
+        m.insert("b".to_string(), Value::int(2));
+        m.insert("c".to_string(), Value::int(3));
+        assert!(m
+            .remove("b")
+            .is_some_and(|v| crate::values_equal(&v, &Value::int(2))));
         assert!(m.remove("z").is_none());
         let keys: Vec<&str> = m.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, ["a", "c"]);

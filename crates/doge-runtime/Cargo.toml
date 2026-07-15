@@ -12,7 +12,19 @@ keywords = ["doge", "language", "runtime", "scripting"]
 categories = ["compilers"]
 
 [dependencies]
+# Regex engine for the `hunt` module. A correct regex engine is large and
+# security-sensitive (catastrophic backtracking / ReDoS); `regex` is pure-Rust and
+# guarantees linear-time matching with no backtracking blowup, exactly matching the
+# runtime's never-panics, every-failure-catchable guarantee. Hand-rolling one would
+# be far more code and risk.
+regex = "1"
 # HTTP(S) client for the `howl` module. TLS cannot be hand-rolled, so `howl.get`/
 # `howl.post` need a real HTTP stack; ureq is blocking/synchronous, matching the
 # runtime's no-async design, and rustls keeps it pure-Rust with bundled roots.
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# Arbitrary-precision numerics: `num-bigint` backs the `Int` value type (overflow
+# just grows instead of wrapping) and `bigdecimal` backs the exact base-10 `Decimal`
+# type (money/crypto). Both are pure-Rust and correctness-sensitive; hand-rolling a
+# correct bignum/decimal would be far more code and risk. Same rationale as `regex`.
+num-bigint = "0.4"
+bigdecimal = "0.4"
