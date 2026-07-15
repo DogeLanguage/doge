@@ -224,7 +224,7 @@ text with `read` and it is an `IOError`; use `read_bytes` for binary files.
 | `rename(from, to)` | `none` | move or rename a file or directory, replacing `to` if it exists |
 | `copy(from, to)` | `none` | copy a file's contents to `to`, creating or replacing it |
 | `stat(path)` | `Dict` | metadata about `path` (a missing path is an `IOError`) |
-| `join(a, b)` | `Str` | join two path segments with the OS separator |
+| `join(a, b)` | `Str` | join two path segments with `/` (an absolute `b` replaces `a`) |
 | `basename(path)` | `Str` | the final component of a path (`"a/b/c.txt"` → `"c.txt"`) |
 | `ext(path)` | `Str` | the extension including the leading dot (`"c.txt"` → `".txt"`), or `""` when none |
 

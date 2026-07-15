@@ -6,7 +6,6 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use crate::error::{DogeError, DogeResult};
@@ -180,32 +179,40 @@ pub fn fetch_stat(path: &Value) -> DogeResult {
     ])
 }
 
-/// `fetch.join(a, b)` — join two path segments with the platform separator. If `b`
-/// is absolute it replaces `a` entirely, matching how the OS resolves the path.
+/// `fetch.join(a, b)` — join two path segments with `/`, Doge's one canonical
+/// separator on every platform. If `b` is absolute (starts with `/`) it replaces
+/// `a` entirely; an empty `a` yields `b` unchanged.
 pub fn fetch_join(a: &Value, b: &Value) -> DogeResult {
     let a = str_arg("fetch", "join", a)?;
     let b = str_arg("fetch", "join", b)?;
-    Ok(Value::str(Path::new(a).join(b).to_string_lossy()))
+    let joined = if a.is_empty() || b.starts_with('/') {
+        b.to_string()
+    } else if a.ends_with('/') {
+        format!("{a}{b}")
+    } else {
+        format!("{a}/{b}")
+    };
+    Ok(Value::str(joined))
 }
 
-/// `fetch.basename(path)` — the final component of `path` (`"a/b/c.txt"` →
-/// `"c.txt"`), or `""` when the path has no final component (e.g. `"/"`).
+/// `fetch.basename(path)` — the final `/`-separated component of `path`
+/// (`"a/b/c.txt"` → `"c.txt"`), or `""` when the path ends in `/` (e.g. `"/"`).
 pub fn fetch_basename(path: &Value) -> DogeResult {
     let path = str_arg("fetch", "basename", path)?;
-    let name = Path::new(path)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let name = path.rsplit('/').next().unwrap_or_default();
     Ok(Value::str(name))
 }
 
-/// `fetch.ext(path)` — the extension of `path` including the leading dot
-/// (`"c.txt"` → `".txt"`), or `""` when there is none.
+/// `fetch.ext(path)` — the extension of the final component including the leading
+/// dot (`"c.txt"` → `".txt"`), or `""` when there is none. A leading dot on the
+/// component itself (`".gitignore"`) is not an extension.
 pub fn fetch_ext(path: &Value) -> DogeResult {
     let path = str_arg("fetch", "ext", path)?;
-    let ext = Path::new(path)
-        .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
+    let name = path.rsplit('/').next().unwrap_or_default();
+    let ext = name
+        .rsplit_once('.')
+        .filter(|(stem, _)| !stem.is_empty())
+        .map(|(_, e)| format!(".{e}"))
         .unwrap_or_default();
     Ok(Value::str(ext))
 }
@@ -352,16 +359,24 @@ mod tests {
 
     #[test]
     fn path_helpers_are_pure_string_ops() {
-        assert_eq!(
-            str_of(fetch_join(&Value::str("src"), &Value::str("main.doge")).unwrap()),
-            "src/main.doge"
-        );
-        assert_eq!(
-            str_of(fetch_basename(&Value::str("a/b/c.txt")).unwrap()),
-            "c.txt"
-        );
-        assert_eq!(str_of(fetch_ext(&Value::str("a/b/c.txt")).unwrap()), ".txt");
-        assert_eq!(str_of(fetch_ext(&Value::str("a/b/c")).unwrap()), "");
+        // Always `/`, never the platform separator — the result must be identical
+        // on Windows, where std::path::Path would otherwise emit a backslash.
+        let join = |a, b| str_of(fetch_join(&Value::str(a), &Value::str(b)).unwrap());
+        assert_eq!(join("src", "main.doge"), "src/main.doge");
+        assert_eq!(join("src/", "main.doge"), "src/main.doge");
+        assert_eq!(join("", "main.doge"), "main.doge");
+        assert_eq!(join("src", "/etc/passwd"), "/etc/passwd");
+
+        let basename = |p| str_of(fetch_basename(&Value::str(p)).unwrap());
+        assert_eq!(basename("a/b/c.txt"), "c.txt");
+        assert_eq!(basename("c.txt"), "c.txt");
+        assert_eq!(basename("a/b/"), "");
+
+        let ext = |p| str_of(fetch_ext(&Value::str(p)).unwrap());
+        assert_eq!(ext("a/b/c.txt"), ".txt");
+        assert_eq!(ext("a/b/c"), "");
+        assert_eq!(ext("a.b/c"), "");
+        assert_eq!(ext(".gitignore"), "");
     }
 
     #[test]
