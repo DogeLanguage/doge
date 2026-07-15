@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::error::{DogeError, DogeResult};
 use crate::ordered_map::OrderedMap;
-use crate::stdlib::{int_arg, str_arg};
+use crate::stdlib::{bytes_arg, int_arg, str_arg};
 use crate::value::{SocketData, SocketState, Value};
 
 /// How long an HTTP(S) request may run before it is a catchable IOError, so a
@@ -129,6 +129,26 @@ pub fn howl_send(conn: &Value, text: &Value) -> DogeResult {
     }
 }
 
+/// `howl.send_bytes(conn, bytes)` — write raw `bytes` to a connection, unchanged.
+/// Returns `none`. The binary counterpart of [`howl_send`]: use it to send
+/// arbitrary data (image, PDF, a framed HTTP body) that is not text. A broken pipe
+/// or a non-connection socket is a catchable error.
+pub fn howl_send_bytes(conn: &Value, bytes: &Value) -> DogeResult {
+    let sock = socket_arg("send_bytes", conn)?;
+    let bytes = bytes_arg("howl", "send_bytes", bytes)?;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, .. } => match stream.write_all(bytes) {
+            Ok(()) => Ok(Value::None),
+            Err(err) => Err(DogeError::io_error(format!("cannot send: {err}"))),
+        },
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.send_bytes needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
 /// `howl.recv(conn, max_bytes)` — read up to `max_bytes` bytes from a connection
 /// and return them as text, or `none` at end of input. Never splits a multi-byte
 /// character: an incomplete trailing sequence is held for the next read, and a
@@ -182,6 +202,44 @@ pub fn howl_recv(conn: &Value, max_bytes: &Value) -> DogeResult {
         }
         SocketState::Listener(_) => Err(DogeError::type_error(
             "howl.recv needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
+/// `howl.recv_bytes(conn, max_bytes)` — read up to `max_bytes` raw bytes from a
+/// connection and return them as `Bytes`, or `none` at end of input. The binary
+/// counterpart of [`howl_recv`]: no UTF-8 reassembly, so bytes are returned exactly
+/// as they arrive and non-text data is never an error — the way to read a binary or
+/// byte-framed body. `max_bytes` must be a positive Int. Bytes buffered by an
+/// earlier `recv`/`recv_line` are returned first so a mixed-use socket loses
+/// nothing. A broken connection is a catchable IOError.
+pub fn howl_recv_bytes(conn: &Value, max_bytes: &Value) -> DogeResult {
+    let sock = socket_arg("recv_bytes", conn)?;
+    let max = int_arg("howl", "recv_bytes", max_bytes)?;
+    if max <= 0 {
+        return Err(DogeError::value_error(format!(
+            "howl.recv_bytes needs a positive byte count, got {max}"
+        )));
+    }
+    let max = max as usize;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, buf } => {
+            if !buf.is_empty() {
+                let take = buf.len().min(max);
+                let bytes: Vec<u8> = buf.drain(..take).collect();
+                return Ok(Value::bytes(bytes));
+            }
+            let mut chunk = vec![0u8; max];
+            match stream.read(&mut chunk) {
+                Ok(0) => Ok(Value::None),
+                Ok(got) => Ok(Value::bytes(&chunk[..got])),
+                Err(err) => Err(DogeError::io_error(format!("cannot recv: {err}"))),
+            }
+        }
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.recv_bytes needs a connection, not a listening socket",
         )),
         SocketState::Closed => Err(closed()),
     }
@@ -323,6 +381,14 @@ mod tests {
         }
     }
 
+    fn recv_bytes(conn: &Value, n: i64) -> Option<Vec<u8>> {
+        match howl_recv_bytes(conn, &Value::int(n)).unwrap() {
+            Value::Bytes(b) => Some(b.to_vec()),
+            Value::None => None,
+            other => panic!("recv_bytes gave {}", other.type_name()),
+        }
+    }
+
     #[test]
     fn tcp_round_trip_and_close() {
         let (listener, port) = loopback();
@@ -369,6 +435,64 @@ mod tests {
         let server = howl_accept(&listener).unwrap();
         howl_close(&client).unwrap();
         assert_eq!(recv_str(&server, 16), None);
+    }
+
+    #[test]
+    fn bytes_round_trip_preserves_non_text_data() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+
+        // Bytes that are not valid UTF-8 (0xff, 0x00) survive send/recv untouched,
+        // where recv would raise an IOError.
+        let payload = vec![0xffu8, 0x00, 0x50, 0x44, 0x46];
+        howl_send_bytes(&client, &Value::bytes(&payload)).unwrap();
+        assert_eq!(recv_bytes(&server, 16).as_deref(), Some(&payload[..]));
+    }
+
+    #[test]
+    fn recv_bytes_reports_eof_as_none() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+        howl_close(&client).unwrap();
+        assert_eq!(recv_bytes(&server, 16), None);
+    }
+
+    #[test]
+    fn recv_bytes_drains_buffer_left_by_recv_line() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+
+        // A header line then a byte body arriving in one write: recv_line consumes
+        // the line and over-reads the body into the buffer, which recv_bytes must
+        // hand back rather than drop.
+        howl_send(&client, &Value::str("Head: v\r\nBODY")).unwrap();
+        assert_eq!(howl_recv_line(&server).unwrap().to_string(), "Head: v");
+        assert_eq!(recv_bytes(&server, 4).as_deref(), Some(&b"BODY"[..]));
+    }
+
+    #[test]
+    fn recv_bytes_and_send_bytes_reject_bad_args() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        // send_bytes on a listener is a TypeError; a non-Bytes payload too.
+        assert_eq!(
+            howl_send_bytes(&listener, &Value::bytes(b"x"))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            howl_send_bytes(&client, &Value::str("x")).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
+        // A non-positive recv_bytes size is a ValueError.
+        assert_eq!(
+            howl_recv_bytes(&client, &Value::int(0)).unwrap_err().kind,
+            ErrorKind::ValueError
+        );
     }
 
     #[test]

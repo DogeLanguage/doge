@@ -77,9 +77,11 @@ OS failures are `IOError`; `join`/`basename`/`ext` are pure string ops.
 
 ### `howl` — TCP sockets + HTTP client
 `listen(host, port)`→Socket (port 0 = OS-chosen) · `connect(host, port)`→Socket ·
-`accept(listener)`→Socket · `port(sock)`→Int · `send(conn, text)` · `recv(conn, max)`→Str|none ·
-`recv_line(conn)`→Str|none · `close(sock)` · `get(url)`→`{status, body}` · `post(url, body)`→`{status, body}`.
+`accept(listener)`→Socket · `port(sock)`→Int · `send(conn, text)` · `send_bytes(conn, bytes)` ·
+`recv(conn, max)`→Str|none · `recv_bytes(conn, max)`→Bytes|none · `recv_line(conn)`→Str|none ·
+`close(sock)` · `get(url)`→`{status, body}` · `post(url, body)`→`{status, body}`.
 Network failures are `IOError`; a non-2xx HTTP response is a normal `{status, body}` Dict, not an error.
+`send_bytes`/`recv_bytes` carry raw `Bytes` with no UTF-8 check — for binary bodies/uploads.
 
 ### `pack` — threads (pups) and channels (bowls)
 `zoom(f, args)`→Pup (runs `f(args…)` on a new thread) · `fetch(pup)`→result (blocks; re-raises the pup's error) ·

@@ -148,7 +148,7 @@ catchable `TypeError`, like any other unserializable value.
 | `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
-| `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
+| `howl` | `listen`, `connect`, `accept`, `port`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
@@ -279,7 +279,9 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 | `accept(listener)` | `Socket` | block until a client connects, then give back the new connection |
 | `port(sock)` | `Int` | the local port a listener or connection is bound to (read a port-`0` listener's real port back) |
 | `send(conn, text)` | `none` | write `text` to a connection as UTF-8 |
+| `send_bytes(conn, bytes)` | `none` | write raw `bytes` to a connection unchanged |
 | `recv(conn, max_bytes)` | `Str` or `none` | read up to `max_bytes` bytes as text, or `none` at end of input |
+| `recv_bytes(conn, max_bytes)` | `Bytes` or `none` | read up to `max_bytes` raw bytes, or `none` at end of input |
 | `recv_line(conn)` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input |
 | `close(sock)` | `none` | close a listener or connection now (idempotent) |
 | `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str}` |
@@ -288,7 +290,11 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 `recv` carries one `Str` type: it never splits a multi-byte character across two
 reads (an incomplete trailing sequence is held for the next call, so every read
 returns at least one whole character or `none`), and bytes that are not valid text
-are an `IOError`. Raw TCP calls block with no timeout; `howl.get`/`howl.post` time
+are an `IOError`. `send_bytes`/`recv_bytes` are the binary counterpart: they carry
+raw `Bytes` with no UTF-8 validation, so non-text data is never an error and each
+`recv_bytes` returns bytes exactly as they arrive — the way to handle a binary
+upload or byte-accurate framing (a `Content-Length` body), where `recv`'s
+partial-character buffering would get the count wrong. Raw TCP calls block with no timeout; `howl.get`/`howl.post` time
 out after 30 seconds (a catchable `IOError`). For HTTP, only a transport, TLS, or
 timeout failure is an error — a non-2xx response (a `404`, say) comes back as an
 ordinary `{"status", "body"}` Dict, so the script decides what a status means.

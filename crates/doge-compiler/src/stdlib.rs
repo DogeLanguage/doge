@@ -368,10 +368,22 @@ pub const MODULES: &[Module] = &[
                 hint: "howl.send(conn, text)",
             },
             ModuleFn {
+                name: "send_bytes",
+                arity: 2,
+                runtime_fn: "howl_send_bytes",
+                hint: "howl.send_bytes(conn, bytes)",
+            },
+            ModuleFn {
                 name: "recv",
                 arity: 2,
                 runtime_fn: "howl_recv",
                 hint: "howl.recv(conn, max_bytes)",
+            },
+            ModuleFn {
+                name: "recv_bytes",
+                arity: 2,
+                runtime_fn: "howl_recv_bytes",
+                hint: "howl.recv_bytes(conn, max_bytes)",
             },
             ModuleFn {
                 name: "recv_line",
