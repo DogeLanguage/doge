@@ -3,6 +3,7 @@ pub mod dson;
 pub mod env;
 pub mod fetch;
 pub mod howl;
+pub mod hunt;
 pub mod json;
 pub mod nap;
 pub mod nerd;

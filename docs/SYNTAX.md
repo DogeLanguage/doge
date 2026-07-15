@@ -546,8 +546,8 @@ and a member is either a function or a constant (`nerd.pi`). Using the bare modu
 name as a value, or calling it directly, is a compile error, as is naming an
 unknown module or an unknown member.
 
-The available built-in modules (`nerd`, `strings`, `fetch`, `env`, `howl`, `pack`,
-`json`, `dson`, `nap`, `roll`) are documented in [STDLIB.md](STDLIB.md). There is
+The available built-in modules (`nerd`, `strings`, `hunt`, `fetch`, `env`, `howl`,
+`pack`, `json`, `dson`, `nap`, `roll`) are documented in [STDLIB.md](STDLIB.md). There is
 no `math` module; the math module is `nerd`.
 List and dict operations are methods on the value (`xs.append(1)`), not a module.
 

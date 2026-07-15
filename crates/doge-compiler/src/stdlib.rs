@@ -179,6 +179,42 @@ pub const MODULES: &[Module] = &[
         consts: &[],
     },
     Module {
+        name: "hunt",
+        funcs: &[
+            ModuleFn {
+                name: "test",
+                arity: 2,
+                runtime_fn: "hunt_test",
+                hint: "hunt.test(pat, text)",
+            },
+            ModuleFn {
+                name: "find",
+                arity: 2,
+                runtime_fn: "hunt_find",
+                hint: "hunt.find(pat, text)",
+            },
+            ModuleFn {
+                name: "find_all",
+                arity: 2,
+                runtime_fn: "hunt_find_all",
+                hint: "hunt.find_all(pat, text)",
+            },
+            ModuleFn {
+                name: "groups",
+                arity: 2,
+                runtime_fn: "hunt_groups",
+                hint: "hunt.groups(pat, text)",
+            },
+            ModuleFn {
+                name: "replace",
+                arity: 3,
+                runtime_fn: "hunt_replace",
+                hint: "hunt.replace(pat, text, repl)",
+            },
+        ],
+        consts: &[],
+    },
+    Module {
         name: "fetch",
         funcs: &[
             ModuleFn {

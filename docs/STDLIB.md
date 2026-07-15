@@ -109,6 +109,7 @@ bark raw.decode()          # hi
 |---|---|
 | `nerd` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `min`, `max`, `pow`; constants `pi`, `e` |
 | `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `replace` |
+| `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
 | `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
@@ -122,6 +123,47 @@ bark raw.decode()          # hi
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
 from a module table in the compiler that mirrors the runtime.
+
+### `hunt` — regular expressions
+
+Pattern matching over a Str: the dog hunts a pattern through the text. Every member
+takes the pattern as its first argument and the text to search as its second; both
+must be a Str, or it is a catchable `TypeError`. An invalid pattern is a catchable
+`ValueError` (`err.type == "ValueError"`), never a crash. Matches come back as the
+matching *substrings*, so character indexing is never a concern.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `test(pat, text)` | `Bool` | whether `pat` matches anywhere in `text` |
+| `find(pat, text)` | `Str` or `none` | the first substring that matches, or `none` when there is no match |
+| `find_all(pat, text)` | `List` of `Str` | every non-overlapping match, in order (an empty List when none) |
+| `groups(pat, text)` | `List` or `none` | the capture groups of the first match — group 0 (the whole match) first; a group that did not participate is `none`. `none` overall when `pat` does not match |
+| `replace(pat, text, repl)` | `Str` | every match replaced by `repl`, which may reference groups as `$1` or `${name}` |
+
+The pattern syntax is the standard one (character classes `[0-9]`, anchors `^`/`$`,
+quantifiers `*`/`+`/`?`, groups `(...)`, alternation `|`); the engine matches in
+linear time, so no pattern can hang the program. A backslash escape like `\d` or
+`\w` must be written `\\d` / `\\w` in a Doge string literal, since a bare backslash
+is a string escape (only `\n`, `\t`, `\"`, `\\`, `\{`, `\}` are known) — the
+character classes `[0-9]`, `[a-z]` and the like need no backslash and read fine.
+
+```doge
+so hunt
+
+bark hunt.test("^woof", "woof woof")           # true
+bark hunt.find("[0-9]+", "order 42 now")       # 42
+bark hunt.find_all("[0-9]+", "1 22 333")       # ["1", "22", "333"]
+bark hunt.groups("(\\w+)@(\\w+)", "doge@shibe") # ["doge@shibe", "doge", "shibe"]
+bark hunt.replace("[0-9]+", "a1b22c", "#")     # a#b#c
+
+# A no-match lookup is `none`, and a bad pattern is catchable.
+bark hunt.find("nope", "text")                 # none
+pls
+    hunt.find("[", "text")
+oh no err!
+    bark err.type                              # ValueError
+wow
+```
 
 ### `fetch` — file I/O
 
