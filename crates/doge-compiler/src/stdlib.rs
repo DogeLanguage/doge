@@ -575,4 +575,34 @@ pub const MODULES: &[Module] = &[
         ],
         consts: &[],
     },
+    Module {
+        name: "crypto",
+        funcs: &[
+            ModuleFn {
+                name: "sha256",
+                arity: 1,
+                runtime_fn: "crypto_sha256",
+                hint: "crypto.sha256(data)",
+            },
+            ModuleFn {
+                name: "hmac_sha256",
+                arity: 2,
+                runtime_fn: "crypto_hmac_sha256",
+                hint: "crypto.hmac_sha256(key, data)",
+            },
+            ModuleFn {
+                name: "token",
+                arity: 1,
+                runtime_fn: "crypto_token",
+                hint: "crypto.token(n)",
+            },
+            ModuleFn {
+                name: "same",
+                arity: 2,
+                runtime_fn: "crypto_same",
+                hint: "crypto.same(a, b)",
+            },
+        ],
+        consts: &[],
+    },
 ];

@@ -106,3 +106,8 @@ Seeding is per-pup; `shuffle`/`sample` return new lists (don't mutate).
 ### `chase` — subprocess
 `run(cmd, args, stdin)`→`{code, stdout, stderr}`. `cmd` is a Str, `args` a List of Str,
 `stdin` a Str or `none`. Both output streams captured; launch failure is `IOError`.
+
+### `crypto` — hashing, HMAC, secure random, constant-time compare
+`sha256(data)`→Bytes (32) · `hmac_sha256(key, data)`→Bytes (32) · `token(n)`→Bytes (n secure random) ·
+`same(a, b)`→Bool (constant-time). `data`/`key`/`a`/`b` are Str (hashed as UTF-8) or Bytes.
+Render a digest with `.hex()`. `token(n)` uses the OS CSPRNG (not `roll`); `n <= 0` → `ValueError`. Wrong types → `TypeError`.

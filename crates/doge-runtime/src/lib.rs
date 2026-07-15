@@ -31,6 +31,7 @@ pub use pack::{
     Packed, PackedError, PupEntry,
 };
 pub use stdlib::chase::chase_run;
+pub use stdlib::crypto::{crypto_hmac_sha256, crypto_same, crypto_sha256, crypto_token};
 pub use stdlib::dson::{dson_emit, dson_parse};
 pub use stdlib::env::{env_args, env_get, set_script_args};
 pub use stdlib::fetch::{

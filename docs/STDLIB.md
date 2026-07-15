@@ -155,6 +155,7 @@ catchable `TypeError`, like any other unserializable value.
 | `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
 | `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
 | `chase` | `run` — run an external program and capture its output |
+| `crypto` | `sha256`, `hmac_sha256`, `token`, `same` — hashing, HMAC, secure random bytes, and constant-time compare |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -589,6 +590,53 @@ pls
     chase.run("doge-no-such-program", [], none)
 oh no err!
     bark err.type                    # IOError
+```
+
+### `crypto` — hashing, HMAC, and secure randomness
+
+The security primitives an app needs to authenticate a user: hash a password, sign
+a session cookie, mint an unguessable token, and compare a secret without leaking it
+through timing. Everything speaks `Bytes` — the natural type for a digest or a key —
+and a `Bytes` renders for storage or display with its `.hex()` method. `sha256` and
+`hmac_sha256` accept a `Str` (hashed as its UTF-8 bytes) or `Bytes` interchangeably.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `sha256(data)` | `Bytes` | the 32-byte SHA-256 digest of a `Str` or `Bytes` |
+| `hmac_sha256(key, data)` | `Bytes` | the 32-byte HMAC-SHA-256 of `data` under `key`; each is a `Str` or `Bytes` |
+| `token(n)` | `Bytes` | `n` cryptographically secure random bytes from the operating system |
+| `same(a, b)` | `Bool` | whether two `Str`/`Bytes` are equal, compared in constant time |
+
+`token` draws from the operating system's cryptographically secure random source,
+so its bytes are unpredictable and independent of `roll` (which is a fast,
+clock-seeded generator meant for dice and shuffles, **not** for secrets). A length
+`n` that is zero or negative is a catchable `ValueError`; a wrong type for any
+argument is a catchable `TypeError`.
+
+`same` returns a `Bool` like `==`, but its running time does not depend on *where*
+two equal-length secrets first differ, so it does not leak a secret one byte at a
+time to an attacker measuring how long the comparison took. Use it to check a signed
+cookie or an API key; two values of different length are simply unequal.
+
+```doge
+so crypto
+
+# A password hash for storage, and an HMAC that signs a session id.
+bark crypto.sha256("hunter2").hex()
+such cookie = crypto.hmac_sha256("server-key", "user=42")
+bark cookie.hex()
+
+# A fresh, unguessable session token.
+such session = crypto.token(32)
+bark len(session)                    # 32
+
+# Verify a cookie without leaking timing.
+bark crypto.same(cookie, crypto.hmac_sha256("server-key", "user=42"))   # true
+
+pls
+    crypto.token(0)
+oh no err!
+    bark err.type                    # ValueError
 ```
 
 A `so <name>` import that is not a stdlib module resolves to the user file

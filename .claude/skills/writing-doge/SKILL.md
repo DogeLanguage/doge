@@ -96,7 +96,7 @@ bark s.speak()
 - **Keyword arguments** (`greet("k", mood = "sleepy")`) work **only** when Doge knows the function at compile time: a top-level function, a constructor, or an imported module function. On a **method, a stored function value, or a builtin, pass positionally** — a keyword there is a compile error.
 - **Errors are structured.** `oh no err!` binds `err` with `.type` `.message` `.file` `.line`. Types: `TypeError`, `DivisionByZero`, `Overflow`, `IndexOutOfBounds`, `KeyError`, `ValueError`, `IOError`, `AttrError`, `Bonk`, `AssertError`, `RecursionLimit`. Re-raise unchanged with `bonk err`.
 - **Collection methods** are called on the value, not imported: `xs.append(1)`, `xs.sort()`, `d.keys()`, `d.has(k)`. They are **not** first-class (`such f = xs.append` on a plain list access errors — but a bound method read off the value is; see `references/stdlib.md`).
-- **Imports & modules** live at the top level. Stdlib: `nerd` (math — there is no `math`), `strings`, `hunt` (regex), `fetch` (files), `env`, `howl` (net/HTTP), `pack` (threads), `json`, `dson`, `nap` (time), `roll` (random), `chase` (subprocess). A `so name` that matches no stdlib loads the sibling `name.doge`; a module file holds **only** definitions. Full member lists: `references/stdlib.md`.
+- **Imports & modules** live at the top level. Stdlib: `nerd` (math — there is no `math`), `strings`, `hunt` (regex), `fetch` (files), `env`, `howl` (net/HTTP), `pack` (threads), `json`, `dson`, `nap` (time), `roll` (random), `chase` (subprocess), `crypto` (hashing / HMAC / secure random / constant-time compare). A `so name` that matches no stdlib loads the sibling `name.doge`; a module file holds **only** definitions. Full member lists: `references/stdlib.md`.
 
 ## Running, checking, testing
 
