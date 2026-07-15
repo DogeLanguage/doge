@@ -1,9 +1,9 @@
 //! `howl` — the networking stdlib module. Raw TCP (`listen`/`accept`/`connect`/
 //! `send`/`recv`/`recv_line`/`close`) plus a minimal HTTP(S) client
-//! (`get`/`post`). Every network failure — a refused connection, a broken pipe, a
-//! TLS or timeout error, an operation on a closed socket — is a catchable IOError
-//! rather than a panic, and every socket carries text as one `Str` type: `recv`
-//! never splits a multi-byte character, and genuinely invalid bytes are an
+//! (`get`/`post`/`request`). Every network failure — a refused connection, a broken
+//! pipe, a TLS or timeout error, an operation on a closed socket — is a catchable
+//! IOError rather than a panic, and every socket carries text as one `Str` type:
+//! `recv` never splits a multi-byte character, and genuinely invalid bytes are an
 //! IOError, never a Rust panic.
 
 use std::io::{Read, Write};
@@ -13,12 +13,16 @@ use std::time::Duration;
 
 use crate::error::{DogeError, DogeResult};
 use crate::ordered_map::OrderedMap;
-use crate::stdlib::{int_arg, str_arg};
+use crate::stdlib::{bytes_arg, int_arg, str_arg};
 use crate::value::{SocketData, SocketState, Value};
 
 /// How long an HTTP(S) request may run before it is a catchable IOError, so a
 /// script can never hang forever on a stalled server. Raw TCP has no timeout.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The HTTP methods `howl.request` accepts (case-insensitive). Anything else is a
+/// catchable ValueError, so a typo never reaches the transport as a strange verb.
+const HTTP_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 /// The chunk size `recv_line` reads with while scanning for a newline.
 const LINE_CHUNK: usize = 1024;
@@ -129,6 +133,26 @@ pub fn howl_send(conn: &Value, text: &Value) -> DogeResult {
     }
 }
 
+/// `howl.send_bytes(conn, bytes)` — write raw `bytes` to a connection, unchanged.
+/// Returns `none`. The binary counterpart of [`howl_send`]: use it to send
+/// arbitrary data (image, PDF, a framed HTTP body) that is not text. A broken pipe
+/// or a non-connection socket is a catchable error.
+pub fn howl_send_bytes(conn: &Value, bytes: &Value) -> DogeResult {
+    let sock = socket_arg("send_bytes", conn)?;
+    let bytes = bytes_arg("howl", "send_bytes", bytes)?;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, .. } => match stream.write_all(bytes) {
+            Ok(()) => Ok(Value::None),
+            Err(err) => Err(DogeError::io_error(format!("cannot send: {err}"))),
+        },
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.send_bytes needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
 /// `howl.recv(conn, max_bytes)` — read up to `max_bytes` bytes from a connection
 /// and return them as text, or `none` at end of input. Never splits a multi-byte
 /// character: an incomplete trailing sequence is held for the next read, and a
@@ -182,6 +206,44 @@ pub fn howl_recv(conn: &Value, max_bytes: &Value) -> DogeResult {
         }
         SocketState::Listener(_) => Err(DogeError::type_error(
             "howl.recv needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
+}
+
+/// `howl.recv_bytes(conn, max_bytes)` — read up to `max_bytes` raw bytes from a
+/// connection and return them as `Bytes`, or `none` at end of input. The binary
+/// counterpart of [`howl_recv`]: no UTF-8 reassembly, so bytes are returned exactly
+/// as they arrive and non-text data is never an error — the way to read a binary or
+/// byte-framed body. `max_bytes` must be a positive Int. Bytes buffered by an
+/// earlier `recv`/`recv_line` are returned first so a mixed-use socket loses
+/// nothing. A broken connection is a catchable IOError.
+pub fn howl_recv_bytes(conn: &Value, max_bytes: &Value) -> DogeResult {
+    let sock = socket_arg("recv_bytes", conn)?;
+    let max = int_arg("howl", "recv_bytes", max_bytes)?;
+    if max <= 0 {
+        return Err(DogeError::value_error(format!(
+            "howl.recv_bytes needs a positive byte count, got {max}"
+        )));
+    }
+    let max = max as usize;
+    let mut state = sock.state.borrow_mut();
+    match &mut *state {
+        SocketState::Conn { stream, buf } => {
+            if !buf.is_empty() {
+                let take = buf.len().min(max);
+                let bytes: Vec<u8> = buf.drain(..take).collect();
+                return Ok(Value::bytes(bytes));
+            }
+            let mut chunk = vec![0u8; max];
+            match stream.read(&mut chunk) {
+                Ok(0) => Ok(Value::None),
+                Ok(got) => Ok(Value::bytes(&chunk[..got])),
+                Err(err) => Err(DogeError::io_error(format!("cannot recv: {err}"))),
+            }
+        }
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.recv_bytes needs a connection, not a listening socket",
         )),
         SocketState::Closed => Err(closed()),
     }
@@ -253,6 +315,87 @@ pub fn howl_post(url: &Value, body: &Value) -> DogeResult {
     )
 }
 
+/// `howl.request(method, url, opts)` — the general HTTP(S) client. `method` is one
+/// of [`HTTP_METHODS`] (case-insensitive). `opts` is a Dict (or `none` for no
+/// options) with optional keys `"headers"` (a Dict of Str→Str) and `"body"` (a Str,
+/// sent UTF-8, or Bytes, sent raw); any other key is a ValueError. Same return
+/// shape and transport-error rule as [`howl_get`], with response headers included.
+pub fn howl_request(method: &Value, url: &Value, opts: &Value) -> DogeResult {
+    let method = str_arg("howl", "request", method)?.to_ascii_uppercase();
+    if !HTTP_METHODS.contains(&method.as_str()) {
+        return Err(DogeError::value_error(format!(
+            "unknown HTTP method {method:?}, expected one of {}",
+            HTTP_METHODS.join(", ")
+        )));
+    }
+    let url = str_arg("howl", "request", url)?;
+
+    let opts = opts_dict(opts)?;
+    let mut request = agent().request(&method, url);
+    let mut body: Option<Value> = None;
+    if let Some(opts) = &opts {
+        let opts = opts.borrow();
+        for (key, value) in opts.iter() {
+            match key.as_str() {
+                "headers" => {
+                    for (name, header) in headers_dict(value)?.borrow().iter() {
+                        let header = str_arg("howl", "request", header).map_err(|_| {
+                            DogeError::type_error(format!(
+                                "howl.request header {name:?} needs a Str value, got {}",
+                                header.describe()
+                            ))
+                        })?;
+                        request = request.set(name, header);
+                    }
+                }
+                "body" => body = Some(value.clone()),
+                other => {
+                    return Err(DogeError::value_error(format!(
+                        "howl.request got an unknown option {other:?}, expected \"headers\" or \"body\""
+                    )));
+                }
+            }
+        }
+    }
+
+    let sent = match &body {
+        None | Some(Value::None) => request.call(),
+        Some(Value::Str(text)) => request.send_string(text),
+        Some(Value::Bytes(bytes)) => request.send_bytes(bytes),
+        Some(other) => {
+            return Err(DogeError::type_error(format!(
+                "howl.request body needs a Str or Bytes, got {}",
+                other.describe()
+            )));
+        }
+    };
+    request_result(url, sent)
+}
+
+/// The `opts` argument as a borrowable Dict, or `None` when options are omitted
+/// (`none`). Any other type is a catchable TypeError.
+fn opts_dict(opts: &Value) -> DogeResult<Option<Rc<std::cell::RefCell<OrderedMap>>>> {
+    match opts {
+        Value::None => Ok(None),
+        Value::Dict(entries) => Ok(Some(Rc::clone(entries))),
+        _ => Err(DogeError::type_error(format!(
+            "howl.request options need a Dict, got {}",
+            opts.describe()
+        ))),
+    }
+}
+
+/// The `"headers"` option as a borrowable Dict, or a catchable TypeError.
+fn headers_dict(value: &Value) -> DogeResult<&Rc<std::cell::RefCell<OrderedMap>>> {
+    match value {
+        Value::Dict(entries) => Ok(entries),
+        _ => Err(DogeError::type_error(format!(
+            "howl.request headers need a Dict, got {}",
+            value.describe()
+        ))),
+    }
+}
+
 /// The shared HTTP agent: rustls TLS with a fixed request timeout.
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build()
@@ -272,16 +415,23 @@ fn request_result(url: &str, result: Result<ureq::Response, ureq::Error>) -> Dog
     }
 }
 
-/// Build the response Dict, reading the body as text. A body that is not valid
-/// text is a catchable IOError.
+/// Build the response Dict `{"status", "body", "headers"}`, reading the body as
+/// text. Header names are lowercased so a script reads them case-insensitively. A
+/// body that is not valid text is a catchable IOError.
 fn response_dict(response: ureq::Response) -> DogeResult {
     let status = response.status() as i64;
+    let mut headers = OrderedMap::new();
+    for name in response.headers_names() {
+        let value = response.header(&name).unwrap_or("");
+        headers.insert(name.to_ascii_lowercase(), Value::str(value));
+    }
     let body = response
         .into_string()
         .map_err(|err| DogeError::io_error(format!("cannot read the response: {err}")))?;
     let mut entries = OrderedMap::new();
     entries.insert("status".to_string(), Value::int(status));
     entries.insert("body".to_string(), Value::str(body));
+    entries.insert("headers".to_string(), Value::dict(headers));
     Ok(Value::dict(entries))
 }
 
@@ -320,6 +470,14 @@ mod tests {
             Value::Str(s) => Some(s.to_string()),
             Value::None => None,
             other => panic!("recv gave {}", other.type_name()),
+        }
+    }
+
+    fn recv_bytes(conn: &Value, n: i64) -> Option<Vec<u8>> {
+        match howl_recv_bytes(conn, &Value::int(n)).unwrap() {
+            Value::Bytes(b) => Some(b.to_vec()),
+            Value::None => None,
+            other => panic!("recv_bytes gave {}", other.type_name()),
         }
     }
 
@@ -369,6 +527,64 @@ mod tests {
         let server = howl_accept(&listener).unwrap();
         howl_close(&client).unwrap();
         assert_eq!(recv_str(&server, 16), None);
+    }
+
+    #[test]
+    fn bytes_round_trip_preserves_non_text_data() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+
+        // Bytes that are not valid UTF-8 (0xff, 0x00) survive send/recv untouched,
+        // where recv would raise an IOError.
+        let payload = vec![0xffu8, 0x00, 0x50, 0x44, 0x46];
+        howl_send_bytes(&client, &Value::bytes(&payload)).unwrap();
+        assert_eq!(recv_bytes(&server, 16).as_deref(), Some(&payload[..]));
+    }
+
+    #[test]
+    fn recv_bytes_reports_eof_as_none() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+        howl_close(&client).unwrap();
+        assert_eq!(recv_bytes(&server, 16), None);
+    }
+
+    #[test]
+    fn recv_bytes_drains_buffer_left_by_recv_line() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+
+        // A header line then a byte body arriving in one write: recv_line consumes
+        // the line and over-reads the body into the buffer, which recv_bytes must
+        // hand back rather than drop.
+        howl_send(&client, &Value::str("Head: v\r\nBODY")).unwrap();
+        assert_eq!(howl_recv_line(&server).unwrap().to_string(), "Head: v");
+        assert_eq!(recv_bytes(&server, 4).as_deref(), Some(&b"BODY"[..]));
+    }
+
+    #[test]
+    fn recv_bytes_and_send_bytes_reject_bad_args() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        // send_bytes on a listener is a TypeError; a non-Bytes payload too.
+        assert_eq!(
+            howl_send_bytes(&listener, &Value::bytes(b"x"))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            howl_send_bytes(&client, &Value::str("x")).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
+        // A non-positive recv_bytes size is a ValueError.
+        assert_eq!(
+            howl_recv_bytes(&client, &Value::int(0)).unwrap_err().kind,
+            ErrorKind::ValueError
+        );
     }
 
     #[test]
@@ -465,5 +681,167 @@ mod tests {
         };
         let err = howl_get(&Value::str(format!("http://127.0.0.1:{port}/"))).unwrap_err();
         assert_eq!(err.kind, ErrorKind::IOError);
+    }
+
+    /// A one-shot HTTP/1.1 loopback server that captures the whole request (headers
+    /// plus any `Content-Length` body) and replies `200 OK` with a JSON content
+    /// type. Returns the listener's port and a handle yielding the raw request text.
+    fn capture_server() -> (u16, thread::JoinHandle<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            loop {
+                let n = stream.read(&mut buf).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                if let Some(head_end) = find_subslice(&request, b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&request[..head_end]).to_lowercase();
+                    let content_length = head
+                        .split("\r\n")
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if request.len() >= head_end + 4 + content_length {
+                        break;
+                    }
+                }
+            }
+            let body = "wow ok";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            String::from_utf8_lossy(&request).into_owned()
+        });
+        (port, handle)
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+
+    /// A Dict `Value` from string keys and values, for building `request` options.
+    fn dict_of(pairs: &[(&str, Value)]) -> Value {
+        let mut entries = OrderedMap::new();
+        for (key, value) in pairs {
+            entries.insert((*key).to_string(), value.clone());
+        }
+        Value::dict(entries)
+    }
+
+    #[test]
+    fn http_request_sends_method_headers_and_body() {
+        let (port, handle) = capture_server();
+        let url = Value::str(format!("http://127.0.0.1:{port}/invoices"));
+        let opts = dict_of(&[
+            (
+                "headers",
+                dict_of(&[
+                    ("Authorization", Value::str("Bearer secret")),
+                    ("Content-Type", Value::str("application/json")),
+                ]),
+            ),
+            ("body", Value::str("{\"much\":\"json\"}")),
+        ]);
+        let result = howl_request(&Value::str("post"), &url, &opts).unwrap();
+        let request = handle.join().unwrap();
+
+        assert!(request.starts_with("POST /invoices HTTP/1.1\r\n"));
+        assert!(request.contains("Authorization: Bearer secret\r\n"));
+        assert!(request.contains("Content-Type: application/json\r\n"));
+        assert!(request.ends_with("{\"much\":\"json\"}"));
+
+        match result {
+            Value::Dict(entries) => {
+                let entries = entries.borrow();
+                assert!(entries
+                    .get("status")
+                    .is_some_and(|v| crate::values_equal(v, &Value::int(200))));
+                let headers = match entries.get("headers") {
+                    Some(Value::Dict(h)) => h.borrow(),
+                    other => panic!("expected a headers Dict, got {other:?}"),
+                };
+                assert!(matches!(
+                    headers.get("content-type"),
+                    Some(Value::Str(s)) if &**s == "application/json"
+                ));
+            }
+            other => panic!("expected a Dict, got {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn http_request_sends_a_bytes_body_raw() {
+        let (port, handle) = capture_server();
+        let url = Value::str(format!("http://127.0.0.1:{port}/"));
+        let opts = dict_of(&[("body", Value::bytes([0x50, 0x44, 0x46]))]);
+        howl_request(&Value::str("PUT"), &url, &opts).unwrap();
+        let request = handle.join().unwrap();
+        assert!(request.starts_with("PUT / HTTP/1.1\r\n"));
+        assert!(request.ends_with("PDF"));
+    }
+
+    #[test]
+    fn http_request_without_options_is_a_bare_request() {
+        let (port, handle) = capture_server();
+        let url = Value::str(format!("http://127.0.0.1:{port}/"));
+        // An omitted `opts` reaches the runtime as `none`.
+        let result = howl_request(&Value::str("GET"), &url, &Value::None).unwrap();
+        let request = handle.join().unwrap();
+        assert!(request.starts_with("GET / HTTP/1.1\r\n"));
+        assert!(matches!(result, Value::Dict(_)));
+    }
+
+    #[test]
+    fn http_request_rejects_an_unknown_method() {
+        let err =
+            howl_request(&Value::str("FETCH"), &Value::str("http://x/"), &Value::None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::ValueError);
+    }
+
+    #[test]
+    fn http_request_rejects_an_unknown_option() {
+        let opts = dict_of(&[("query", Value::str("nope"))]);
+        let err = howl_request(&Value::str("GET"), &Value::str("http://x/"), &opts).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::ValueError);
+    }
+
+    #[test]
+    fn http_request_rejects_a_non_text_body() {
+        let opts = dict_of(&[("body", Value::int(42))]);
+        let err = howl_request(&Value::str("POST"), &Value::str("http://x/"), &opts).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    #[test]
+    fn http_request_rejects_a_non_str_header_value() {
+        let opts = dict_of(&[("headers", dict_of(&[("X-Count", Value::int(3))]))]);
+        let err = howl_request(&Value::str("GET"), &Value::str("http://x/"), &opts).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    #[test]
+    fn http_get_response_includes_headers() {
+        let (port, handle) = capture_server();
+        let result = howl_get(&Value::str(format!("http://127.0.0.1:{port}/"))).unwrap();
+        handle.join().unwrap();
+        match result {
+            Value::Dict(entries) => {
+                let entries = entries.borrow();
+                let headers = match entries.get("headers") {
+                    Some(Value::Dict(h)) => h.borrow(),
+                    other => panic!("expected a headers Dict, got {other:?}"),
+                };
+                assert!(headers.get("content-type").is_some());
+            }
+            other => panic!("expected a Dict, got {}", other.type_name()),
+        }
     }
 }

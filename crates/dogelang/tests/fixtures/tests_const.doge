@@ -1,0 +1,7 @@
+so LABEL = "kabosu"
+
+such test_uses_top_level_const:
+    amaze LABEL == "kabosu"
+wow
+
+wow

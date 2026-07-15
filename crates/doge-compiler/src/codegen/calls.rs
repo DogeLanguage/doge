@@ -225,20 +225,22 @@ impl Codegen {
                 return Err(self.unknown_member(module_name, member, module, span));
             }
         };
-        if args.len() != func.arity {
-            let noun = if func.arity == 1 {
-                "argument"
+        let max_arity = func.max_arity();
+        if args.len() < func.arity || args.len() > max_arity {
+            let takes = if func.optional {
+                format!("{} or {} arguments", func.arity, max_arity)
             } else {
-                "arguments"
+                let noun = if func.arity == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                };
+                format!("{} {noun}", func.arity)
             };
             return Err(self
                 .diag(
                     span,
-                    format!(
-                        "{module_name}.{member} takes {} {noun}, got {}",
-                        func.arity,
-                        args.len()
-                    ),
+                    format!("{module_name}.{member} takes {takes}, got {}", args.len()),
                 )
                 .with_headline(ARITY_HEADLINE)
                 .with_hint(func.hint));
@@ -255,9 +257,13 @@ impl Codegen {
             let call = format!("pack_zoom(pup_entry, snapshot_env(&*env), &{f}, &{job})");
             return Ok(self.fail(emit, call));
         }
-        let mut parts = Vec::with_capacity(args.len());
+        let mut parts = Vec::with_capacity(max_arity);
         for arg in args {
             parts.push(format!("&{}", self.expr(arg, emit)?));
+        }
+        // An omitted trailing optional argument reaches the runtime as `Value::None`.
+        while parts.len() < max_arity {
+            parts.push("&Value::None".to_string());
         }
         let call = format!("{}({})", func.runtime_fn, parts.join(", "));
         Ok(self.fail(emit, call))

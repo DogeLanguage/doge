@@ -198,10 +198,18 @@ impl Codegen {
                 name,
                 runtime_fn,
                 arity,
+                max_arity,
             } => {
-                out.push_str(&Self::fixed_arity_guard(name, *arity));
+                out.push_str(&Self::range_arity_guard(name, *arity, *max_arity));
+                // Pad an omitted trailing optional argument with `Value::None`, so the
+                // runtime function always receives its full argument count.
+                if max_arity > arity {
+                    out.push_str(&format!(
+                        "            while args.len() < {max_arity} {{ args.push(Value::None); }}\n"
+                    ));
+                }
                 let call_args: Vec<String> =
-                    (0..*arity).map(|_| "&args.remove(0)".into()).collect();
+                    (0..*max_arity).map(|_| "&args.remove(0)".into()).collect();
                 out.push_str(&format!(
                     "            {runtime_fn}({})\n",
                     call_args.join(", ")
@@ -295,8 +303,14 @@ impl Codegen {
     /// The runtime arity check for a fixed-arity target (a builtin or stdlib
     /// module function): an exact count, raising a single-count arity error.
     pub(super) fn fixed_arity_guard(name: &str, arity: usize) -> String {
+        Self::range_arity_guard(name, arity, arity)
+    }
+
+    /// A dispatcher-arm guard accepting an argument count in `min..=max` (equal for a
+    /// fixed-arity member), raising the same wording an indirect call raises.
+    pub(super) fn range_arity_guard(name: &str, min: usize, max: usize) -> String {
         format!(
-            "            if args.len() != {arity} {{ return Err(function_arity_error(\"{}\", {arity}usize, Some({arity}usize), args.len())); }}\n",
+            "            if args.len() < {min} || args.len() > {max} {{ return Err(function_arity_error(\"{}\", {min}usize, Some({max}usize), args.len())); }}\n",
             escape_str(name)
         )
     }

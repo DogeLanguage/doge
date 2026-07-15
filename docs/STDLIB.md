@@ -95,13 +95,26 @@ literally, other bytes as `\xNN`.
 | Method | Returns | Meaning |
 |---|---|---|
 | `hex()` | `Str` | the bytes as lowercase hexadecimal (`bytes("hi").hex()` is `"6869"`) |
+| `b64()` | `Str` | the bytes as standard base64 (RFC 4648, with padding — `bytes("hi").b64()` is `"aGk="`) |
 | `decode()` | `Str` | the bytes decoded as UTF-8 text; invalid UTF-8 is a catchable `ValueError` |
 
+The reverse — turning encoded text back into `Bytes` — is a pair of `Str` methods,
+the only methods `Str` has (every other string transform lives in the `strings`
+module):
+
+| Method | Returns | Meaning |
+|---|---|---|
+| `from_b64()` | `Bytes` | decode a standard base64 `Str`; malformed input is a catchable `ValueError` |
+| `from_hex()` | `Bytes` | decode a hex `Str` (upper- or lowercase); malformed input is a catchable `ValueError` |
+
 ```doge
-such raw = bytes("hi")     # b"hi"
-bark len(raw)              # 2
-bark raw.hex()             # 6869
-bark raw.decode()          # hi
+such raw = bytes("hi")         # b"hi"
+bark len(raw)                  # 2
+bark raw.hex()                 # 6869
+bark raw.b64()                 # aGk=
+bark raw.decode()              # hi
+bark "aGk=".from_b64() == raw  # true
+bark "6869".from_hex() == raw  # true
 ```
 
 ### Decimal
@@ -148,13 +161,14 @@ catchable `TypeError`, like any other unserializable value.
 | `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
-| `howl` | `listen`, `connect`, `accept`, `port`, `send`, `recv`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
+| `howl` | `listen`, `connect`, `accept`, `port`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
 | `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
 | `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
 | `chase` | `run` — run an external program and capture its output |
+| `crypto` | `sha256`, `hmac_sha256`, `token`, `same` — hashing, HMAC, secure random bytes, and constant-time compare |
 
 A member is either a function, like `nerd.sqrt(16)` or `strings.beeg("wow")`, or a
 constant (`nerd.pi`). Arity and unknown-member errors are caught at compile time
@@ -279,19 +293,41 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 | `accept(listener)` | `Socket` | block until a client connects, then give back the new connection |
 | `port(sock)` | `Int` | the local port a listener or connection is bound to (read a port-`0` listener's real port back) |
 | `send(conn, text)` | `none` | write `text` to a connection as UTF-8 |
+| `send_bytes(conn, bytes)` | `none` | write raw `bytes` to a connection unchanged |
 | `recv(conn, max_bytes)` | `Str` or `none` | read up to `max_bytes` bytes as text, or `none` at end of input |
+| `recv_bytes(conn, max_bytes)` | `Bytes` or `none` | read up to `max_bytes` raw bytes, or `none` at end of input |
 | `recv_line(conn)` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input |
 | `close(sock)` | `none` | close a listener or connection now (idempotent) |
-| `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str}` |
-| `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str}` |
+| `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str, "headers": Dict}` |
+| `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str, "headers": Dict}` |
+| `request(method, url[, opts])` | `Dict` | HTTP(S) request with a chosen method, headers, and body → `{"status": Int, "body": Str, "headers": Dict}` |
 
 `recv` carries one `Str` type: it never splits a multi-byte character across two
 reads (an incomplete trailing sequence is held for the next call, so every read
 returns at least one whole character or `none`), and bytes that are not valid text
-are an `IOError`. Raw TCP calls block with no timeout; `howl.get`/`howl.post` time
+are an `IOError`. `send_bytes`/`recv_bytes` are the binary counterpart: they carry
+raw `Bytes` with no UTF-8 validation, so non-text data is never an error and each
+`recv_bytes` returns bytes exactly as they arrive — the way to handle a binary
+upload or byte-accurate framing (a `Content-Length` body), where `recv`'s
+partial-character buffering would get the count wrong. Raw TCP calls block with no timeout; `howl.get`/`howl.post`/`howl.request` time
 out after 30 seconds (a catchable `IOError`). For HTTP, only a transport, TLS, or
 timeout failure is an error — a non-2xx response (a `404`, say) comes back as an
-ordinary `{"status", "body"}` Dict, so the script decides what a status means.
+ordinary `{"status", "body", "headers"}` Dict, so the script decides what a status
+means. Every HTTP response carries a `"headers"` Dict whose keys are lowercased, so
+`resp["headers"]["content-type"]` reads the same regardless of how the server cased
+the header.
+
+`howl.get`/`howl.post` are the shorthand for a plain GET and a `text/plain` POST.
+`howl.request(method, url, opts)` is the general form for real APIs — a chosen method,
+custom headers, and a typed body:
+
+- `method` is one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`
+  (case-insensitive); any other verb is a catchable `ValueError`.
+- `opts` is optional. When given, it is a Dict with the optional keys `"headers"` (a
+  Dict of Str→Str) and `"body"` (a `Str`, sent as UTF-8, or `Bytes`, sent raw). Any
+  other key is a catchable `ValueError`, and a non-Str header value or a body that is
+  neither `Str` nor `Bytes` is a catchable `TypeError`. Omitting `opts` sends no extra
+  headers and no body.
 
 ```doge
 so howl
@@ -307,9 +343,17 @@ bark howl.recv_line(conn)          # much ping
 howl.send(conn, "wow pong\n")
 bark howl.recv_line(client)        # wow pong
 
-# An HTTP GET returns a status and body Dict.
+# An HTTP GET returns a status, body, and headers Dict.
 such page = howl.get("https://example.com")
 bark page["status"]                # 200
+
+# A general request with a method, headers, and a JSON body.
+such resp = howl.request("POST", "https://api.example.com/invoices", {
+    "headers": {"Authorization": "Bearer secret", "Content-Type": "application/json"},
+    "body": json.emit({"month": "2026-07"}),
+})
+bark resp["status"]                       # Int
+bark resp["headers"]["content-type"]      # response headers, keys lowercased
 ```
 
 ### `pack` — threads and channels
@@ -583,6 +627,53 @@ pls
     chase.run("doge-no-such-program", [], none)
 oh no err!
     bark err.type                    # IOError
+```
+
+### `crypto` — hashing, HMAC, and secure randomness
+
+The security primitives an app needs to authenticate a user: hash a password, sign
+a session cookie, mint an unguessable token, and compare a secret without leaking it
+through timing. Everything speaks `Bytes` — the natural type for a digest or a key —
+and a `Bytes` renders for storage or display with its `.hex()` method. `sha256` and
+`hmac_sha256` accept a `Str` (hashed as its UTF-8 bytes) or `Bytes` interchangeably.
+
+| Member | Returns | Meaning |
+|---|---|---|
+| `sha256(data)` | `Bytes` | the 32-byte SHA-256 digest of a `Str` or `Bytes` |
+| `hmac_sha256(key, data)` | `Bytes` | the 32-byte HMAC-SHA-256 of `data` under `key`; each is a `Str` or `Bytes` |
+| `token(n)` | `Bytes` | `n` cryptographically secure random bytes from the operating system |
+| `same(a, b)` | `Bool` | whether two `Str`/`Bytes` are equal, compared in constant time |
+
+`token` draws from the operating system's cryptographically secure random source,
+so its bytes are unpredictable and independent of `roll` (which is a fast,
+clock-seeded generator meant for dice and shuffles, **not** for secrets). A length
+`n` that is zero or negative is a catchable `ValueError`; a wrong type for any
+argument is a catchable `TypeError`.
+
+`same` returns a `Bool` like `==`, but its running time does not depend on *where*
+two equal-length secrets first differ, so it does not leak a secret one byte at a
+time to an attacker measuring how long the comparison took. Use it to check a signed
+cookie or an API key; two values of different length are simply unequal.
+
+```doge
+so crypto
+
+# A password hash for storage, and an HMAC that signs a session id.
+bark crypto.sha256("hunter2").hex()
+such cookie = crypto.hmac_sha256("server-key", "user=42")
+bark cookie.hex()
+
+# A fresh, unguessable session token.
+such session = crypto.token(32)
+bark len(session)                    # 32
+
+# Verify a cookie without leaking timing.
+bark crypto.same(cookie, crypto.hmac_sha256("server-key", "user=42"))   # true
+
+pls
+    crypto.token(0)
+oh no err!
+    bark err.type                    # ValueError
 ```
 
 A `so <name>` import that is not a stdlib module resolves to the user file

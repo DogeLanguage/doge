@@ -2,3 +2,6 @@
 
 # Local scratch script kept in the repo root for quick experiments.
 /test.doge
+
+# Built VS Code extension packages — a release artifact, not source.
+*.vsix

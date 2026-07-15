@@ -1,0 +1,36 @@
+# such upload. much binary. very socket.
+so howl
+
+# Bind a loopback listener and connect a client, one script driving both ends
+# (on loopback connect() lands in the backlog right away).
+such server = howl.listen("127.0.0.1", 0)
+such client = howl.connect("127.0.0.1", howl.port(server))
+such conn = howl.accept(server)
+
+# Five raw bytes, two of them not valid text (0xff, 0x00): send_bytes/recv_bytes
+# carry arbitrary binary through, where recv would raise an IOError.
+such payload = bytes([255, 0, 80, 68, 70])
+howl.send_bytes(client, payload)
+
+# Read exactly five bytes back, accumulating in case they arrive in pieces —
+# byte-accurate framing, the way an HTTP body of a known Content-Length is read.
+such body = bytes("")
+while len(body) < 5:
+    such chunk = howl.recv_bytes(conn, 5 - len(body))
+    body = body + chunk
+bark body.hex()
+bark body == payload
+
+# Once the peer closes, recv_bytes reads end-of-input as none.
+howl.close(client)
+bark howl.recv_bytes(conn, 16)
+
+# A non-positive byte count is a catchable ValueError, never a crash.
+pls
+    howl.recv_bytes(conn, 0)
+oh no err!
+    bark err.type
+
+howl.close(conn)
+howl.close(server)
+wow

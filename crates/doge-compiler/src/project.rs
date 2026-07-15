@@ -24,7 +24,8 @@ const RESOLVE_HEADLINE: &str = "very dependency. much missing.";
 /// The nearest ancestor of `start` (inclusive) that holds a `doge.toml`, or
 /// `None` when `start` is not inside any project.
 pub fn discover_root(start: &Path) -> Option<PathBuf> {
-    let mut current = Some(start);
+    let canonical = std::fs::canonicalize(start);
+    let mut current = Some(canonical.as_deref().unwrap_or(start));
     while let Some(dir) = current {
         if dir.join(MANIFEST_NAME).is_file() {
             return Some(dir.to_path_buf());
@@ -271,6 +272,23 @@ mod tests {
             map[&canon(&dir.0.join("app"))]["cool"],
             canon(&vendor.join("main.doge"))
         );
+    }
+
+    #[test]
+    fn discover_root_finds_the_project_from_a_relative_path() {
+        let dir = TempDir::new("relative-root");
+        dir.write("doge.toml", "[package]\nname = \"proj\"\n");
+        dir.write("lib/x.doge", "such f:\n    return 1\nwow\nwow\n");
+        let root = canon(&dir.0);
+
+        let original = std::env::current_dir().expect("read cwd");
+        std::env::set_current_dir(&dir.0).expect("enter project");
+        let from_subdir = discover_root(Path::new("lib"));
+        let from_cwd = discover_root(Path::new("."));
+        std::env::set_current_dir(&original).expect("restore cwd");
+
+        assert_eq!(from_subdir.as_deref(), Some(root.as_path()));
+        assert_eq!(from_cwd.as_deref(), Some(root.as_path()));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 mod builtins;
+mod codec;
 mod display;
 mod error;
 mod functions;
@@ -31,6 +32,7 @@ pub use pack::{
     Packed, PackedError, PupEntry,
 };
 pub use stdlib::chase::chase_run;
+pub use stdlib::crypto::{crypto_hmac_sha256, crypto_same, crypto_sha256, crypto_token};
 pub use stdlib::dson::{dson_emit, dson_parse};
 pub use stdlib::env::{env_args, env_get, set_script_args};
 pub use stdlib::fetch::{
@@ -40,7 +42,7 @@ pub use stdlib::fetch::{
 };
 pub use stdlib::howl::{
     howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_port, howl_post, howl_recv,
-    howl_recv_line, howl_send,
+    howl_recv_bytes, howl_recv_line, howl_request, howl_send, howl_send_bytes,
 };
 pub use stdlib::hunt::{hunt_find, hunt_find_all, hunt_groups, hunt_replace, hunt_test};
 pub use stdlib::json::{json_emit, json_parse};

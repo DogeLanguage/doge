@@ -28,3 +28,13 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 # correct bignum/decimal would be far more code and risk. Same rationale as `regex`.
 num-bigint = "0.4"
 bigdecimal = "0.4"
+# Security primitives for the `crypto` module. These must be correct and
+# side-channel-resistant — hand-rolling SHA-256, HMAC, an OS CSPRNG, or a
+# constant-time compare is exactly where subtle, dangerous bugs live, so unlike the
+# non-cryptographic `roll` PRNG these are not vendored. All are audited, pure-Rust,
+# and the industry standard. `getrandom` in particular cannot be vendored: a secure
+# random source requires OS syscalls that differ across Linux and Windows.
+sha2 = "0.10"     # crypto.sha256 / crypto.hmac_sha256 — SHA-256 digest
+hmac = "0.12"     # crypto.hmac_sha256 — RFC 2104 HMAC over SHA-256
+subtle = "2"      # crypto.same — constant-time byte equality
+getrandom = "0.2" # crypto.token — OS cryptographically secure RNG

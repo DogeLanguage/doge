@@ -86,11 +86,14 @@ pub(super) enum ArmSpec {
     },
     /// A builtin used as a value: call the runtime builtin directly.
     Builtin { name: &'static str },
-    /// A stdlib module function used as a value: call its runtime function.
+    /// A stdlib module function used as a value: call its runtime function. `arity`
+    /// is the required count and `max_arity` the largest accepted; when they differ
+    /// an omitted trailing argument is padded with `Value::None`.
     Module {
         name: String,
         runtime_fn: &'static str,
         arity: usize,
+        max_arity: usize,
     },
     /// A class name used as a value: call the class's constructor. `name` resolves
     /// to the class in `file_id`, whose `init` header drives the arm's arity check.
@@ -333,6 +336,7 @@ pub(super) fn analyze_program(program: &Program) -> Analysis {
                     name: format!("{module_name}.{}", func.name),
                     runtime_fn: func.runtime_fn,
                     arity: func.arity,
+                    max_arity: func.max_arity(),
                 });
                 module_fn_ids.insert((module_name.clone(), func.name.to_string()), id);
             }
