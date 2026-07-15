@@ -125,14 +125,14 @@ dependencies = [
 
 [[package]]
 name = "doge-compiler"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "num-bigint",
 ]
 
 [[package]]
 name = "doge-interp"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "doge-compiler",
  "doge-runtime",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "doge-lsp"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "doge-compiler",
  "lsp-server",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "doge-runtime"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bigdecimal",
  "getrandom",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "dogelang"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "doge-compiler",
  "doge-interp",
