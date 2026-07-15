@@ -363,6 +363,27 @@ fn prepare_then_call_entry_function_drives_tests() {
     });
 }
 
+#[test]
+fn prepare_initializes_the_entry_files_own_top_level_constants() {
+    // A top-level `so` constant in the test file itself must be initialized before
+    // the tests run — under `prepare` it used to stay at its hoisted `none`.
+    let source =
+        "so LABEL = \"kabosu\"\nsuch test_uses_const:\n    amaze LABEL == \"kabosu\"\nwow\nwow\n"
+            .to_string();
+    on_big_stack(move || {
+        let program = dc::load_program("test.doge", &source).expect("parses and loads");
+        dc::check_program(&program).expect("checks");
+        let mut interp = Interp::new();
+        interp
+            .prepare(std::sync::Arc::new(program))
+            .expect("integrates cleanly");
+        assert!(
+            interp.call_entry_function("test_uses_const").is_ok(),
+            "the entry constant is initialized, so the test passes"
+        );
+    });
+}
+
 /// Run a whole program through the interpreter, returning the kind of any uncaught
 /// error (the `Send` part of the error, so it can leave the big-stack thread). Used
 /// for `pack` tests, which assert inside the script with `amaze` so a mismatch

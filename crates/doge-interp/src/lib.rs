@@ -180,10 +180,13 @@ impl Interp {
     pub fn prepare(&mut self, program: Arc<dc::Program>) -> DogeResult<()> {
         self.program = Some(program.clone());
         self.integrate_program(&program);
-        match self.pending_module_error.take() {
-            Some(err) => Err(err),
-            None => Ok(()),
+        if let Some(err) = self.pending_module_error.take() {
+            return Err(err);
         }
+        // The entry file's own constants aren't in `init_order`, so initialize them
+        // here — tests read them exactly as module constants are read.
+        let entry_consts = program.files[0].script.stmts.clone();
+        self.init_module(&entry_consts, 0)
     }
 
     /// The file id and line the interpreter last executed — the site of an uncaught
@@ -327,7 +330,8 @@ impl Interp {
         self.hoist_functions(stmts, &globals, fid);
     }
 
-    /// Run one module's constant initializers in its own scope.
+    /// Run one file's constant initializers in its own scope (a module during
+    /// integration, or the entry file when [`prepare`](Self::prepare) sets up tests).
     fn init_module(&mut self, stmts: &[dc::Stmt], fid: u32) -> DogeResult<()> {
         let globals = self.globals(fid);
         for stmt in stmts {

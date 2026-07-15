@@ -119,7 +119,9 @@ type, message, and `path:line`. `doge test` exits `0` only when at least one tes
 and all of them passed; it exits non-zero if any test fails, any file fails to compile,
 or no tests are found at all (`very empty. much untested.`), so CI catches a broken or
 empty suite. Tests in one file share that file's top-level state, in the order they are
-written.
+written. A test file's top-level `so` constants are evaluated once before its tests run
+(like an imported module's constants), so they make natural fixtures; the file's other
+top-level code is not run under `doge test`.
 
 ## Editor integration (language server)
 
