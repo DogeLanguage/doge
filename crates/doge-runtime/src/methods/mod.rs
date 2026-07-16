@@ -119,3 +119,15 @@ pub(super) fn expect_str(value: Value, what: &str) -> DogeResult<Rc<str>> {
         ))),
     }
 }
+
+/// Take an argument that must be a Bytes, or raise the standard type error
+/// naming the method and what it got.
+pub(super) fn expect_bytes(value: Value, what: &str) -> DogeResult<Rc<[u8]>> {
+    match value {
+        Value::Bytes(b) => Ok(b),
+        other => Err(DogeError::type_error(format!(
+            "{what}, got {}",
+            other.describe()
+        ))),
+    }
+}

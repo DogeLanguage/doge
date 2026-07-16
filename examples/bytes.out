@@ -11,6 +11,12 @@ c3a9
 b"hi!"
 true
 b"h"
+0
+13
+-1
+true
+3
+preamble
 true
 hi!
 ValueError

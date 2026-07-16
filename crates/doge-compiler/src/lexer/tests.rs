@@ -98,6 +98,65 @@ fn string_escapes_and_unterminated() {
 }
 
 #[test]
+fn carriage_return_and_nul_escapes() {
+    let toks = kinds("bark \"a\\r\\0b\"\n");
+    assert_eq!(toks[1], TokenKind::Str("a\r\0b".into()));
+}
+
+#[test]
+fn hex_escape_decodes_ascii() {
+    let toks = kinds("bark \"\\x48\\x49\"\n");
+    assert_eq!(toks[1], TokenKind::Str("HI".into()));
+    let toks = kinds("bark \"\\x0d\\x0a\"\n");
+    assert_eq!(toks[1], TokenKind::Str("\r\n".into()));
+}
+
+#[test]
+fn bad_hex_escapes_are_errors() {
+    let short = lex("test.doge", "bark \"\\x4\"\n").unwrap_err();
+    assert_eq!(short.headline, "very hex. much confuse.");
+    let nonhex = lex("test.doge", "bark \"\\xzz\"\n").unwrap_err();
+    assert_eq!(nonhex.headline, "very hex. much confuse.");
+    let high = lex("test.doge", "bark \"\\x80\"\n").unwrap_err();
+    assert_eq!(high.headline, "very hex. much confuse.");
+}
+
+#[test]
+fn unicode_escape_decodes_scalar() {
+    let toks = kinds("bark \"\\u{1f436}\"\n");
+    assert_eq!(toks[1], TokenKind::Str("🐶".into()));
+    let toks = kinds("bark \"\\u{41}z\"\n");
+    assert_eq!(toks[1], TokenKind::Str("Az".into()));
+}
+
+#[test]
+fn bad_unicode_escapes_are_errors() {
+    for src in [
+        "bark \"\\u{}\"\n",        // empty
+        "bark \"\\uABCD\"\n",      // no brace
+        "bark \"\\u{110000}\"\n",  // out of range
+        "bark \"\\u{d800}\"\n",    // surrogate
+        "bark \"\\u{1234567}\"\n", // too many digits
+    ] {
+        let err = lex("test.doge", src).unwrap_err();
+        assert_eq!(err.headline, "very unicode. much confuse.", "src: {src}");
+    }
+}
+
+#[test]
+fn unicode_escape_inside_interpolation_hole() {
+    let toks = kinds("bark \"{f(\"\\u{7d}\")}\"\n");
+    let TokenKind::StrInterp(segments) = &toks[1] else {
+        panic!("expected StrInterp, got {:?}", toks[1]);
+    };
+    let StrSegment::Hole(hole) = &segments[0] else {
+        panic!("expected a hole");
+    };
+    assert_eq!(hole[0].kind, TokenKind::Ident("f".into()));
+    assert_eq!(hole[2].kind, TokenKind::Str("}".into()));
+}
+
+#[test]
 fn plain_string_stays_a_str() {
     let toks = kinds("bark \"much hello\"\n");
     assert_eq!(toks[1], TokenKind::Str("much hello".into()));

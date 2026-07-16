@@ -97,6 +97,9 @@ literally, other bytes as `\xNN`.
 | `hex()` | `Str` | the bytes as lowercase hexadecimal (`bytes("hi").hex()` is `"6869"`) |
 | `b64()` | `Str` | the bytes as standard base64 (RFC 4648, with padding — `bytes("hi").b64()` is `"aGk="`) |
 | `decode()` | `Str` | the bytes decoded as UTF-8 text; invalid UTF-8 is a catchable `ValueError` |
+| `find(needle[, start])` | `Int` | byte offset of the first `needle` (a `Bytes`) at or after `start` (default 0), or `-1` when absent — for locating a boundary in a raw byte stream without decoding it |
+| `split(sep)` | `List` | the pieces (each a `Bytes`) between every non-overlapping `sep`, empty pieces kept; splitting on an empty `sep` is a catchable `ValueError` |
+| `contains(needle)` | `Bool` | whether `needle` (a `Bytes`) occurs as a contiguous sub-slice |
 
 The reverse — turning encoded text back into `Bytes` — is a pair of `Str` methods,
 the only methods `Str` has (every other string transform lives in the `strings`
@@ -115,6 +118,11 @@ bark raw.b64()                 # aGk=
 bark raw.decode()              # hi
 bark "aGk=".from_b64() == raw  # true
 bark "6869".from_hex() == raw  # true
+
+such body = bytes("--X--body--X--")
+bark body.find(bytes("--X--"))     # 0
+bark body.contains(bytes("body"))  # true
+bark len(body.split(bytes("--X--"))) # 3
 ```
 
 ### Decimal
@@ -157,7 +165,7 @@ catchable `TypeError`, like any other unserializable value.
 | Module | Members |
 |---|---|
 | `nerd` | `abs`, `sqrt`, `floor`, `ceil`, `round`, `min`, `max`, `pow`; constants `pi`, `e` |
-| `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `replace` |
+| `strings` | `beeg` (uppercase), `smoll` (lowercase), `trim`, `split`, `join`, `contains`, `index`, `replace` |
 | `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
@@ -194,8 +202,9 @@ The pattern syntax is the standard one (character classes `[0-9]`, anchors `^`/`
 quantifiers `*`/`+`/`?`, groups `(...)`, alternation `|`); the engine matches in
 linear time, so no pattern can hang the program. A backslash escape like `\d` or
 `\w` must be written `\\d` / `\\w` in a Doge string literal, since a bare backslash
-is a string escape (only `\n`, `\t`, `\"`, `\\`, `\{`, `\}` are known) — the
-character classes `[0-9]`, `[a-z]` and the like need no backslash and read fine.
+is a string escape (only `\n`, `\t`, `\r`, `\0`, `\"`, `\\`, `\{`, `\}`, `\xNN`,
+`\u{…}` are known) — the character classes `[0-9]`, `[a-z]` and the like need no
+backslash and read fine.
 
 ```doge
 so hunt

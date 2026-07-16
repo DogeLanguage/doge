@@ -1,0 +1,12 @@
+# Codex project config for Doge.
+# Loaded only when this project is trusted (see .codex/README.md — one-time trust step).
+# Project-local profiles are not supported by Codex; install the profile tables from
+# .codex/user-config.template.toml into ~/.codex/config.toml instead.
+
+# Default model at startup: Sol plans and orchestrates work.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+
+# Surface edits/commands for approval instead of auto-running; write within the workspace only.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

@@ -105,4 +105,6 @@ shifts, all between the comparisons and `+`/`-`, matching Python.
   token: each hole is found on the same physical line (matching nested `{ }` and
   skipping nested string literals) and lexed into its own token stream, which the
   parser reads as a full expression. `\{` escapes a literal brace; an empty or
-  unclosed hole is a lex error.
+  unclosed hole is a lex error. The recognized escapes are `\n \t \r \0 \" \\ \{
+  \} \xNN \u{…}` (`\xNN` is two hex digits `00`–`7f`; `\u{…}` is 1–6 hex naming a
+  Unicode scalar); any other `\c` is a lex error.

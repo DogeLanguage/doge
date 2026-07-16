@@ -59,6 +59,19 @@ pub fn strings_contains(s: &Value, needle: &Value) -> DogeResult {
     Ok(Value::Bool(s.contains(needle)))
 }
 
+/// `strings.index(s, sub)` — the character offset of the first `sub` in `s`, or
+/// -1 when absent. Char-based like every `Str` operation: `str::find` returns a
+/// byte position, so it is converted to a character count.
+pub fn strings_index(s: &Value, sub: &Value) -> DogeResult {
+    let s = str_arg("index", s)?;
+    let sub = str_arg("index", sub)?;
+    let offset = match s.find(sub) {
+        Some(byte_pos) => s[..byte_pos].chars().count() as i64,
+        None => -1,
+    };
+    Ok(Value::int(offset))
+}
+
 /// `strings.replace(s, from, to)` — every occurrence of `from` in `s` swapped
 /// for `to`. Replacing an empty `from` is a catchable ValueError.
 pub fn strings_replace(s: &Value, from: &Value, to: &Value) -> DogeResult {
@@ -130,6 +143,19 @@ mod tests {
                 .kind,
             ErrorKind::ValueError
         );
+    }
+
+    #[test]
+    fn index_returns_char_offset_or_minus_one() {
+        use bigdecimal::ToPrimitive;
+        let at = |s, sub| match strings_index(&Value::str(s), &Value::str(sub)).unwrap() {
+            Value::Int(n) => n.to_i64().unwrap(),
+            _ => panic!("expected an Int"),
+        };
+        assert_eq!(at("kabosu", "bos"), 2);
+        assert_eq!(at("kabosu", "zzz"), -1);
+        // Char-based, not byte-based: the accented char is two bytes but one char.
+        assert_eq!(at("héllo", "llo"), 2);
     }
 
     #[test]

@@ -82,8 +82,8 @@ Dynamic value types (all runtime-checked):
 | Int | `42`, `-7` (arbitrary precision — an Int never overflows, it just grows) |
 | Float | `3.14` (f64) |
 | Decimal | exact base-10 from `dec("19.99")` — no literal; for money and any exact fractional maths (see §3 and [STDLIB.md](STDLIB.md)) |
-| Str | `"much wow"` (double quotes, `\n` escapes, `{expr}` interpolation) |
-| Bytes | raw binary data from `bytes(...)` or a binary `fetch` read — no literal; byte-based, so `b[i]` is an Int 0–255 and `len` counts bytes; renders to text with `b.hex()` / `b.b64()` and back with `s.from_hex()` / `s.from_b64()` (see [STDLIB.md](STDLIB.md)) |
+| Str | `"much wow"` (double quotes, escapes below, `{expr}` interpolation) |
+| Bytes | raw binary data from `bytes(...)` or a binary `fetch` read — no literal; byte-based, so `b[i]` is an Int 0–255 and `len` counts bytes; sub-sequence search with `b.find` / `b.split` / `b.contains`; renders to text with `b.hex()` / `b.b64()` and back with `s.from_hex()` / `s.from_b64()` (see [STDLIB.md](STDLIB.md)) |
 | Bool | `true`, `false` |
 | None | `none` |
 | List | `["kabosu", "cheems"]` |
@@ -161,6 +161,21 @@ display form, the same text `bark` prints and `str(x)` returns, so numbers,
 always active: write `\{` for a literal `{` (a bare `}` outside a hole is already
 literal), so a dict-looking string is `"\{\"a\": 1}"`. An empty hole `{}` and a
 hole that never closes are compile errors.
+
+The recognized string escapes are:
+
+| Escape | Means |
+|---|---|
+| `\n` `\t` `\r` | newline, tab, carriage return (CRLF wire protocols write `"…\r\n"`) |
+| `\0` | NUL (U+0000) |
+| `\"` `\\` | literal quote, literal backslash |
+| `\{` `\}` | literal brace (an unescaped `{` starts an interpolation hole) |
+| `\xNN` | ASCII scalar from two hex digits, `00`–`7f` (e.g. `\x0d`) |
+| `\u{…}` | Unicode scalar from 1–6 hex digits (e.g. `\u{1f436}` → 🐶) |
+
+For a code point above `\x7f` use `\u{…}`; for raw non-ASCII bytes use
+`bytes([…])`. Any other `\c` is a lex error. Note a regex metacharacter must
+double its backslash — `\\d`, `\\w` — since a bare `\d` is not a known escape.
 
 `and` and `or` always evaluate to a Bool and short-circuit: `a or b` skips
 `b` when `a` is truthy, `a and b` skips `b` when `a` is falsy. The result is the

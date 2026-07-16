@@ -1,0 +1,16 @@
+# Copy these tables into ~/.codex/config.toml. Codex supports profiles only in
+# user-level configuration, not in a trusted project's .codex/config.toml.
+
+# Sol — the planner. It writes only .codex/plan.md.
+[profiles.planner]
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Luna — the executor. It executes the approved .codex/plan.md.
+[profiles.executor]
+model = "gpt-5.6-luna"
+model_reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

@@ -113,6 +113,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "strings_split" => rt::strings_split(&a[0], &a[1]),
         "strings_join" => rt::strings_join(&a[0], &a[1]),
         "strings_contains" => rt::strings_contains(&a[0], &a[1]),
+        "strings_index" => rt::strings_index(&a[0], &a[1]),
         "strings_replace" => rt::strings_replace(&a[0], &a[1], &a[2]),
         "hunt_test" => rt::hunt_test(&a[0], &a[1]),
         "hunt_find" => rt::hunt_find(&a[0], &a[1]),
