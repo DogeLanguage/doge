@@ -179,6 +179,13 @@ fn string_escapes_survive() {
     let out = gen("such s = \"a\\\"b\\nc\"\nwow\n").unwrap();
     // The Doge string a"b<newline>c becomes an escaped Rust string literal.
     assert!(out.contains("Value::str(\"a\\\"b\\nc\")"));
+
+    // Control chars from \r, \0 and a \u{…} scalar are re-escaped, never emitted raw.
+    let out = gen("such s = \"x\\r\\0\\u{1b}\"\nwow\n").unwrap();
+    assert!(out.contains("Value::str(\"x\\r\\u{0}\\u{1b}\")"));
+    // A printable \u{…} scalar stays raw UTF-8 in the Rust literal.
+    let out = gen("such s = \"\\u{1f436}\"\nwow\n").unwrap();
+    assert!(out.contains("Value::str(\"🐶\")"));
 }
 
 #[test]

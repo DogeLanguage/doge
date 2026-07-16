@@ -202,8 +202,9 @@ The pattern syntax is the standard one (character classes `[0-9]`, anchors `^`/`
 quantifiers `*`/`+`/`?`, groups `(...)`, alternation `|`); the engine matches in
 linear time, so no pattern can hang the program. A backslash escape like `\d` or
 `\w` must be written `\\d` / `\\w` in a Doge string literal, since a bare backslash
-is a string escape (only `\n`, `\t`, `\"`, `\\`, `\{`, `\}` are known) — the
-character classes `[0-9]`, `[a-z]` and the like need no backslash and read fine.
+is a string escape (only `\n`, `\t`, `\r`, `\0`, `\"`, `\\`, `\{`, `\}`, `\xNN`,
+`\u{…}` are known) — the character classes `[0-9]`, `[a-z]` and the like need no
+backslash and read fine.
 
 ```doge
 so hunt

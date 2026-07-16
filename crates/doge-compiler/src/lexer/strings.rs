@@ -37,10 +37,24 @@ impl Lexer {
                 match chars[i] {
                     'n' => lit.push('\n'),
                     't' => lit.push('\t'),
+                    'r' => lit.push('\r'),
+                    '0' => lit.push('\0'),
                     '"' => lit.push('"'),
                     '\\' => lit.push('\\'),
                     '{' => lit.push('{'),
                     '}' => lit.push('}'),
+                    'x' => {
+                        let ch = self.lex_hex_escape(chars, ln, esc_col, i)?;
+                        lit.push(ch);
+                        i += 3; // past `x` and the two hex digits
+                        continue;
+                    }
+                    'u' => {
+                        let (ch, consumed) = self.lex_unicode_escape(chars, ln, esc_col, i)?;
+                        lit.push(ch);
+                        i += consumed; // past `u{…}`
+                        continue;
+                    }
                     other => {
                         return Err(self
                             .diag(
@@ -48,7 +62,9 @@ impl Lexer {
                                 esc_col,
                                 format!("'\\{other}' is not an escape doge knows"),
                             )
-                            .with_hint("known escapes are \\n \\t \\\" \\\\ \\{ and \\}"));
+                            .with_hint(
+                                "known escapes are \\n \\t \\r \\0 \\\" \\\\ \\{ \\} \\xNN and \\u{…}",
+                            ));
                     }
                 }
                 i += 1;
@@ -86,6 +102,77 @@ impl Lexer {
             .diag(ln, col, "this string never closes")
             .with_headline("very string. much unfinished.")
             .with_hint("add a closing \" on this line"))
+    }
+
+    /// Decode a `\xNN` escape: exactly two hex digits naming an ASCII scalar
+    /// (0x00–0x7F). `x_idx` is the index of the `x`; `esc_col` the 1-based column
+    /// of the backslash for the caret. Higher code points go through `\u{…}`.
+    fn lex_hex_escape(
+        &self,
+        chars: &[char],
+        ln: u32,
+        esc_col: u32,
+        x_idx: usize,
+    ) -> Result<char, Diagnostic> {
+        let bad = |me: &Self| {
+            me.diag(ln, esc_col, "this \\x escape is not two hex digits 00–7f")
+                .with_headline("very hex. much confuse.")
+                .with_hint(
+                    "an \\x escape wants two hex digits 00–7f, like \\x0d — for higher code points use \\u{…}",
+                )
+        };
+        let (Some(&hi), Some(&lo)) = (chars.get(x_idx + 1), chars.get(x_idx + 2)) else {
+            return Err(bad(self));
+        };
+        let (Some(hi), Some(lo)) = (hi.to_digit(16), lo.to_digit(16)) else {
+            return Err(bad(self));
+        };
+        let value = hi * 16 + lo;
+        if value > 0x7f {
+            return Err(bad(self));
+        }
+        Ok(char::from(value as u8))
+    }
+
+    /// Decode a `\u{…}` escape: 1–6 hex digits naming a valid Unicode scalar.
+    /// `u_idx` is the index of the `u`. Returns the char and how many chars the
+    /// `u{…}` span occupies, so the caller can advance past the closing `}`.
+    fn lex_unicode_escape(
+        &self,
+        chars: &[char],
+        ln: u32,
+        esc_col: u32,
+        u_idx: usize,
+    ) -> Result<(char, usize), Diagnostic> {
+        let bad = |me: &Self| {
+            me.diag(ln, esc_col, "this \\u{…} escape names no valid character")
+                .with_headline("very unicode. much confuse.")
+                .with_hint(
+                    "write \\u{…} with 1–6 hex digits naming a real character, like \\u{1f436}",
+                )
+        };
+        if chars.get(u_idx + 1) != Some(&'{') {
+            return Err(bad(self));
+        }
+        let mut j = u_idx + 2;
+        let mut digits = String::new();
+        while let Some(&c) = chars.get(j) {
+            if c == '}' {
+                break;
+            }
+            if !c.is_ascii_hexdigit() {
+                return Err(bad(self));
+            }
+            digits.push(c);
+            j += 1;
+        }
+        if chars.get(j) != Some(&'}') || digits.is_empty() || digits.len() > 6 {
+            return Err(bad(self));
+        }
+        let value = u32::from_str_radix(&digits, 16).map_err(|_| bad(self))?;
+        let ch = char::from_u32(value).ok_or_else(|| bad(self))?;
+        let consumed = j - u_idx + 1; // `u` through `}` inclusive
+        Ok((ch, consumed))
     }
 
     /// Find the `}` that closes the interpolation hole whose `{` is at `open`.

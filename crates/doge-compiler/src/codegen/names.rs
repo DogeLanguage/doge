@@ -86,6 +86,8 @@ pub(super) fn escape_str(s: &str) -> String {
             '"' => out.push_str("\\\""),
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            other if other.is_control() => out.extend(other.escape_default()),
             other => out.push(other),
         }
     }

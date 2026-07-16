@@ -87,6 +87,7 @@ bark s.speak()
 - **Numbers.** `Int` is arbitrary precision (never overflows). `/` → Float, `//` → integer, `**` → power (right-assoc). Int and Float mix freely. `Decimal` (exact, via `dec("19.99")`, no literal) is for money — mixes with Int but **mixing Decimal with Float is a catchable `TypeError`**; convert one side.
 - **Strings** are character-indexed (`"héllo"[1]` is `"é"`); `len` counts characters. `Bytes` (via `bytes(x)`) is the byte-indexed counterpart. Negative indices and slices work: `xs[-1]`, `xs[1:3]`, `xs[::-1]`.
 - **Interpolation** `"{expr}"` holes render any expression with its display form. Write `\{` for a literal brace. Regex `\d` must be `\\d` in a string.
+- **Escapes** recognized in strings: `\n \t \r \0 \" \\ \{ \} \xNN \u{…}` (`\xNN` = two hex digits `00`–`7f`; `\u{…}` = 1–6 hex, a Unicode scalar). CRLF wire protocols write `"…\r\n"`; any other `\c` is a lex error.
 - **Truthiness** follows Python: `0`, `""`, `[]`, `{}`, `none`, `false` are falsy. `and`/`or` short-circuit and yield a **Bool**, not the operand.
 - **Membership:** `x in xs` (list element / dict key / substring), `x not in xs`.
 - **Ternary:** `a if cond else b` (the `else` is required).

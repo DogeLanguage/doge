@@ -1,0 +1,8 @@
+so CRLF = "\r\n"
+bark bytes(CRLF).hex()
+bark bytes("\0").hex()
+bark "\x48\x49"
+bark "\u{1f436}"
+bark len("\u{1f436}")
+bark "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n" == "HTTP/1.1 200 OK{CRLF}Content-Length: 0{CRLF}"
+wow
