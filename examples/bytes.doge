@@ -29,6 +29,18 @@ bark greeting + bytes("!")
 bark 104 in greeting
 bark greeting[0:1]
 
+# Sub-sequence search: find the byte offset of a needle (-1 when absent), scan
+# from an offset, test membership, and split on a separator — the primitives a
+# binary-framing parser (a multipart boundary in a raw body) needs.
+such body = bytes("--X--preamble--X--payload")
+such boundary = bytes("--X--")
+bark body.find(boundary)
+bark body.find(boundary, 1)
+bark body.find(bytes("nope"))
+bark body.contains(bytes("payload"))
+bark len(body.split(boundary))
+bark body.split(boundary)[1].decode()
+
 # A binary file round-trip: write raw bytes, read them straight back.
 such path = "bytes_scratch.bin"
 fetch.write_bytes(path, raw)

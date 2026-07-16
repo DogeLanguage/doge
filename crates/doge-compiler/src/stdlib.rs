@@ -195,6 +195,13 @@ pub const MODULES: &[Module] = &[
                 hint: "strings.contains(s, needle)",
             },
             ModuleFn {
+                name: "index",
+                arity: 2,
+                optional: false,
+                runtime_fn: "strings_index",
+                hint: "strings.index(s, sub)",
+            },
+            ModuleFn {
                 name: "replace",
                 arity: 3,
                 optional: false,

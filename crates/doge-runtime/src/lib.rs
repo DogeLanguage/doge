@@ -53,8 +53,8 @@ pub use stdlib::nerd::{
 pub use stdlib::pack::{pack_bowl, pack_drop, pack_fetch, pack_sniff, pack_zoom, spawn_pup};
 pub use stdlib::roll::{roll_choice, roll_float, roll_int, roll_sample, roll_seed, roll_shuffle};
 pub use stdlib::strings::{
-    strings_beeg, strings_contains, strings_join, strings_replace, strings_smoll, strings_split,
-    strings_trim,
+    strings_beeg, strings_contains, strings_index, strings_join, strings_replace, strings_smoll,
+    strings_split, strings_trim,
 };
 pub use value::{BoundMethodData, Cell, FunctionData, Value};
 

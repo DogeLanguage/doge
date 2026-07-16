@@ -50,6 +50,8 @@ first-class and mutates `xs` when called.
 
 `hex()` → lowercase hex Str · `b64()` → standard base64 Str (RFC 4648, padded) ·
 `decode()` → UTF-8 Str (invalid UTF-8 is a `ValueError`).
+`find(needle[, start])` → Int byte offset or `-1` · `split(sep)` → List of Bytes
+(empty `sep` is a `ValueError`) · `contains(needle)` → Bool. `needle`/`sep` are Bytes.
 `b[i]` is an Int 0–255; `len(b)` counts bytes; slicing yields Bytes.
 
 ## Str methods
@@ -65,7 +67,7 @@ Str methods — every other string transform lives in the `strings` module.
 
 ### `strings`
 `beeg` (UPPER), `smoll` (lower), `trim`, `split(s, sep)`, `join(list, sep)`,
-`contains(s, sub)`, `replace(s, old, new)`.
+`contains(s, sub)`, `index(s, sub)` → Int char offset or `-1`, `replace(s, old, new)`.
 
 ### `hunt` — regex (pattern is arg 1, text is arg 2; both Str)
 `test(pat, text)`→Bool · `find(pat, text)`→Str|none · `find_all(pat, text)`→List ·

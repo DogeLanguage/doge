@@ -83,7 +83,7 @@ Dynamic value types (all runtime-checked):
 | Float | `3.14` (f64) |
 | Decimal | exact base-10 from `dec("19.99")` — no literal; for money and any exact fractional maths (see §3 and [STDLIB.md](STDLIB.md)) |
 | Str | `"much wow"` (double quotes, `\n` escapes, `{expr}` interpolation) |
-| Bytes | raw binary data from `bytes(...)` or a binary `fetch` read — no literal; byte-based, so `b[i]` is an Int 0–255 and `len` counts bytes; renders to text with `b.hex()` / `b.b64()` and back with `s.from_hex()` / `s.from_b64()` (see [STDLIB.md](STDLIB.md)) |
+| Bytes | raw binary data from `bytes(...)` or a binary `fetch` read — no literal; byte-based, so `b[i]` is an Int 0–255 and `len` counts bytes; sub-sequence search with `b.find` / `b.split` / `b.contains`; renders to text with `b.hex()` / `b.b64()` and back with `s.from_hex()` / `s.from_b64()` (see [STDLIB.md](STDLIB.md)) |
 | Bool | `true`, `false` |
 | None | `none` |
 | List | `["kabosu", "cheems"]` |

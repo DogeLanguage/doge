@@ -8,4 +8,6 @@ bark nerd.pi
 bark strings.beeg("wow")
 bark strings.split("a,b,c", ",")
 bark strings.join(["much", "wow"], " ")
+bark strings.index("kabosu", "bos")
+bark strings.index("kabosu", "zzz")
 wow
