@@ -422,6 +422,13 @@ pub const MODULES: &[Module] = &[
                 hint: "howl.port(sock)",
             },
             ModuleFn {
+                name: "peer",
+                arity: 1,
+                optional: false,
+                runtime_fn: "howl_peer",
+                hint: "howl.peer(sock)",
+            },
+            ModuleFn {
                 name: "send",
                 arity: 2,
                 optional: false,
