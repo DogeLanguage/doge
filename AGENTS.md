@@ -26,7 +26,7 @@ This repo is set up for a two-model Codex flow. Codex profiles are user-level se
 the tables in `.codex/user-config.template.toml` into `~/.codex/config.toml`; the handoff artifact
 is `.codex/plan.md` (gitignored). See `.codex/README.md` for the full runbook.
 
-- **Sol — planner and orchestrator** (`gpt-5.6-sol`, high reasoning): the default startup model and
+- **Sol — planner and orchestrator** (`gpt-5.6-sol`): the default startup model and
   `codex -p planner "<task>"`. Explores, resolves
   design decisions, and writes a precise `.codex/plan.md` (files to touch, exact edits, tests, verify
   commands). **Sol writes only `.codex/plan.md` — no source edits.**
