@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -15,6 +16,8 @@ jobs:
     name: guard (tag sanity)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      ci_passed: ${{ steps.ci_check.outputs.passed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,15 +44,59 @@ jobs:
             echo "a published release for $GITHUB_REF_NAME already exists" >&2
             exit 1
           fi
+      # ci.yml runs on every push to main, so the tagged commit already has its
+      # own CI run keyed by SHA. Reuse a completed green one and skip verify. If
+      # it is still running, missing, or red, verify runs the stack — a safe
+      # fallback that only costs the re-run we would have paid anyway.
+      - name: Reuse the commit's CI run if it already passed
+        id: ci_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed&per_page=1" \
+            --jq '.workflow_runs[0].conclusion // ""')
+          if [ "$conclusion" = "success" ]; then
+            echo "CI already green for $GITHUB_SHA — skipping verify."
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No completed green CI run for $GITHUB_SHA (got '${conclusion:-none}') — verify will run."
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
 
   verify:
     name: verify (CI)
     needs: guard
+    if: needs.guard.outputs.ci_passed != 'true'
     uses: ./.github/workflows/ci.yml
+
+  verified:
+    name: verified
+    needs: [guard, verify]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm CI is green
+        run: |
+          if [ "${{ needs.guard.result }}" != "success" ]; then
+            echo "guard failed — refusing to release." >&2
+            exit 1
+          fi
+          if [ "${{ needs.guard.outputs.ci_passed }}" = "true" ]; then
+            echo "Reused the commit's existing green CI run."
+            exit 0
+          fi
+          if [ "${{ needs.verify.result }}" = "success" ]; then
+            echo "Release CI verify passed."
+            exit 0
+          fi
+          echo "CI did not pass (verify: ${{ needs.verify.result }})." >&2
+          exit 1
 
   publish-crates:
     name: publish to crates.io
-    needs: verify
+    needs: verified
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -69,7 +116,7 @@ jobs:
 
   create-release:
     name: create draft release
-    needs: verify
+    needs: verified
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
