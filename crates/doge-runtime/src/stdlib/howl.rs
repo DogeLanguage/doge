@@ -1,5 +1,5 @@
 //! `howl` — the networking stdlib module. Raw TCP (`listen`/`accept`/`connect`/
-//! `send`/`recv`/`recv_line`/`close`) plus a minimal HTTP(S) client
+//! `peer`/`send`/`recv`/`recv_line`/`close`) plus a minimal HTTP(S) client
 //! (`get`/`post`/`request`). Every network failure — a refused connection, a broken
 //! pipe, a TLS or timeout error, an operation on a closed socket — is a catchable
 //! IOError rather than a panic, and every socket carries text as one `Str` type:
@@ -112,6 +112,33 @@ pub fn howl_port(sock: &Value) -> DogeResult {
     match addr {
         Ok(addr) => Ok(Value::int(addr.port())),
         Err(err) => Err(DogeError::io_error(format!("cannot read the port: {err}"))),
+    }
+}
+
+/// `howl.peer(sock)` — the remote host and port of a connection. A listener is a
+/// catchable TypeError; a closed socket is a catchable IOError.
+pub fn howl_peer(sock: &Value) -> DogeResult {
+    let sock = socket_arg("peer", sock)?;
+    let state = sock.state.borrow();
+    let addr = match &*state {
+        SocketState::Conn { stream, .. } => stream.peer_addr(),
+        SocketState::Listener(_) => {
+            return Err(DogeError::type_error(
+                "howl.peer needs a connection, not a listening socket",
+            ));
+        }
+        SocketState::Closed => return Err(closed()),
+    };
+    match addr {
+        Ok(addr) => {
+            let mut entries = OrderedMap::new();
+            entries.insert("host".to_string(), Value::str(addr.ip().to_string()));
+            entries.insert("port".to_string(), Value::int(addr.port()));
+            Ok(Value::dict(entries))
+        }
+        Err(err) => Err(DogeError::io_error(format!(
+            "cannot read the peer address: {err}"
+        ))),
     }
 }
 
@@ -506,6 +533,35 @@ mod tests {
         );
         // close is idempotent.
         howl_close(&server).unwrap();
+    }
+
+    #[test]
+    fn peer_reports_remote_host_and_port() {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let client_port = match howl_port(&client).unwrap() {
+            Value::Int(port) => port.to_u16().unwrap(),
+            _ => panic!("port is an Int"),
+        };
+        let server = howl_accept(&listener).unwrap();
+
+        let Value::Dict(peer) = howl_peer(&server).unwrap() else {
+            panic!("peer is a Dict");
+        };
+        let peer = peer.borrow();
+        assert!(matches!(
+            peer.get("host"),
+            Some(Value::Str(host)) if host.as_ref() == "127.0.0.1"
+        ));
+        assert!(matches!(
+            peer.get("port"),
+            Some(Value::Int(port)) if port.to_u16() == Some(client_port)
+        ));
+        drop(peer);
+
+        assert_eq!(howl_peer(&listener).unwrap_err().kind, ErrorKind::TypeError);
+        howl_close(&server).unwrap();
+        assert_eq!(howl_peer(&server).unwrap_err().kind, ErrorKind::IOError);
     }
 
     #[test]

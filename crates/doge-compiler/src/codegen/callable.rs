@@ -31,7 +31,6 @@ impl Codegen {
         out: &mut String,
     ) -> Result<(), Diagnostic> {
         let info = self.fn_info(emit, span);
-        // `params` already carries `self` first (added during analysis).
         self.emit_callable(
             &format!("{METHOD_PREFIX}{}_{}", class.id, info.name),
             &format!("{METHOD_BODY_PREFIX}{}_{}", class.id, info.name),
@@ -150,7 +149,6 @@ impl Codegen {
         for stmt in body {
             self.stmt(stmt, 1, emit, out)?;
         }
-        // Falling off the end returns none.
         out.push_str("    Ok(Value::None)\n");
         out.push_str("}\n");
         Ok(())

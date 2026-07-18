@@ -136,7 +136,6 @@ d.speak()
 
 #[test]
 fn class_name_is_a_first_class_value() {
-    // A bare class name evaluates to a callable class value that prints distinctly.
     let source = "\
 many Shibe:
     such speak:
@@ -218,7 +217,6 @@ kind
 
 #[test]
 fn method_read_as_a_value_is_a_bound_method() {
-    // A method read off an instance prints as a bound method and calls back to it.
     let source = "\
 many Shibe:
     such init much name:
@@ -405,7 +403,6 @@ fn pack_zoom_runs_a_pup_and_fetch_returns_its_result() {
 
 #[test]
 fn a_pups_error_is_re_raised_by_fetch_in_the_interpreter() {
-    // The pup bonks; fetch re-raises it, and pls/oh no on the fetch catches it.
     run("so pack\nsuch boom much n:\n    bonk \"nope\"\nwow\nsuch p = pack.zoom(boom, [1])\npls\n    such r = pack.fetch(p)\noh no e!\n    amaze e.message == \"nope\"\n\nwow\n")
         .expect("the pup error is caught with its message intact");
 }

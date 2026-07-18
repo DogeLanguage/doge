@@ -41,8 +41,8 @@ pub use stdlib::fetch::{
     fetch_stat, fetch_write, fetch_write_bytes,
 };
 pub use stdlib::howl::{
-    howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_port, howl_post, howl_recv,
-    howl_recv_bytes, howl_recv_line, howl_request, howl_send, howl_send_bytes,
+    howl_accept, howl_close, howl_connect, howl_get, howl_listen, howl_peer, howl_port, howl_post,
+    howl_recv, howl_recv_bytes, howl_recv_line, howl_request, howl_send, howl_send_bytes,
 };
 pub use stdlib::hunt::{hunt_find, hunt_find_all, hunt_groups, hunt_replace, hunt_test};
 pub use stdlib::json::{json_emit, json_parse};
@@ -58,7 +58,6 @@ pub use stdlib::strings::{
 };
 pub use value::{BoundMethodData, Cell, FunctionData, Value};
 
-// Re-exported so the generated glue can build capture cells without importing
-// std directly — it only ever writes `use doge_runtime::*;`.
+// Generated glue imports only `doge_runtime::*` when building capture cells.
 pub use std::cell::RefCell;
 pub use std::rc::Rc;

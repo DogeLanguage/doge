@@ -44,16 +44,13 @@ impl fmt::Display for Value {
         match self {
             Value::Int(n) => write!(f, "{n}"),
             Value::Float(x) => {
-                // Always show a decimal point so Floats never look like Ints:
-                // 3.0 prints "3.0", 2.5 prints "2.5".
+                // Keep whole Floats distinct from Ints.
                 if x.is_finite() && x.fract() == 0.0 {
                     write!(f, "{x:.1}")
                 } else {
                     write!(f, "{x}")
                 }
             }
-            // A Decimal prints at its own scale, so `dec("0.10")` shows "0.10" —
-            // the exact value the user wrote, trailing zeros and all.
             Value::Decimal(d) => write!(f, "{d}"),
             Value::Str(s) => write!(f, "{s}"),
             Value::Bytes(b) => write!(f, "{}", bytes_repr(b)),

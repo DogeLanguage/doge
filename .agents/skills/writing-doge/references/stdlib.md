@@ -86,7 +86,8 @@ OS failures are `IOError`; `join`/`basename`/`ext` are pure string ops.
 
 ### `howl` — TCP sockets + HTTP client
 `listen(host, port)`→Socket (port 0 = OS-chosen) · `connect(host, port)`→Socket ·
-`accept(listener)`→Socket · `port(sock)`→Int · `send(conn, text)` · `send_bytes(conn, bytes)` ·
+`accept(listener)`→Socket · `port(sock)`→Int · `peer(sock)`→`{host: Str, port: Int}` ·
+`send(conn, text)` · `send_bytes(conn, bytes)` ·
 `recv(conn, max)`→Str|none · `recv_bytes(conn, max)`→Bytes|none · `recv_line(conn)`→Str|none ·
 `close(sock)` · `get(url)`→`{status, body, headers}` · `post(url, body)`→`{status, body, headers}` ·
 `request(method, url[, opts])`→`{status, body, headers}`.

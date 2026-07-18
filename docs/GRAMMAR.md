@@ -61,6 +61,8 @@ subscript = "[" , ( expr | [ expr ] , ":" , [ expr ] , [ ":" , [ expr ] ] ) , "]
 `**` binds tighter than a unary minus on its left but its exponent is a full
 unary expression (so `2 ** -1` parses). The bitwise levels are `|` < `^` < `&` <
 shifts, all between the comparisons and `+`/`-`, matching Python.
+At the `mul` level, `*` performs numeric multiplication or repeats a Str/List
+when the other operand is an Int; both operand orders use the same grammar.
 
 ## Disambiguation
 

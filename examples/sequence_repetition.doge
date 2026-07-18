@@ -1,0 +1,10 @@
+# such sequence. much repeat. wow
+
+bark "ab" * 3
+bark 2 * "wow"
+bark [0] * 3
+bark 2 * ["doge", "wow"]
+bark "doge" * 0
+bark [1, 2] * -2
+
+wow

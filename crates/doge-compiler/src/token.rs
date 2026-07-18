@@ -43,7 +43,6 @@ pub enum TokenKind {
     /// The fused `oh no` compound keyword
     OhNo,
 
-    // Universal keywords
     If,
     Elif,
     Else,
@@ -59,12 +58,10 @@ pub enum TokenKind {
     False,
     None,
 
-    // Reserved words
     Def,
     Class,
     Amaze,
 
-    // --- Literals and identifiers ---
     Ident(String),
     /// An integer literal at full width: `Int` is arbitrary precision, so a literal
     /// larger than `i64` must survive to codegen intact.
@@ -74,7 +71,6 @@ pub enum TokenKind {
     /// A string literal containing at least one `{…}` interpolation hole.
     StrInterp(Vec<StrSegment>),
 
-    // --- Operators ---
     Plus,
     Minus,
     Star,
@@ -109,7 +105,6 @@ pub enum TokenKind {
     LBrace,
     RBrace,
 
-    // --- Structural (synthesized by the lexer) ---
     Newline,
     Indent,
     Dedent,

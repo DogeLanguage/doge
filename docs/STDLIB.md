@@ -169,7 +169,7 @@ catchable `TypeError`, like any other unserializable value.
 | `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
-| `howl` | `listen`, `connect`, `accept`, `port`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
+| `howl` | `listen`, `connect`, `accept`, `port`, `peer`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
@@ -301,6 +301,7 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 | `connect(host, port)` | `Socket` | open a TCP connection to `host:port` |
 | `accept(listener)` | `Socket` | block until a client connects, then give back the new connection |
 | `port(sock)` | `Int` | the local port a listener or connection is bound to (read a port-`0` listener's real port back) |
+| `peer(sock)` | `Dict` | the connection's remote endpoint as `{"host": Str, "port": Int}`; a listener is a `TypeError` |
 | `send(conn, text)` | `none` | write `text` to a connection as UTF-8 |
 | `send_bytes(conn, bytes)` | `none` | write raw `bytes` to a connection unchanged |
 | `recv(conn, max_bytes)` | `Str` or `none` | read up to `max_bytes` bytes as text, or `none` at end of input |
@@ -348,6 +349,7 @@ such client = howl.connect("127.0.0.1", howl.port(server))
 howl.send(client, "much ping\n")
 
 such conn = howl.accept(server)
+bark howl.peer(conn)["host"]       # 127.0.0.1
 bark howl.recv_line(conn)          # much ping
 howl.send(conn, "wow pong\n")
 bark howl.recv_line(client)        # wow pong

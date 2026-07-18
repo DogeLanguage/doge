@@ -5,8 +5,6 @@ use super::*;
 type CallArgs = (Vec<Expr>, Vec<(String, Expr)>);
 
 impl Parser {
-    // ----- expressions (lowest to highest precedence) -----
-
     pub(super) fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {
         self.parse_ternary()
     }

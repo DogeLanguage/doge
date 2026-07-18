@@ -1,7 +1,6 @@
-//! Translating between `doge-compiler` results and LSP types. All language logic
-//! stays in the compiler: diagnostics reuse the exact `load` + `check_program`
-//! front end that `doge check` runs, and completion reuses `doge_compiler::complete`.
-//! This module only reshapes the results into `lsp-types`.
+//! Adapt `doge-compiler` diagnostics and completions to LSP types. Language logic
+//! stays in the compiler: diagnostics use `load` + `check_program`, and completion
+//! uses `doge_compiler::complete`.
 
 use doge_compiler::{Completion, CompletionKind};
 use lsp_types::{

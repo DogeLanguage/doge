@@ -101,6 +101,13 @@ operators `& | ^ ~ << >>`, membership `x in xs` and `x not in xs`, indexing
 `xs[0]`, slicing `xs[1:3]`, string concatenation with `+`. Truthiness follows
 Python (empty string/list/dict, `0`, `none`, `false` are falsy).
 
+`*` repeats a Str or List when its other operand is an Int, in either order:
+`"ab" * 3` and `3 * "ab"` are both `"ababab"`, while `[0] * 3` is
+`[0, 0, 0]`. A zero or negative count produces an empty sequence. List repetition
+is shallow: repeated nested Lists and Objects still refer to the same values.
+An Int too large to use as a repetition count, or a result too large to allocate,
+raises a catchable `Overflow` instead of panicking.
+
 `**` is exponentiation: `2 ** 10` is `1024`. It is right-associative
 (`2 ** 3 ** 2` is `2 ** 9`) and binds tighter than a unary minus on its left, so
 `-2 ** 2` is `-(2 ** 2)` — but its exponent may be a unary expression, so

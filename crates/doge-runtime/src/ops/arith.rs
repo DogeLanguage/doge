@@ -17,6 +17,24 @@ fn div_by_zero(sym: &str) -> DogeError {
     DogeError::division_by_zero(format!("cannot {sym} by zero"))
 }
 
+fn repetition_overflow(count: &BigInt) -> DogeError {
+    DogeError::overflow(format!(
+        "repeat count {count} produces a sequence that is too large"
+    ))
+}
+
+fn repetition_shape(unit_len: usize, count: &BigInt) -> DogeResult<(usize, usize)> {
+    let copies = if count.is_negative() {
+        0
+    } else {
+        count.to_usize().ok_or_else(|| repetition_overflow(count))?
+    };
+    let total_len = unit_len
+        .checked_mul(copies)
+        .ok_or_else(|| repetition_overflow(count))?;
+    Ok((copies, total_len))
+}
+
 /// A `Float`/`Decimal` arithmetic mix. Decimal is exact and Float is not, so
 /// silently joining them would corrupt the exact value — the fix is to convert
 /// one side explicitly.
@@ -104,10 +122,35 @@ pub fn sub(a: Value, b: Value) -> DogeResult {
     numeric_binop("-", &a, &b, |x, y| x - y, |x, y| x - y)
 }
 
-/// `*` — Int*Int (arbitrary precision) or Float/Decimal promotion.
+/// `*` — numeric multiplication, or Str/List repetition by an Int in either
+/// operand order.
 pub fn mul(a: Value, b: Value) -> DogeResult {
-    if let (Value::Int(x), Value::Int(y)) = (&a, &b) {
-        return Ok(Value::int(x * y));
+    match (&a, &b) {
+        (Value::Int(x), Value::Int(y)) => return Ok(Value::int(x * y)),
+        (Value::Str(text), Value::Int(count)) | (Value::Int(count), Value::Str(text)) => {
+            let (copies, total_len) = repetition_shape(text.len(), count)?;
+            let mut repeated = String::new();
+            repeated
+                .try_reserve_exact(total_len)
+                .map_err(|_| repetition_overflow(count))?;
+            for _ in 0..copies {
+                repeated.push_str(text);
+            }
+            return Ok(Value::str(repeated));
+        }
+        (Value::List(items), Value::Int(count)) | (Value::Int(count), Value::List(items)) => {
+            let items = items.borrow();
+            let (copies, total_len) = repetition_shape(items.len(), count)?;
+            let mut repeated = Vec::new();
+            repeated
+                .try_reserve_exact(total_len)
+                .map_err(|_| repetition_overflow(count))?;
+            for _ in 0..copies {
+                repeated.extend(items.iter().cloned());
+            }
+            return Ok(Value::list(repeated));
+        }
+        _ => {}
     }
     numeric_binop("*", &a, &b, |x, y| x * y, |x, y| x * y)
 }

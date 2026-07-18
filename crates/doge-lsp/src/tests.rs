@@ -11,7 +11,6 @@ fn uri(path: &str) -> Url {
 
 #[test]
 fn diagnostics_flag_a_bad_program() {
-    // `bark` with no expression fails the front end.
     let diagnostics = diagnostics_for(&uri("file:///tmp/bad.doge"), "bark\nwow\n");
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
@@ -31,7 +30,6 @@ fn completion_reads_the_open_buffer() {
     docs.open
         .insert(doc.clone(), "so nerd\nbark nerd.\nwow\n".to_string());
 
-    // Cursor just after `nerd.` on line 2 (0-based line 1, character 10).
     let params: CompletionParams = serde_json::from_value(json!({
         "textDocument": { "uri": doc },
         "position": { "line": 1, "character": 10 },

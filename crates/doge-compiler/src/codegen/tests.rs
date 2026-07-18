@@ -177,7 +177,6 @@ fn rust_keyword_idents_are_mangled() {
 #[test]
 fn string_escapes_survive() {
     let out = gen("such s = \"a\\\"b\\nc\"\nwow\n").unwrap();
-    // The Doge string a"b<newline>c becomes an escaped Rust string literal.
     assert!(out.contains("Value::str(\"a\\\"b\\nc\")"));
 
     // Control chars from \r, \0 and a \u{…} scalar are re-escaped, never emitted raw.
@@ -233,7 +232,6 @@ fn loops_are_labeled_and_bork_uses_labels() {
 fn interpolation_emits_an_interp_call() {
     let out = gen("such name = \"kabosu\"\nbark \"hi {name}, {1 + 1}\"\nwow\n").unwrap();
     assert!(out.contains("interp(&["));
-    // The literal segments survive escaping and the holes compile as exprs.
     assert!(out.contains("Value::str(\"hi \")"));
     assert!(out.contains("add("));
 }
@@ -269,7 +267,6 @@ fn function_arity_error_is_precise() {
 fn default_is_filled_at_a_direct_call() {
     let out = gen("such greet much name, mood = \"happy\":\n    return name\nwow\nbark greet(\"kabosu\")\nwow\n")
         .unwrap();
-    // The omitted `mood` argument is supplied from its literal default.
     assert!(out.contains("f_greet(Value::str(\"kabosu\"), Value::str(\"happy\"), &mut *env)"));
 }
 
@@ -345,13 +342,11 @@ fn range_one_and_two_args() {
 #[test]
 fn function_as_value_constructs_a_function_value() {
     let out = gen("such greet:\n    bark 1\nwow\nsuch g = greet\nwow\n").unwrap();
-    // A top-level function name used as a value builds a `Value::function`.
     assert!(out.contains("env.v_g = Value::function(0u32, \"greet\", vec![]);"));
 }
 
 #[test]
 fn builtin_as_value_constructs_a_function_value() {
-    // `bark len` — a bare builtin name used as a value.
     let out = gen("bark len\nwow\n").unwrap();
     assert!(out.contains("Value::function(0u32, \"len\", vec![])"));
 }
@@ -508,7 +503,6 @@ fn module_as_value_is_an_error() {
 
 #[test]
 fn bare_module_func_is_a_value() {
-    // `bark nerd.sqrt` prints the function value rather than erroring.
     let out = gen("so nerd\nbark nerd.sqrt\nwow\n").unwrap();
     assert!(out.contains("Value::function("));
     assert!(out.contains("\"nerd.sqrt\", vec![]"));
@@ -562,7 +556,6 @@ fn fn_local_vs_global_resolution() {
 fn bare_return_and_missing_return_yield_none() {
     let out = gen("such f:\n    return\nwow\nf()\nwow\n").unwrap();
     assert!(out.contains("return Ok(Value::None);"));
-    // The body still ends with the fall-off-end none.
     assert!(out.contains("    Ok(Value::None)\n}\n"));
 }
 

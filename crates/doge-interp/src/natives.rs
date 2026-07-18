@@ -143,6 +143,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "howl_connect" => rt::howl_connect(&a[0], &a[1]),
         "howl_accept" => rt::howl_accept(&a[0]),
         "howl_port" => rt::howl_port(&a[0]),
+        "howl_peer" => rt::howl_peer(&a[0]),
         "howl_send" => rt::howl_send(&a[0], &a[1]),
         "howl_send_bytes" => rt::howl_send_bytes(&a[0], &a[1]),
         "howl_recv" => rt::howl_recv(&a[0], &a[1]),

@@ -12,6 +12,9 @@ howl.send(client, "much ping\n")
 
 # Accept the pending connection and read the client's line (newline trimmed).
 such conn = howl.accept(server)
+such peer = howl.peer(conn)
+bark peer["host"]
+bark peer["port"] == howl.port(client)
 bark howl.recv_line(conn)
 
 # Reply, and read the reply back on the client side.

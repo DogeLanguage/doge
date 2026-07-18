@@ -1,9 +1,6 @@
-//! A tree-walking interpreter for Doge — the second execution engine beside the
-//! Rust-transpiling compiler. It evaluates a checked AST directly against
-//! `doge-runtime`, so `doge repl` (and the interpreter path in general) skips the
-//! rustc build entirely. Every value operation calls the same `doge-runtime`
-//! function the generated Rust would, so an interpreted program behaves
-//! identically to a compiled one — a guarantee the examples parity suite enforces.
+//! Doge's tree-walking interpreter. It evaluates a checked AST through
+//! `doge-runtime`, sharing value operations with generated Rust; the examples
+//! parity suite enforces identical behavior without a rustc build.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -221,8 +218,6 @@ impl Interp {
         interp
     }
 
-    // ----- file-scope helpers -----
-
     fn globals(&self, fid: u32) -> Scope {
         self.file_scopes[fid as usize].globals.clone()
     }
@@ -263,8 +258,6 @@ impl Interp {
             .cloned()
             .unwrap_or_else(|| Rc::from("<repl>"))
     }
-
-    // ----- program integration -----
 
     /// Fold a loaded program's files into the session: create each file's scope
     /// and imports, analyze every definition into the callable/class tables, hoist
@@ -366,8 +359,6 @@ impl Interp {
         }
         Ok(())
     }
-
-    // ----- REPL session -----
 
     /// The session's accumulated top-level scope, for seeding the checker of the
     /// next snippet. Built from live interpreter state so the checker and runtime

@@ -6,8 +6,6 @@ fn span() -> Span {
 
 #[test]
 fn dump_pins_the_tree_shape() {
-    // such age = 7
-    // bark "age is " + age
     let script = Script {
         stmts: vec![
             Stmt::Decl {
@@ -51,8 +49,6 @@ Script
 
 #[test]
 fn dump_pins_the_destructuring_shape() {
-    // such a, many rest = xs
-    // p, q = q, p        (parser desugars the comma-RHS into a list)
     let script = Script {
         stmts: vec![
             Stmt::Decl {
@@ -115,7 +111,6 @@ Script
 
 #[test]
 fn hoisted_names_include_destructuring_targets_and_collectors() {
-    // such a, b = xs / for k, many rest in ys: …
     let script = Script {
         stmts: vec![
             Stmt::Decl {
@@ -145,7 +140,6 @@ fn hoisted_names_include_destructuring_targets_and_collectors() {
 
 #[test]
 fn hoisted_names_are_first_seen_order_and_unique() {
-    // such a = 1 / for b in a: such a = 2 / pls: … oh no err! …
     let script = Script {
         stmts: vec![
             Stmt::Decl {
@@ -223,7 +217,6 @@ fn for_each_child_block_skips_nested_function_bodies() {
     });
     assert_eq!(blocks, 1);
 
-    // Visiting the funcdef itself yields no child blocks in this scope.
     let mut inner_blocks = 0;
     for_each_child_block(&funcdef, &mut |_| inner_blocks += 1);
     assert_eq!(inner_blocks, 0);

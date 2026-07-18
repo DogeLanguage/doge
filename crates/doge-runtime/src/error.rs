@@ -16,8 +16,9 @@ pub enum ErrorKind {
     /// `/` or `//` or `%` with a zero divisor.
     DivisionByZero,
     /// A number too large to materialize where a bounded one is unavoidable — a
-    /// `**` exponent too big to compute, or a non-finite Float narrowed to an Int.
-    /// Ordinary Int arithmetic is arbitrary precision and never overflows.
+    /// `**` exponent too big to compute, sequence repetition too large to
+    /// materialize, or a non-finite Float narrowed to an Int. Ordinary Int
+    /// arithmetic is arbitrary precision and never overflows.
     Overflow,
     /// List/Str index outside the valid range.
     IndexOutOfBounds,

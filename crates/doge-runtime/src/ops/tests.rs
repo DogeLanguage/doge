@@ -52,6 +52,75 @@ fn mixed_int_float_promotion() {
 }
 
 #[test]
+fn strings_and_lists_repeat_in_both_operand_orders() {
+    assert!(matches!(mul(Value::str("ab"), int(3)).unwrap(), Value::Str(s) if &*s == "ababab"));
+    assert!(matches!(mul(int(2), Value::str("wow")).unwrap(), Value::Str(s) if &*s == "wowwow"));
+
+    for repeated in [
+        mul(Value::list(vec![int(1), int(2)]), int(2)).unwrap(),
+        mul(int(2), Value::list(vec![int(1), int(2)])).unwrap(),
+    ] {
+        let Value::List(items) = repeated else {
+            panic!("expected a list");
+        };
+        let items = items.borrow();
+        assert_eq!(items.len(), 4);
+        assert!(values_equal(&items[0], &int(1)));
+        assert!(values_equal(&items[1], &int(2)));
+        assert!(values_equal(&items[2], &int(1)));
+        assert!(values_equal(&items[3], &int(2)));
+    }
+}
+
+#[test]
+fn non_positive_sequence_repetition_is_empty() {
+    assert!(matches!(mul(Value::str("doge"), int(0)).unwrap(), Value::Str(s) if s.is_empty()));
+    assert!(matches!(mul(int(-2), Value::str("doge")).unwrap(), Value::Str(s) if s.is_empty()));
+    let huge_negative = Value::int(-(BigInt::from(usize::MAX) + 1u8));
+    assert!(
+        matches!(mul(Value::str("doge"), huge_negative).unwrap(), Value::Str(s) if s.is_empty())
+    );
+
+    for repeated in [
+        mul(Value::list(vec![int(1)]), int(0)).unwrap(),
+        mul(int(-2), Value::list(vec![int(1)])).unwrap(),
+    ] {
+        assert!(matches!(repeated, Value::List(items) if items.borrow().is_empty()));
+    }
+}
+
+#[test]
+fn repeated_lists_keep_shallow_element_identity() {
+    let nested = Value::list(vec![int(1)]);
+    let repeated = mul(Value::list(vec![nested]), int(2)).unwrap();
+    let Value::List(items) = repeated else {
+        panic!("expected a list");
+    };
+    let items = items.borrow();
+    let (Value::List(first), Value::List(second)) = (&items[0], &items[1]) else {
+        panic!("expected nested lists");
+    };
+    assert!(std::rc::Rc::ptr_eq(first, second));
+}
+
+#[test]
+fn oversized_sequence_repetition_is_catchable() {
+    let count = Value::int(BigInt::from(usize::MAX) + 1u8);
+    assert_eq!(
+        mul(Value::str("doge"), count).unwrap_err().kind,
+        ErrorKind::Overflow
+    );
+
+    let count = Value::int(isize::MAX);
+    assert_eq!(
+        mul(Value::list(vec![int(1), int(2)]), count)
+            .unwrap_err()
+            .kind,
+        ErrorKind::Overflow
+    );
+}
+
+#[test]
 fn int_grows_past_i64_instead_of_overflowing() {
     // i64::MAX + 1 no longer overflows — Int is arbitrary precision, so it simply
     // keeps more digits. Never a silent wrap, and never an error.
