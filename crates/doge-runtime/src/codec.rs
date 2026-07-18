@@ -1,7 +1,5 @@
-//! Hand-written text codecs shared by the `Bytes` and `Str` methods: base64
-//! (RFC 4648, standard alphabet, `=` padding) and hex decoding. Hand-rolled rather
-//! than pulled from a crate to keep the dependency set minimal — the same reason
-//! `hex()` renders with `format!("{:02x}")` instead of a `hex` crate.
+//! Hand-written base64 (RFC 4648, standard alphabet, `=` padding) and hex codecs
+//! shared by `Bytes` and `Str` methods, keeping the dependency set minimal.
 //!
 //! Encoders are infallible; decoders return `Err(())` on any malformed input so the
 //! calling method can raise a catchable `ValueError` (never a panic).
@@ -48,8 +46,7 @@ pub(crate) fn b64_decode(s: &str) -> Result<Vec<u8>, ()> {
         let last = i + 1 == quartets;
         let pad2 = quartet[2] == b'=';
         let pad3 = quartet[3] == b'=';
-        // Padding is only ever the tail of the final quartet, and `=` in the third
-        // slot forces `=` in the fourth.
+        // Padding is confined to the final quartet; third-slot `=` requires a fourth-slot `=`.
         if (pad2 && !pad3) || (pad3 && !last) {
             return Err(());
         }

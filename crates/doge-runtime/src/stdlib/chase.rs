@@ -40,11 +40,8 @@ pub fn chase_run(cmd: &Value, args: &Value, stdin: &Value) -> DogeResult {
         .spawn()
         .map_err(|err| DogeError::io_error(format!("cannot run {cmd}: {err}")))?;
 
-    // Feed stdin on its own thread so a child that writes a lot of output before
-    // reading all of its input cannot deadlock against us (both pipes would block).
-    // A child that stops reading early (`true`, `head`) makes the write fail with a
-    // broken pipe; that is normal, exactly as a shell ignores SIGPIPE here, so the
-    // writer swallows any write error.
+    // Write stdin concurrently to avoid pipe deadlock; an early-closing child
+    // produces a normal broken pipe, so the writer ignores write errors.
     let writer = stdin.map(|text| {
         let mut handle = child.stdin.take();
         std::thread::spawn(move || {

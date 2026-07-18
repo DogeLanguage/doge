@@ -73,7 +73,6 @@ fn reindents_a_scrambled_multi_line_bracket() {
 
 #[test]
 fn preserves_literal_spelling() {
-    // A float and an escaped string must keep their exact source form.
     let out = fmt("bark 3.0\nbark \"a\\tb\"\nwow\n");
     assert_eq!(out, "bark 3.0\nbark \"a\\tb\"\nwow\n");
 }

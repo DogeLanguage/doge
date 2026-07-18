@@ -38,9 +38,7 @@ pub(super) fn bytes_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeRe
                 )),
             }
         }
-        // `find(needle)` / `find(needle, start)`: the byte offset of the first
-        // `needle` at or after `start`, or -1 when absent. An empty needle is
-        // always present, matching `bytes in bytes`.
+        // An empty needle is present at `start`, matching `bytes in bytes`.
         "find" => {
             if argc != 1 && argc != 2 {
                 return Err(method_arity_error("Bytes", name, 1, Some(2), argc));
@@ -65,9 +63,7 @@ pub(super) fn bytes_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeRe
                 .unwrap_or(-1);
             Ok(Value::int(offset))
         }
-        // `split(sep)`: the pieces of the Bytes between each non-overlapping
-        // `sep`, empty pieces kept (mirrors `strings.split`). An empty separator
-        // is a catchable ValueError.
+        // Empty pieces are kept; an empty separator is a catchable ValueError.
         "split" => {
             check_arity("Bytes", name, 1, argc)?;
             let sep = expect_bytes(
@@ -92,8 +88,7 @@ pub(super) fn bytes_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeRe
             pieces.push(Value::bytes(&bytes[start..]));
             Ok(Value::list(pieces))
         }
-        // `contains(needle)`: whether `needle` occurs as a contiguous sub-slice.
-        // An empty needle is always present, matching `bytes in bytes`.
+        // An empty needle is present, matching `bytes in bytes`.
         "contains" => {
             check_arity("Bytes", name, 1, argc)?;
             let needle = expect_bytes(

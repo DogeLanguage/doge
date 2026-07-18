@@ -259,7 +259,6 @@ impl Codegen {
         let required = params.required();
         let mut out = String::new();
         match params.max_positional() {
-            // Fixed arity: a single exact check reads clearest.
             Some(max) if max == required => out.push_str(&format!(
                 "            if args.len() != {required} {{ return Err({err}); }}\n"
             )),
@@ -332,12 +331,10 @@ impl Codegen {
                 builtin.runtime_fn
             ),
             BuiltinShape::Range => {
-                // `range` accepts one argument (0..n) or two (a..b).
                 "            if args.len() != 1 && args.len() != 2 { return Err(function_arity_error(\"range\", 1usize, Some(2usize), args.len())); }\n\
                  \x20           if args.len() == 1 { range(&Value::int(0i64), &args.remove(0)) } else { range(&args.remove(0), &args.remove(0)) }\n".to_string()
             }
             BuiltinShape::Prompt => {
-                // `gib` accepts no argument (read a line) or one (a prompt first).
                 "            if args.len() > 1 { return Err(function_arity_error(\"gib\", 0usize, Some(1usize), args.len())); }\n\
                  \x20           if args.is_empty() { gib(None) } else { gib(Some(&args.remove(0))) }\n".to_string()
             }

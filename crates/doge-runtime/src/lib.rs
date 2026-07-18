@@ -58,7 +58,6 @@ pub use stdlib::strings::{
 };
 pub use value::{BoundMethodData, Cell, FunctionData, Value};
 
-// Re-exported so the generated glue can build capture cells without importing
-// std directly — it only ever writes `use doge_runtime::*;`.
+// Generated glue imports only `doge_runtime::*` when building capture cells.
 pub use std::cell::RefCell;
 pub use std::rc::Rc;

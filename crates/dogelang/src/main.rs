@@ -40,13 +40,10 @@ const DEFAULT_BINARY_STEM: &str = "doge_program";
 const INTERP_ENV: &str = "DOGE_INTERP";
 
 fn main() -> ExitCode {
-    // Skip argv[0] (the program name).
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
-        // `doge new <name>` scaffolds a fresh project directory.
         [cmd, name] if cmd == "new" => new::run(name),
         [cmd, path, rest @ ..] if cmd == "bark" => run_bark(Some(path), rest),
-        // A bare `doge bark`/`doge build` runs the current project's entry.
         [cmd] if cmd == "bark" => run_bark(None, &[]),
         [cmd, path] if cmd == "build" => run_build(Some(path)),
         [cmd] if cmd == "build" => run_build(None),
@@ -54,14 +51,11 @@ fn main() -> ExitCode {
         [cmd] if cmd == "check" => run_check(None),
         [cmd, path] if cmd == "fmt" => run_fmt(path, false),
         [cmd, flag, path] if cmd == "fmt" && flag == "--check" => run_fmt(path, true),
-        // `doge test <file|dir>` discovers and runs test functions on the interpreter.
         [cmd, path] if cmd == "test" => {
             let path = path.to_string();
             on_big_stack(move || test::run_test(&path))
         }
-        // `doge lsp` starts the language server, speaking LSP over stdin/stdout.
         [cmd] if cmd == "lsp" => run_lsp(),
-        // `doge repl`, or a bare `doge`, starts the interactive interpreter.
         [cmd] if cmd == "repl" => on_big_stack(repl::run),
         [] => on_big_stack(repl::run),
         _ => {

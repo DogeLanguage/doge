@@ -64,8 +64,7 @@ pub fn index_get(container: &Value, index: &Value) -> DogeResult {
             "cannot index a Dict with {} (keys are Str)",
             index.describe()
         ))),
-        // Non-container values are not indexable. Listed by variant rather than a
-        // wildcard, so a new indexable Value variant forces a decision here.
+        // Explicit variants force a decision for each new indexable Value.
         (
             Value::Int(_)
             | Value::Float(_)
@@ -116,8 +115,7 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
             "cannot index a Dict with {} (keys are Str)",
             index.describe()
         ))),
-        // Non-container values cannot be assigned into. Listed by variant rather
-        // than a wildcard, so a new assignable Value variant forces a decision.
+        // Explicit variants force a decision for each new assignable Value.
         (
             Value::Int(_)
             | Value::Float(_)
@@ -145,8 +143,7 @@ pub fn index_set(container: &Value, index: &Value, value: Value) -> DogeResult<(
 fn slice_bound(what: &str, v: &Value) -> DogeResult<Option<i64>> {
     match v {
         Value::None => Ok(None),
-        // Slice bounds clamp rather than erroring, so an `Int` past the machine
-        // range saturates to the corresponding end and clamps against the length.
+        // Out-of-range Ints saturate because slice bounds clamp rather than error.
         Value::Int(n) => Ok(Some(bigint_to_bound(n))),
         _ => Err(DogeError::type_error(format!(
             "a slice {what} must be an Int, not {}",
@@ -260,8 +257,7 @@ pub fn slice_get(container: &Value, start: &Value, end: &Value, step: &Value) ->
                 .collect();
             Ok(Value::bytes(picked))
         }
-        // Listed by variant rather than a wildcard, so a new sliceable Value
-        // variant forces a decision here.
+        // Explicit variants force a decision for each new sliceable Value.
         Value::Dict(_)
         | Value::Int(_)
         | Value::Float(_)
@@ -296,8 +292,7 @@ pub fn iter_value(v: &Value) -> DogeResult<Vec<Value>> {
             .iter()
             .map(|(k, _)| Value::str(k))
             .collect()),
-        // Listed by variant rather than a wildcard, so a new iterable Value
-        // variant forces a decision here.
+        // Explicit variants force a decision for each new iterable Value.
         Value::Int(_)
         | Value::Float(_)
         | Value::Decimal(_)

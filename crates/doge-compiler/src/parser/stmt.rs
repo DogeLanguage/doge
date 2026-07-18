@@ -1,8 +1,6 @@
 use super::*;
 
 impl Parser {
-    // ----- statements -----
-
     pub(super) fn parse_statement(&mut self) -> Result<Stmt, Diagnostic> {
         match self.peek() {
             TokenKind::Such => self.parse_such(),

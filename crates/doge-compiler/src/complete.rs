@@ -73,7 +73,6 @@ fn cursor_context(source: &str, line: u32, col: u32) -> Context {
     let caret = (col.saturating_sub(1) as usize).min(chars.len());
     let prefix = &chars[..caret];
 
-    // Skip back over the partial word currently under the cursor.
     let mut word = caret;
     while word > 0 && is_ident_char(prefix[word - 1]) {
         word -= 1;
@@ -426,7 +425,6 @@ mod tests {
         let got = labels(src, 5, 1);
         assert!(got.contains(&"greeting".to_string()));
         assert!(got.contains(&"greet".to_string()));
-        // A function name is tagged as a function, a plain binding as a variable.
         assert_eq!(
             completion(src, 5, 1, "greet").map(|c| c.kind),
             Some(CompletionKind::Function)
@@ -439,10 +437,8 @@ mod tests {
 
     #[test]
     fn a_param_is_visible_only_inside_its_function() {
-        // Cursor inside the body: the parameter is offered.
         let src = "such greet much name:\n  bark name\nwow\nwow\n";
         assert!(labels(src, 2, 3).contains(&"name".to_string()));
-        // Cursor at a top-level statement after the function: it is not.
         let src_after = "such greet much name:\n  bark name\nwow\nsuch other = 1\nwow\n";
         let after = labels(src_after, 4, 1);
         assert!(!after.contains(&"name".to_string()));
@@ -461,7 +457,6 @@ mod tests {
 
     #[test]
     fn member_access_on_unimported_module_is_empty() {
-        // `nerd` is a real module but was never imported here.
         assert!(labels("bark nerd.\n", 1, 11).is_empty());
     }
 

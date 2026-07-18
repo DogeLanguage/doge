@@ -206,7 +206,6 @@ fn object_can_name_a_parent() {
         }
         other => panic!("expected ObjDef, got {other:?}"),
     }
-    // A plain object has no parent.
     let plain = parse_ok("many Shibe:\n    such go:\n        bark 1\n    wow\nwow\nwow\n");
     match &plain.stmts[0] {
         Stmt::ObjDef { parent, .. } => assert!(parent.is_none()),
@@ -310,7 +309,6 @@ fn def_gets_the_python_hint() {
 
 #[test]
 fn precedence_mul_over_add() {
-    // 1 + 2 * 3  parses as  1 + (2 * 3)
     let script = parse_ok("bark 1 + 2 * 3\nwow\n");
     let dumped = dump(&script);
     assert!(dumped.contains("Binary +"));
@@ -323,7 +321,6 @@ fn precedence_mul_over_add() {
 
 #[test]
 fn postfix_chains() {
-    // a.b[0](c) — attr, then index, then call.
     let script = parse_ok("bark a.b[0](c)\nwow\n");
     match &script.stmts[0] {
         Stmt::Bark { expr, .. } => assert!(matches!(expr, Expr::Call { .. })),
@@ -376,7 +373,6 @@ fn unary_minus_binds_looser_than_power() {
 
 #[test]
 fn bitwise_precedence_or_over_and() {
-    // 1 | 2 & 3 parses as 1 | (2 & 3).
     let script = parse_ok("bark 1 | 2 & 3\nwow\n");
     let dumped = dump(&script);
     let or_at = dumped.find("Binary |").expect("a bit-or");
@@ -386,7 +382,6 @@ fn bitwise_precedence_or_over_and() {
 
 #[test]
 fn shift_binds_tighter_than_comparison_looser_than_add() {
-    // 1 + 2 << 3 is (1 + 2) << 3.
     let script = parse_ok("bark 1 + 2 << 3\nwow\n");
     let dumped = dump(&script);
     let shl_at = dumped.find("Binary <<").expect("a shift");
@@ -419,7 +414,6 @@ fn ternary_else_is_required() {
 
 #[test]
 fn ternary_else_nests_to_the_right() {
-    // a if p else b if q else c  ==  a if p else (b if q else c)
     let script = parse_ok("bark 1 if a else 2 if b else 3\nwow\n");
     let dumped = dump(&script);
     assert_eq!(dumped.matches("Ternary").count(), 2);
@@ -590,8 +584,6 @@ Script
     assert_eq!(dump(&script), expected);
 }
 
-// ----- REPL snippet parsing -----
-
 fn repl(source: &str) -> ReplParse {
     parse_repl("repl.doge", source)
 }
@@ -600,27 +592,21 @@ fn repl(source: &str) -> ReplParse {
 fn repl_completes_a_single_statement_without_wow() {
     assert!(matches!(repl("bark 1\n"), ReplParse::Complete(_)));
     assert!(matches!(repl("such x = 1\n"), ReplParse::Complete(_)));
-    // A bare expression is a complete snippet on its own (the prompt echoes it).
     assert!(matches!(repl("1 + 2\n"), ReplParse::Complete(_)));
 }
 
 #[test]
 fn repl_treats_a_cut_off_construct_as_incomplete() {
-    // A block header with no body yet.
     assert!(matches!(repl("if true:\n"), ReplParse::Incomplete(_)));
-    // A function missing its wow.
     assert!(matches!(
         repl("such greet:\n    return 1\n"),
         ReplParse::Incomplete(_)
     ));
-    // A pls with no oh no yet.
     assert!(matches!(
         repl("pls\n    bark 1\n"),
         ReplParse::Incomplete(_)
     ));
-    // An unterminated string can be finished on a later line.
     assert!(matches!(repl("bark \"hi\n"), ReplParse::Incomplete(_)));
-    // An open bracket.
     assert!(matches!(repl("such xs = [1,\n"), ReplParse::Incomplete(_)));
 }
 

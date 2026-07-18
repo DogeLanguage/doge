@@ -85,8 +85,6 @@ impl Parser {
         }
     }
 
-    // ----- token cursor helpers -----
-
     fn peek(&self) -> &TokenKind {
         // The lexer always terminates the stream with Eof, so this is in range.
         &self.tokens[self.pos].kind
@@ -163,8 +161,6 @@ impl Parser {
                 "every function, object, and script ends with wow (did the script end early?)",
             )
     }
-
-    // ----- top level -----
 
     fn parse_script(&mut self) -> Result<Script, Diagnostic> {
         let mut stmts = Vec::new();

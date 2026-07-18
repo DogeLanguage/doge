@@ -294,8 +294,6 @@ fn super_to_an_unknown_method_is_an_error() {
     assert_eq!(err.headline, "very super. much unknown.");
 }
 
-// ----- REPL snippet checking (seeded session scope) -----
-
 fn snippet(source: &str, session: &SessionScope) -> Result<(), Diagnostic> {
     let script = match crate::parser::parse_repl("repl.doge", source) {
         crate::parser::ReplParse::Complete(script) => script,
@@ -316,7 +314,6 @@ fn session_with_globals(names: &[&str]) -> SessionScope {
 fn a_prior_session_name_is_in_scope() {
     let session = session_with_globals(&["x"]);
     assert!(snippet("bark x\n", &session).is_ok());
-    // A reference at the top level, not only inside a function, resolves.
     assert!(snippet("bark x + 1\n", &session).is_ok());
 }
 
@@ -328,9 +325,7 @@ fn an_unknown_name_is_still_an_error() {
 #[test]
 fn a_snippet_may_redefine_an_earlier_name() {
     let session = session_with_globals(&["greet"]);
-    // Redefining a function that an earlier snippet introduced is allowed.
     assert!(snippet("such greet:\n    return 2\nwow\n", &session).is_ok());
-    // As is redefining a variable.
     assert!(snippet("such x = 1\n", &session_with_globals(&["x"])).is_ok());
 }
 

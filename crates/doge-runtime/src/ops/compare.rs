@@ -71,9 +71,7 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         }
         // Objects are equal only when they are the very same instance.
         (Value::Object(x), Value::Object(y)) => Rc::ptr_eq(x, y),
-        // Functions are equal when they share a definition and the very same
-        // captured cells: `greet == greet` holds, but two closures built from the
-        // same definition over different environments do not.
+        // Function equality includes captured-cell identity, not just its definition.
         (Value::Function(x), Value::Function(y)) => {
             x.fn_id == y.fn_id
                 && x.captures.len() == y.captures.len()
@@ -82,11 +80,9 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
                     .zip(y.captures.iter())
                     .all(|(p, q)| Rc::ptr_eq(p, q))
         }
-        // Classes are equal when they name the same constructor: a class captures
-        // nothing, so `Shibe == Shibe` holds and `Shibe == Corgi` does not.
+        // Classes have no captures, so constructor identity is sufficient.
         (Value::Class(x), Value::Class(y)) => x.fn_id == y.fn_id,
-        // Bound methods are equal when they name the same method on the very same
-        // receiver instance: `a.speak == a.speak` holds, but not `b.speak`.
+        // Bound methods include receiver identity.
         (Value::BoundMethod(x), Value::BoundMethod(y)) => {
             x.method == y.method && values_equal(&x.receiver, &y.receiver)
         }
@@ -99,9 +95,7 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         // Pups and bowls, like sockets, are equal only to the very same handle.
         (Value::Pup(x), Value::Pup(y)) => Rc::ptr_eq(x, y),
         (Value::Bowl(x), Value::Bowl(y)) => Rc::ptr_eq(x, y),
-        // Cross-type comparisons are simply unequal, never an error. Written by
-        // left-hand variant rather than a wildcard, so a new Value variant forces
-        // its own same-type case to be added above.
+        // Explicit variants make a new same-type equality case mandatory.
         (Value::Int(_), _)
         | (Value::Float(_), _)
         | (Value::Decimal(_), _)
@@ -145,8 +139,7 @@ pub(crate) fn slice_contains(items: &[Value], target: &Value) -> bool {
 pub fn in_(needle: Value, container: Value) -> DogeResult {
     let found = match &container {
         Value::List(items) => slice_contains(&items.borrow(), &needle),
-        // A dict is keyed by Str; a non-Str needle can never be a key, so it is
-        // simply absent rather than an error (mirrors cross-type `==`).
+        // A non-Str cannot be a Dict key, so it is absent rather than an error.
         Value::Dict(entries) => match &needle {
             Value::Str(k) => entries.borrow().contains_key(k.as_ref()),
             _ => false,
@@ -160,8 +153,7 @@ pub fn in_(needle: Value, container: Value) -> DogeResult {
                 )));
             }
         },
-        // `int in bytes` tests byte membership (the byte must be 0–255); `bytes in
-        // bytes` tests for a contiguous sub-slice, mirroring `Str in Str`.
+        // Int tests byte membership; Bytes tests a contiguous sub-slice.
         Value::Bytes(haystack) => match &needle {
             Value::Int(n) => n.to_u8().is_some_and(|b| haystack.contains(&b)),
             Value::Bytes(sub) => {

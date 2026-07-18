@@ -93,14 +93,10 @@ impl Diagnostic {
         out.push_str(&self.headline);
         out.push_str("\n\n");
 
-        // Location line, indented two spaces.
         out.push_str(&format!("  {}:{}\n", self.path, self.line));
 
-        // The offending source line, indented four spaces.
         out.push_str(&format!("    {}\n", self.source_line));
 
-        // Caret line: four spaces of code indent, then (col - 1) more to reach
-        // the offending column, then the caret and the message.
         let caret_pad = 4 + self.col.saturating_sub(1) as usize;
         out.push_str(&" ".repeat(caret_pad));
         out.push_str(&format!("^ {}\n", self.message));
