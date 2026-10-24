@@ -56,6 +56,9 @@ fn main() -> ExitCode {
             on_big_stack(move || test::run_test(&path))
         }
         [cmd] if cmd == "lsp" => run_lsp(),
+        // LSP clients append `--stdio` when they spawn a server over stdio — the
+        // VS Code extension's client always does.
+        [cmd, flag] if cmd == "lsp" && flag == "--stdio" => run_lsp(),
         [cmd] if cmd == "repl" => on_big_stack(repl::run),
         [] => on_big_stack(repl::run),
         _ => {

@@ -126,7 +126,8 @@ top-level code is not run under `doge test`.
 ## Editor integration (language server)
 
 `doge lsp` runs the Doge language server, speaking the Language Server Protocol
-over stdin/stdout. Editors spawn it to get:
+over stdin/stdout (`doge lsp --stdio` is the same — LSP clients conventionally
+append that flag). Editors spawn it to get:
 
 - **Diagnostics** — the same front end `doge check` runs (`load` + checks), so an
   editor squiggle matches exactly what the CLI reports. The front end stops at the

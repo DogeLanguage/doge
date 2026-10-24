@@ -156,7 +156,8 @@ bark dec("0.10") == dec("0.1") # true
 ```
 
 `dec` and `json`/`dson`: `json.emit` writes a Decimal as a bare JSON number (JSON has
-no decimal type, so a round-trip through `json.parse` returns a Float). `dson` numbers
+no decimal type, so a plain `json.parse` reads it back as a Float, and
+`json.parse(text, {"numbers": "decimal"})` reads it back exactly). `dson` numbers
 are octal and so have no faithful Decimal form — `dson.emit` of a Decimal is a
 catchable `TypeError`, like any other unserializable value.
 
@@ -438,16 +439,16 @@ bark pack.sniff(bowl)              # treat
 
 ### `json` — JSON parse and emit
 
-Structured-data serialization. `json.parse(text)` turns a JSON document into a
-Doge value; `json.emit(value)` turns a Doge value back into compact JSON text.
-The mapping between the two is direct:
+Structured-data serialization. `json.parse(text[, opts])` turns a JSON document
+into a Doge value; `json.emit(value)` turns a Doge value back into compact JSON
+text. The mapping between the two is direct:
 
 | JSON | Doge |
 |---|---|
 | object | `Dict` (insertion-ordered; a repeated key keeps its last value) |
 | array | `List` |
 | string | `Str` |
-| number | `Int` when it is written with no fraction or exponent and fits an `Int`, otherwise `Float` |
+| number | `Int` when it is written with no fraction or exponent, otherwise `Float` (or `Decimal`, see below) |
 | `true` / `false` | `Bool` |
 | `null` | `none` |
 
@@ -457,6 +458,14 @@ its point (`3.0`, not `3`) so it re-parses as a `Float`. Only
 `Dict`/`List`/`Str`/`Int`/`Float`/`Bool`/`none` have a JSON form: emitting an
 object, function, socket, or any other type is a catchable `TypeError`, and a
 non-finite `Float` (JSON has no `NaN`/infinity) is a catchable `ValueError`.
+
+`opts` is optional. When given, it is a Dict whose only key is `"numbers"`:
+`"float"` (the default) or `"decimal"`. With `{"numbers": "decimal"}`, every number
+written with a fraction or exponent parses straight to an exact `Decimal` — its
+digits never pass through a `Float` — while a whole number stays an `Int`. That
+keeps money and rates from an external API exact end to end. Any other key or
+mode is a catchable `ValueError`; a non-Dict `opts` or a non-Str mode is a
+catchable `TypeError`.
 
 Every malformed input is a catchable `ValueError` that names the offset it failed
 at — a truncated document, a bad escape, trailing text after the value, or nesting
@@ -471,6 +480,9 @@ bark config[1]                       # 2.5
 
 such doc = {"name": "kabosu", "good": true}
 bark json.emit(doc)                  # {"name":"kabosu","good":true}
+
+such rates = json.parse("[\{\"rate\": 0.86215}]", {"numbers": "decimal"})
+bark rates[0]["rate"] * 100          # 86.21500 (a Decimal, never a Float)
 
 pls
     json.parse("[1, 2,")
@@ -496,8 +508,9 @@ doge-speak, and the `dson` module mirrors `json` member-for-member (`parse`,
 - A `\u` string escape takes **six octal digits** (not four hex).
 
 The value mapping, the catchable-error contract, and the 128-level depth cap are
-identical to [`json`](#json--json-parse-and-emit); the two codecs are
-interchangeable but for how the text reads.
+identical to [`json`](#json--json-parse-and-emit) (`dson.parse` takes no options —
+the `"numbers"` option is `json`-only); the two codecs are interchangeable but for
+how the text reads.
 
 ```doge
 so dson

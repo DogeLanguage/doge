@@ -153,7 +153,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "howl_get" => rt::howl_get(&a[0]),
         "howl_post" => rt::howl_post(&a[0], &a[1]),
         "howl_request" => rt::howl_request(&a[0], &a[1], &a[2]),
-        "json_parse" => rt::json_parse(&a[0]),
+        "json_parse" => rt::json_parse(&a[0], &a[1]),
         "json_emit" => rt::json_emit(&a[0]),
         "nap_now" => rt::nap_now(),
         "nap_mono" => rt::nap_mono(),

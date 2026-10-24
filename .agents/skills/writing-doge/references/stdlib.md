@@ -106,6 +106,7 @@ Each pup gets a deep copy of args/captures/top-level snapshot — no shared muta
 ### `json` / `dson` — serialize
 `parse(text)`→Doge value · `emit(value)`→Str (compact). Maps object↔Dict, array↔List,
 number↔Int|Float, null↔none. Unserializable value or bad input → `TypeError`/`ValueError`.
+`json.parse(text, {"numbers": "decimal"})` reads fractions/exponents as exact Decimal (ints stay Int) — use it for money.
 `dson` is the same shape in doge-speak (objects `such … wow`, arrays `so … many`, `yes`/`no`/`empty`, octal numbers).
 
 ### `nap` — time (seconds as Float)
