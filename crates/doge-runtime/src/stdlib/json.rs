@@ -1,5 +1,6 @@
 //! `json` — parse and emit JSON. `json.parse(text)` turns a JSON document into a
-//! Doge value (object → Dict, array → List, the rest → Str/Int/Float/Bool/none);
+//! Doge value (object → Dict, array → List, the rest → Str/Int/Float/Bool/none —
+//! or Decimal for non-integers under `{"numbers": "decimal"}`);
 //! `json.emit(value)` turns one back into compact JSON text. Every malformed input
 //! is a catchable `ValueError` with the offset it failed at, and a value that has
 //! no JSON form (an object, function, socket, …) is a catchable `TypeError` —
@@ -7,6 +8,7 @@
 
 use std::fmt::Write;
 
+use bigdecimal::BigDecimal;
 use num_bigint::BigInt;
 
 use crate::error::{DogeError, DogeResult};
@@ -15,13 +17,17 @@ use crate::stdlib::serialize::{escape_str, too_deep, unsupported, MAX_DEPTH};
 use crate::stdlib::str_arg;
 use crate::value::Value;
 
-/// `json.parse(text)` — the value a JSON document denotes. Leading and trailing
-/// whitespace is ignored; anything after the top-level value is an error.
-pub fn json_parse(text: &Value) -> DogeResult {
+/// `json.parse(text, opts)` — the value a JSON document denotes. Leading and
+/// trailing whitespace is ignored; anything after the top-level value is an error.
+/// `opts` is a Dict (or `none` for no options) whose only key, `"numbers"`, is
+/// `"float"` (the default) or `"decimal"` — the latter reads every number with a
+/// fraction or exponent as an exact Decimal, never passing through a Float.
+pub fn json_parse(text: &Value, opts: &Value) -> DogeResult {
     let text = str_arg("json", "parse", text)?;
     let mut p = Parser {
         chars: text.chars().collect(),
         pos: 0,
+        decimal_numbers: decimal_numbers(opts)?,
     };
     p.skip_ws();
     let value = p.value(0)?;
@@ -30,6 +36,46 @@ pub fn json_parse(text: &Value) -> DogeResult {
         return Err(p.error("expected end of input"));
     }
     Ok(value)
+}
+
+/// Whether `json.parse`'s options ask for non-integer numbers as Decimal. A
+/// non-Dict `opts` or a non-Str `"numbers"` is a TypeError; an unknown key or
+/// numbers mode is a ValueError.
+fn decimal_numbers(opts: &Value) -> DogeResult<bool> {
+    let entries = match opts {
+        Value::None => return Ok(false),
+        Value::Dict(entries) => entries.borrow(),
+        other => {
+            return Err(DogeError::type_error(format!(
+                "json.parse options need a Dict, got {}",
+                other.describe()
+            )))
+        }
+    };
+    let mut decimal = false;
+    for (key, value) in entries.iter() {
+        if key != "numbers" {
+            return Err(DogeError::value_error(format!(
+                "json.parse got an unknown option {key:?}, expected \"numbers\""
+            )));
+        }
+        decimal = match value {
+            Value::Str(mode) if &**mode == "float" => false,
+            Value::Str(mode) if &**mode == "decimal" => true,
+            Value::Str(mode) => {
+                return Err(DogeError::value_error(format!(
+                    "json.parse got an unknown numbers mode {mode:?}, expected \"float\" or \"decimal\""
+                )))
+            }
+            other => {
+                return Err(DogeError::type_error(format!(
+                    "json.parse numbers option needs a Str, got {}",
+                    other.describe()
+                )))
+            }
+        };
+    }
+    Ok(decimal)
 }
 
 /// `json.emit(value)` — a compact JSON document (no insignificant whitespace) for
@@ -52,8 +98,8 @@ fn emit(value: &Value, out: &mut String, depth: usize) -> Result<(), DogeError> 
             let _ = write!(out, "{n}");
         }
         // A Decimal emits as a bare JSON number, preserving its exact digits.
-        // JSON has no decimal type, so a round-trip through `json.parse` returns a
-        // Float — the value is exact on the wire, inexact only if re-parsed.
+        // JSON has no decimal type, so a plain `json.parse` reads it back as a
+        // Float; `{"numbers": "decimal"}` reads it back exactly.
         Value::Decimal(d) => {
             let _ = write!(out, "{d}");
         }
@@ -106,6 +152,7 @@ fn emit(value: &Value, out: &mut String, depth: usize) -> Result<(), DogeError> 
 struct Parser {
     chars: Vec<char>,
     pos: usize,
+    decimal_numbers: bool,
 }
 
 impl Parser {
@@ -302,8 +349,8 @@ impl Parser {
         Ok(value)
     }
 
-    /// A JSON number. With neither a fraction nor an exponent it is an Int when it
-    /// fits `i64` (otherwise a Float); with either, it is always a Float.
+    /// A JSON number. With neither a fraction nor an exponent it is an Int; with
+    /// either, it is a Float, or an exact Decimal in decimal-numbers mode.
     fn number(&mut self) -> DogeResult {
         let start = self.pos;
         if self.peek() == Some('-') {
@@ -330,6 +377,12 @@ impl Parser {
                 return Ok(Value::Int(n));
             }
         }
+        if self.decimal_numbers {
+            return literal
+                .parse::<BigDecimal>()
+                .map(Value::decimal)
+                .map_err(|_| self.error("invalid number"));
+        }
         match literal.parse::<f64>() {
             Ok(x) => Ok(Value::Float(x)),
             Err(_) => Err(self.error("invalid number")),
@@ -354,7 +407,19 @@ mod tests {
     use crate::ops::values_equal;
 
     fn parse(text: &str) -> DogeResult {
-        json_parse(&Value::str(text))
+        json_parse(&Value::str(text), &Value::None)
+    }
+
+    fn parse_with(text: &str, opts: &[(&str, Value)]) -> DogeResult {
+        let mut map = OrderedMap::new();
+        for (key, value) in opts {
+            map.insert((*key).to_string(), value.clone());
+        }
+        json_parse(&Value::str(text), &Value::dict(map))
+    }
+
+    fn parse_decimal(text: &str) -> DogeResult {
+        parse_with(text, &[("numbers", Value::str("decimal"))])
     }
 
     fn emit_str(v: &Value) -> String {
@@ -444,7 +509,69 @@ mod tests {
     #[test]
     fn a_non_str_argument_to_parse_is_a_type_error() {
         assert_eq!(
-            json_parse(&Value::int(1)).unwrap_err().kind,
+            json_parse(&Value::int(1), &Value::None).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
+    }
+
+    #[test]
+    fn decimal_mode_reads_fractions_and_exponents_exactly() {
+        assert!(
+            matches!(parse_decimal("0.86215").unwrap(), Value::Decimal(d) if d.to_string() == "0.86215")
+        );
+        assert!(
+            matches!(parse_decimal("2.50").unwrap(), Value::Decimal(d) if d.to_string() == "2.50")
+        );
+        assert!(
+            matches!(parse_decimal("-1.5e-3").unwrap(), Value::Decimal(d) if d == "-0.0015".parse::<BigDecimal>().unwrap())
+        );
+    }
+
+    #[test]
+    fn decimal_mode_keeps_integers_as_int() {
+        assert!(
+            matches!(parse_decimal("[42]").unwrap(), Value::List(items) if matches!(items.borrow()[0], Value::Int(_)))
+        );
+    }
+
+    #[test]
+    fn decimal_mode_reaches_nested_numbers() {
+        let value = parse_decimal("[{\"rate\":0.1}]").unwrap();
+        assert_eq!(emit_str(&value), "[{\"rate\":0.1}]");
+        let Value::List(items) = value else {
+            panic!("expected a List");
+        };
+        let Value::Dict(entries) = &items.borrow()[0] else {
+            panic!("expected a Dict");
+        };
+        assert!(matches!(
+            entries.borrow().get("rate"),
+            Some(Value::Decimal(_))
+        ));
+    }
+
+    #[test]
+    fn float_mode_is_the_explicit_default() {
+        let value = parse_with("0.5", &[("numbers", Value::str("float"))]).unwrap();
+        assert!(matches!(value, Value::Float(x) if x == 0.5));
+    }
+
+    #[test]
+    fn bad_options_are_catchable() {
+        let kind = |opts: &[(&str, Value)]| parse_with("1", opts).unwrap_err().kind;
+        assert_eq!(
+            kind(&[("numbers", Value::str("money"))]),
+            ErrorKind::ValueError
+        );
+        assert_eq!(
+            kind(&[("number", Value::str("decimal"))]),
+            ErrorKind::ValueError
+        );
+        assert_eq!(kind(&[("numbers", Value::int(1))]), ErrorKind::TypeError);
+        assert_eq!(
+            json_parse(&Value::str("1"), &Value::int(1))
+                .unwrap_err()
+                .kind,
             ErrorKind::TypeError
         );
     }

@@ -500,9 +500,9 @@ pub const MODULES: &[Module] = &[
             ModuleFn {
                 name: "parse",
                 arity: 1,
-                optional: false,
+                optional: true,
                 runtime_fn: "json_parse",
-                hint: "json.parse(text)",
+                hint: "json.parse(text) or json.parse(text, opts)",
             },
             ModuleFn {
                 name: "emit",
