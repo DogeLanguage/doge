@@ -28,7 +28,7 @@ below is a **catchable** error (`pls`/`oh no`), never a crash.
 | `remove(item)` | `none` | remove first equal (not found is an error) |
 | `index_of(item)` | `Int` | index of first equal (not found is an error) |
 | `contains(item)` | `Bool` | any element equal |
-| `sort()` | `none` | in place; all Ints/Floats or all Strs |
+| `sort()` / `sort(key)` | `none` | in place, stable; `key` is any function value, called once per element. Keys all Ints/Floats, all Strs, or all Lists (item by item, prefix first). Descending: sort, then `reverse()` |
 | `reverse()` | `none` | in place |
 | `clear()` | `none` | remove all |
 
@@ -86,15 +86,21 @@ OS failures are `IOError`; `join`/`basename`/`ext` are pure string ops.
 
 ### `howl` — TCP sockets + HTTP client
 `listen(host, port)`→Socket (port 0 = OS-chosen) · `connect(host, port)`→Socket ·
-`accept(listener)`→Socket · `port(sock)`→Int · `send(conn, text)` · `send_bytes(conn, bytes)` ·
-`recv(conn, max)`→Str|none · `recv_bytes(conn, max)`→Bytes|none · `recv_line(conn)`→Str|none ·
-`close(sock)` · `get(url)`→`{status, body, headers}` · `post(url, body)`→`{status, body, headers}` ·
+`accept(listener)`→Socket · `port(sock)`→Int · `peer(sock)`→`{host: Str, port: Int}` ·
+`send(conn, text)` · `send_bytes(conn, bytes)` ·
+`recv(conn, max)`→Str|none · `recv_bytes(conn, max)`→Bytes|none · `recv_line(conn[, max])`→Str|none ·
+`set_timeout(conn, secs)` (`none` clears) · `close(sock)` ·
+`get(url)`→`{status, body, headers}` · `post(url, body)`→`{status, body, headers}` ·
 `request(method, url[, opts])`→`{status, body, headers}`.
 Network failures are `IOError`; a non-2xx HTTP response is a normal Dict, not an error.
 Response `headers` keys are lowercased. `request` `method` is `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS`
 (else `ValueError`); optional `opts` Dict takes `"headers"` (Str→Str) and `"body"` (Str→UTF-8 or Bytes→raw),
 any other key → `ValueError`, bad header/body type → `TypeError`.
+`recv_line` `max` caps the line content in bytes (terminator excluded); a longer line → `IOError`, read stops at the cap
+(treat the connection as unusable); omitted → no cap.
 `send_bytes`/`recv_bytes` carry raw `Bytes` with no UTF-8 check — for binary bodies/uploads.
+Raw TCP reads block forever unless `set_timeout` is set; then a read with no data for `secs` → `IOError`
+(per wait for data, not per call); after a timeout, close the conn. Zero/negative/non-finite `secs` → `ValueError`.
 
 ### `pack` — threads (pups) and channels (bowls)
 `zoom(f, args)`→Pup (runs `f(args…)` on a new thread) · `fetch(pup)`→result (blocks; re-raises the pup's error) ·
@@ -110,7 +116,10 @@ number↔Int|Float, null↔none. Unserializable value or bad input → `TypeErro
 
 ### `nap` — time (seconds as Float)
 `now()`→Float (Unix epoch, UTC) · `mono()`→Float (monotonic; use differences for benchmarking) ·
-`rest(seconds)` (sleep) · `stamp(secs)`→ISO-8601 Str · `parse(iso)`→Float.
+`rest(seconds)` (sleep) · `stamp(secs)`→ISO-8601 UTC Str (`…Z`) ·
+`stamp(secs, zone)`→local ISO-8601 Str in an IANA zone (`"Europe/Amsterdam"`), numeric offset
+(`+01:00`; `"UTC"` gives `+00:00`) · `offset(secs, zone)`→Int seconds east of UTC (DST-aware) ·
+`parse(iso)`→Float (UTC shape only). Unknown zone → catchable `ValueError`.
 
 ### `roll` — random
 `seed(n)` · `int(low, high)`→Int (inclusive) · `float()`→Float in `[0,1)` · `choice(list)`→element ·

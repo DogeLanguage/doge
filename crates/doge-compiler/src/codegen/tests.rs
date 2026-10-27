@@ -650,7 +650,7 @@ fn mb_0_speak(mut v_self: Value, env: &mut Env) -> DogeResult<Value> {
 }
 
 fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
-    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }
+    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args, &mut |f, a| call_value(f, a, &mut *env)); }
     match (object_class_id(&recv)?, name) {
         (0u32, "init") => {
             if args.len() != 2 { return Err(method_arity_error("Shibe", "init", 2usize, Some(2usize), args.len())); }
@@ -662,6 +662,20 @@ fn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> 
         }
         _ => Err(no_such_method(&recv, name)),
     }
+}
+
+fn call_function(f: &FunctionData, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
+    match f.fn_id {
+        _ => Err(DogeError::type_error("very confuse. much function.")),
+    }
+}
+
+fn call_value(callee: Value, args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {
+    if let Value::BoundMethod(m) = &callee {
+        return call_method(m.receiver.clone(), &m.method, args, env);
+    }
+    let f = callee_function(&callee)?;
+    call_function(&*f, args, env)
 }
 
 fn class_has_method(class_id: u32, name: &str) -> bool { matches!((class_id, name), (0u32, "init") | (0u32, "speak")) }
@@ -694,8 +708,17 @@ fn method_call_is_dynamic() {
     assert!(out.contains("call_method(env.v_a.clone(), \"go\", vec![], &mut *env)?"));
     assert!(out.contains("object_class_id(&recv)?"));
     assert!(out.contains(
-        "if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }"
+        "if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args, &mut |f, a| call_value(f, a, &mut *env)); }"
     ));
+    assert!(out.contains("fn call_value(callee: Value"));
+}
+
+#[test]
+fn a_method_call_without_objects_still_emits_call_value_for_sort_keys() {
+    let out = gen("such xs = [2, 1]\nxs.sort()\nwow\n").unwrap();
+    assert!(out.contains("fn call_method(recv: Value"));
+    assert!(out.contains("fn call_function(f: &FunctionData"));
+    assert!(out.contains("fn call_value(callee: Value"));
 }
 
 #[test]

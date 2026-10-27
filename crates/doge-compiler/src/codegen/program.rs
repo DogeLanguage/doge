@@ -41,9 +41,11 @@ impl Codegen {
         self.enter_file(&mut emit, 0);
         emit.try_stack.clear();
         emit.loop_stack.clear();
-        // `call_value` references `call_method`, so an indirect call also forces
-        // the method dispatcher to exist even when no method is called directly.
-        let needs_dispatcher = emit.uses_method_call.get() || emit.uses_call_function.get();
+        // `call_value` and `call_method` reference each other (a bound method, a
+        // `List.sort` key), so whenever either is needed both are emitted.
+        let needs_dispatcher =
+            emit.uses_method_call.get() || emit.uses_call_function.get() || !classes.is_empty();
+        emit.uses_call_function.set(needs_dispatcher);
         let dispatcher = self.dispatcher(&classes, needs_dispatcher, &emit)?;
         let fn_dispatcher = self.function_dispatcher(&emit)?;
         let call_value = self.call_value_fn(&emit);

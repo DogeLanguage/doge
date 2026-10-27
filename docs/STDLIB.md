@@ -54,12 +54,42 @@ bark xs.pop()         # 4
 | `remove(item)` | `none` | remove the first element equal to `item` (not found is a catchable error) |
 | `index_of(item)` | `Int` | index of the first element equal to `item` (not found is a catchable error) |
 | `contains(item)` | `Bool` | whether any element equals `item` |
-| `sort()` | `none` | sort in place; elements must be all Ints/Floats or all Strs |
+| `sort()` / `sort(key)` | `none` | sort in place, stably; see [Sorting](#sorting) |
 | `reverse()` | `none` | reverse in place |
 | `clear()` | `none` | remove every element |
 
 `append`, `insert`, `remove`, `sort`, `reverse`, and `clear` change the list in
 place and give back `none`.
+
+#### Sorting
+
+`xs.sort()` orders the elements themselves; `xs.sort(key)` calls the function
+value `key` (a `such` function, a nested function, a module function, a builtin,
+or a bound method) once per element and orders the elements by what it returns.
+The sort is stable: elements with equal keys keep their original order. For
+descending order, sort then call `xs.reverse()` (which also flips the order of
+ties).
+
+Keys (or the elements, without a key) must be all Ints/Floats, all Strs, or all
+Lists. Lists compare item by item — first items, then second items, and so on;
+a List that is a prefix of a longer one sorts first, and nested Lists compare
+the same way. Items at the same position must again be all numbers, all Strs,
+or all Lists. Anything else — a Str beside an Int, a Dict, a Bool, `none`, a NaN
+— is a catchable `TypeError` naming what was found and where; an error raised
+inside `key` propagates unchanged. The list is sorted from a snapshot taken
+before the first `key` call, so if `key` changes the list, those changes are
+replaced by the sorted elements.
+
+```doge
+such by_date_then_amount much p:
+    return [p["date"], p["amount"]]
+wow
+payments.sort(by_date_then_amount)   # by date, then amount within a date
+payments.reverse()                   # newest first
+
+such pairs = [[2, "b"], [1, "z"], [1]]
+pairs.sort()                         # [[1], [1, "z"], [2, "b"]]
+```
 
 ### Dict methods
 
@@ -170,11 +200,11 @@ catchable `TypeError`, like any other unserializable value.
 | `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
-| `howl` | `listen`, `connect`, `accept`, `port`, `peer`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
+| `howl` | `listen`, `connect`, `accept`, `port`, `peer`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `set_timeout`, `close`, `get`, `post`, `request` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
-| `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
+| `nap` | `now`, `mono`, `rest`, `stamp`, `offset`, `parse` — clocks, sleep, UTC timestamps, and local time in IANA zones |
 | `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
 | `chase` | `run` — run an external program and capture its output |
 | `crypto` | `sha256`, `hmac_sha256`, `token`, `same` — hashing, HMAC, secure random bytes, and constant-time compare |
@@ -288,7 +318,8 @@ client. Every network failure — a refused connection, an unknown host, a broke
 pipe, a TLS or timeout error, or any operation on a closed socket — is a catchable
 `IOError` (`err.type == "IOError"`), never a crash. A wrong argument type (a
 non-Str host, a non-Socket where one belongs) is a catchable `TypeError`, and a
-port outside `0…65535` or a non-positive `recv` size is a catchable `ValueError`.
+port outside `0…65535` or a non-positive `recv`/`recv_line` size is a catchable
+`ValueError`.
 
 A **Socket** is a value like any other: it can be stored, passed to a function, or
 returned. Sockets are opaque — they have no fields or methods, compare equal only
@@ -307,8 +338,9 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 | `send_bytes(conn, bytes)` | `none` | write raw `bytes` to a connection unchanged |
 | `recv(conn, max_bytes)` | `Str` or `none` | read up to `max_bytes` bytes as text, or `none` at end of input |
 | `recv_bytes(conn, max_bytes)` | `Bytes` or `none` | read up to `max_bytes` raw bytes, or `none` at end of input |
-| `recv_line(conn)` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input |
+| `recv_line(conn[, max_bytes])` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input; a line longer than `max_bytes` is an `IOError` |
 | `close(sock)` | `none` | close a listener or connection now (idempotent) |
+| `set_timeout(conn, secs)` | `none` | make later reads on a connection an `IOError` after `secs` seconds with no data; `none` clears it |
 | `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str, "headers": Dict}` |
 | `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str, "headers": Dict}` |
 | `request(method, url[, opts])` | `Dict` | HTTP(S) request with a chosen method, headers, and body → `{"status": Int, "body": Str, "headers": Dict}` |
@@ -320,11 +352,40 @@ are an `IOError`. `send_bytes`/`recv_bytes` are the binary counterpart: they car
 raw `Bytes` with no UTF-8 validation, so non-text data is never an error and each
 `recv_bytes` returns bytes exactly as they arrive — the way to handle a binary
 upload or byte-accurate framing (a `Content-Length` body), where `recv`'s
-partial-character buffering would get the count wrong. Raw TCP calls block with no timeout; `howl.get`/`howl.post`/`howl.request` time
-out after 30 seconds (a catchable `IOError`). For HTTP, only a transport, TLS, or
-timeout failure is an error — a non-2xx response (a `404`, say) comes back as an
-ordinary `{"status", "body", "headers"}` Dict, so the script decides what a status
-means. Every HTTP response carries a `"headers"` Dict whose keys are lowercased, so
+partial-character buffering would get the count wrong.
+
+`recv_line(conn)` reads until a newline however long the line is. A line-based
+server facing untrusted peers should pass a cap: `recv_line(conn, max_bytes)` limits
+the line's content to `max_bytes` bytes (a positive `Int`), not counting the `\n` or
+`\r\n` terminator, and enforces it while reading — a peer that sends a flood
+without a newline is cut off once the cap is passed, never buffered in full. A
+longer line is a catchable `IOError` (`howl.recv_line: line exceeded 16384 bytes`);
+the bytes of it read so far are discarded and the connection is left mid-line, so
+treat it as unusable — answer an error (HTTP `431`, say) and close it. A line that
+fits returns exactly as without a cap, and bytes after its newline stay buffered for
+the next `recv`/`recv_bytes`/`recv_line`. Omitting `max_bytes` (or passing `none`)
+means no cap; any other non-`Int` is a catchable `TypeError`.
+
+Raw TCP reads block forever by default. `howl.set_timeout(conn, secs)` bounds how
+long a connection's reads wait: afterwards, a `recv`, `recv_bytes`, or `recv_line`
+that sees no data for `secs` seconds (a positive Int or Float) is a catchable
+`IOError` (`howl.recv_line timed out: no data arrived for 5 seconds`), so a server
+can drop an idle client instead of holding it forever. The bound is on each wait
+for data, not on the whole call: any bytes arriving restart it, so a `recv_line`
+fed by a peer that trickles in one byte every few seconds never times out, even if
+the full line takes far longer than `secs`. After a timeout, the portable response
+is to close the connection; a retry that continues from the bytes already buffered
+(half a line, part of a character) is guaranteed only on Linux and macOS.
+`howl.set_timeout(conn, none)` clears the timeout back to blocking forever. A zero,
+negative, non-finite, or absurdly large `secs` is a catchable `ValueError`, a
+non-number is a `TypeError`, a listening socket is a `TypeError`, and a closed
+socket is an `IOError`. Writes (`send`/`send_bytes`) are not affected.
+
+`howl.get`/`howl.post`/`howl.request` time out after 30 seconds (a catchable
+`IOError`). For HTTP, only a transport, TLS, or timeout failure is an error — a
+non-2xx response (a `404`, say) comes back as an ordinary
+`{"status", "body", "headers"}` Dict, so the script decides what a status means.
+Every HTTP response carries a `"headers"` Dict whose keys are lowercased, so
 `resp["headers"]["content-type"]` reads the same regardless of how the server cased
 the header.
 
@@ -536,6 +597,8 @@ numbers and keeps sub-second precision).
 | `mono()` | `Float` | seconds from a fixed process origin; monotonic, so only *differences* between readings are meaningful |
 | `rest(seconds)` | `none` | sleep for `seconds` (an Int or Float) |
 | `stamp(secs)` | `Str` | the ISO-8601 UTC string for a unix timestamp |
+| `stamp(secs, zone)` | `Str` | the ISO-8601 local time in the IANA zone `zone`, with its numeric offset |
+| `offset(secs, zone)` | `Int` | seconds east of UTC in effect in the IANA zone `zone` at `secs` |
 | `parse(text)` | `Float` | unix seconds for an ISO-8601 UTC string |
 
 Use `now()` for wall-clock timestamps and `mono()` for benchmarking — `mono()`
@@ -550,6 +613,21 @@ non-finite, or absurdly large is a catchable `ValueError` from `rest` rather tha
 a crash, and a timestamp `parse` cannot read — wrong layout, or a field out of
 range — is a catchable `ValueError` too.
 
+Give `stamp` a zone — an IANA name such as `"Europe/Amsterdam"`,
+`"America/New_York"`, or `"UTC"` — and it formats the local time there with the
+offset in effect at that instant, DST included:
+`nap.stamp(1784116800, "Europe/Amsterdam")` is `"2026-07-15T14:00:00+02:00"`. The
+offset is always numeric (`"UTC"` gives `+00:00`; only the one-argument form ends
+in `Z`), and widens to `+HH:MM:SS` for the rare historical offsets that are not a
+whole minute. `offset` returns that same offset as Int seconds — `3600` in an
+Amsterdam winter, `7200` in summer, `-18000` in a New York winter. Fractional
+seconds round down exactly as the one-argument `stamp` does. Zone rules come from
+the operating system's time-zone database where one is installed, with a copy
+bundled into every Doge program as the fallback (so Windows and bare containers
+resolve the same names). An unknown zone name is a catchable `ValueError` that
+names it, a zone that is not a `Str` is a `TypeError`, and a timestamp outside
+the years -9999 to 9999 is a `ValueError`. `parse` still reads only the UTC shape.
+
 ```doge
 so nap
 
@@ -559,6 +637,9 @@ bark nap.mono() - start >= 0.05      # true
 
 bark nap.stamp(946684800)            # 2000-01-01T00:00:00Z
 bark nap.parse("2000-01-01T00:00:00Z") == 946684800   # true
+
+bark nap.stamp(1784116800, "Europe/Amsterdam")   # 2026-07-15T14:00:00+02:00
+bark nap.offset(1768478400, "Europe/Amsterdam")  # 3600 (winter)
 
 pls
     nap.parse("not a date")

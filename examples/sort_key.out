@@ -1,0 +1,15 @@
+["cheems", "doge", "kabosu", "walter"]
+["walter", "kabosu", "doge", "cheems"]
+["doge", "cheems", "walter", "kabosu"]
+[[1], [1, "a"], [1, "z"], [2, "b"]]
+["a", "wow", "much", "such"]
+[1, -2, -3, 4]
+["low", "mid", "high"]
+[[3, "x"], [2, "y"], [1, "z"]]
+TypeError
+List.sort keys must be all Ints/Floats, all Strs, or all Lists, but found a Dict
+List.sort needs all Ints/Floats, all Strs, or all Lists, but found a Str and an Int at position [1]
+List.sort key must be a function, got an Int
+List.sort takes 0 to 1 arguments, got 2
+Bonk
+no wow allowed

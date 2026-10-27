@@ -152,7 +152,9 @@ by the compiler's own published version once `doge` is installed — so a
 - List and dict methods (`xs.append(1)`, `d.keys()`) are not modules: the
   generated `call_method` dispatcher forwards any non-`Object` receiver to
   `builtin_method` in the runtime (`methods/`), the collection counterpart of
-  the object dispatcher.
+  the object dispatcher. It passes a callback onto its own `call_value` (the
+  interpreter passes its own), so a method taking a function — `xs.sort(key)` —
+  calls it while the sorting itself stays in the runtime.
 - Concurrency (`pack` module) keeps the single-threaded `Rc`/`RefCell` model by
   copying at the thread boundary rather than sharing. A `Value` is `!Send`, so
   `pack.rs` defines `Packed` — an owned, `Rc`-free mirror that *is* `Send` —

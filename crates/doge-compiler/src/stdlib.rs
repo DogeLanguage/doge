@@ -459,9 +459,9 @@ pub const MODULES: &[Module] = &[
             ModuleFn {
                 name: "recv_line",
                 arity: 1,
-                optional: false,
+                optional: true,
                 runtime_fn: "howl_recv_line",
-                hint: "howl.recv_line(conn)",
+                hint: "howl.recv_line(conn) or howl.recv_line(conn, max_bytes)",
             },
             ModuleFn {
                 name: "close",
@@ -469,6 +469,13 @@ pub const MODULES: &[Module] = &[
                 optional: false,
                 runtime_fn: "howl_close",
                 hint: "howl.close(sock)",
+            },
+            ModuleFn {
+                name: "set_timeout",
+                arity: 2,
+                optional: false,
+                runtime_fn: "howl_set_timeout",
+                hint: "howl.set_timeout(conn, secs)",
             },
             ModuleFn {
                 name: "get",
@@ -561,9 +568,16 @@ pub const MODULES: &[Module] = &[
             ModuleFn {
                 name: "stamp",
                 arity: 1,
-                optional: false,
+                optional: true,
                 runtime_fn: "nap_stamp",
-                hint: "nap.stamp(secs)",
+                hint: "nap.stamp(secs) or nap.stamp(secs, zone)",
+            },
+            ModuleFn {
+                name: "offset",
+                arity: 2,
+                optional: false,
+                runtime_fn: "nap_offset",
+                hint: "nap.offset(secs, zone)",
             },
             ModuleFn {
                 name: "parse",

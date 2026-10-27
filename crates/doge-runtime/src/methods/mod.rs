@@ -18,6 +18,7 @@ use crate::value::Value;
 mod bytes;
 mod dict;
 mod list;
+mod sort;
 mod str;
 #[cfg(test)]
 mod tests;
@@ -29,10 +30,17 @@ use str::str_method;
 
 /// Dispatch a method call on a List or Dict. `recv` is the receiver, `name` the
 /// method, `args` the already-evaluated arguments. A non-collection receiver, an
-/// unknown method, or a wrong argument count is a catchable error.
-pub fn builtin_method(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult {
+/// unknown method, or a wrong argument count is a catchable error. `call` calls a
+/// function value through the engine's own call path, which the runtime cannot
+/// reach by itself — `List.sort` uses it to call its key function.
+pub fn builtin_method(
+    recv: &Value,
+    name: &str,
+    args: Vec<Value>,
+    call: &mut dyn FnMut(Value, Vec<Value>) -> DogeResult,
+) -> DogeResult {
     match recv {
-        Value::List(_) => list_method(recv, name, args),
+        Value::List(_) => list_method(recv, name, args, call),
         Value::Dict(_) => dict_method(recv, name, args),
         Value::Bytes(_) => bytes_method(recv, name, args),
         Value::Str(_) => str_method(recv, name, args),

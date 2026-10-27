@@ -1,8 +1,8 @@
-use std::cmp::Ordering;
-
+use super::sort::sort_list;
 use super::{check_arity, expect_int};
 use crate::error::{DogeError, DogeResult};
-use crate::ops::{order, slice_contains, values_equal};
+use crate::objects::method_arity_error;
+use crate::ops::{slice_contains, values_equal};
 use crate::value::Value;
 
 /// Every method name [`list_method`] dispatches, for the bound-method gate
@@ -11,7 +11,12 @@ pub(super) const LIST_METHODS: &[&str] = &[
     "append", "pop", "insert", "remove", "index_of", "contains", "sort", "reverse", "clear",
 ];
 
-pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> DogeResult {
+pub(super) fn list_method(
+    recv: &Value,
+    name: &str,
+    mut args: Vec<Value>,
+    call: &mut dyn FnMut(Value, Vec<Value>) -> DogeResult,
+) -> DogeResult {
     let Value::List(items) = recv else {
         unreachable!("compiler bug: list_method called on a non-List")
     };
@@ -77,12 +82,10 @@ pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> Dog
             Ok(Value::Bool(slice_contains(&items.borrow(), &target)))
         }
         "sort" => {
-            check_arity("List", name, 0, argc)?;
-            let mut list = items.borrow_mut();
-            validate_sortable(&list)?;
-            // `order` cannot fail here: validate_sortable guarantees a total
-            // order, so the `Equal` fallback is never reached.
-            list.sort_by(|a, b| order(a, b).unwrap_or(Ordering::Equal));
+            if argc > 1 {
+                return Err(method_arity_error("List", name, 0, Some(1), argc));
+            }
+            sort_list(items, args.pop(), call)?;
             Ok(Value::None)
         }
         "reverse" => {
@@ -98,25 +101,5 @@ pub(super) fn list_method(recv: &Value, name: &str, mut args: Vec<Value>) -> Dog
         _ => Err(DogeError::attr_error(format!(
             "a List has no method {name}"
         ))),
-    }
-}
-
-/// Every element must be a Str, or every element a non-NaN number. An empty List
-/// is trivially sortable. The check runs BEFORE sorting so the comparator always
-/// sees a total order — a broken order could make std's sort panic, which the
-/// runtime never does.
-fn validate_sortable(items: &[Value]) -> DogeResult<()> {
-    let all_str = items.iter().all(|v| matches!(v, Value::Str(_)));
-    let all_num = items.iter().all(|v| match v {
-        Value::Int(_) => true,
-        Value::Float(f) => !f.is_nan(),
-        _ => false,
-    });
-    if all_str || all_num {
-        Ok(())
-    } else {
-        Err(DogeError::type_error(
-            "List.sort needs all Ints/Floats or all Strs",
-        ))
     }
 }

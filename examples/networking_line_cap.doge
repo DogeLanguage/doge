@@ -1,0 +1,25 @@
+# such limit. much line. very safe.
+so howl
+
+such server = howl.listen("127.0.0.1", 0)
+such client = howl.connect("127.0.0.1", howl.port(server))
+such conn = howl.accept(server)
+
+# A line within the cap reads as usual; the "\r\n" terminator does not count.
+howl.send(client, "GET / HTTP/1.1\r\n")
+bark howl.recv_line(conn, 14)
+
+# A line longer than the cap is a catchable IOError, raised once the cap is
+# passed rather than after buffering the whole line.
+howl.send(client, "X-Huge: " + "much" * 100 + "\r\n")
+pls
+    howl.recv_line(conn, 64)
+oh no err!
+    bark err.type
+    bark err.message
+
+# The over-long line leaves the connection mid-line, so give up on it.
+howl.close(conn)
+howl.close(client)
+howl.close(server)
+wow

@@ -16,7 +16,9 @@ fn dict(pairs: &[(&str, Value)]) -> Value {
 }
 
 fn call(recv: &Value, name: &str, args: Vec<Value>) -> DogeResult {
-    builtin_method(recv, name, args)
+    builtin_method(recv, name, args, &mut |_, _| {
+        unreachable!("no test method calls a function")
+    })
 }
 
 #[test]
