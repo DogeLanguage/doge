@@ -70,15 +70,17 @@ The sort is stable: elements with equal keys keep their original order. For
 descending order, sort then call `xs.reverse()` (which also flips the order of
 ties).
 
-Keys (or the elements, without a key) must be all Ints/Floats, all Strs, or all
-Lists. Lists compare item by item — first items, then second items, and so on;
-a List that is a prefix of a longer one sorts first, and nested Lists compare
-the same way. Items at the same position must again be all numbers, all Strs,
-or all Lists. Anything else — a Str beside an Int, a Dict, a Bool, `none`, a NaN
-— is a catchable `TypeError` naming what was found and where; an error raised
-inside `key` propagates unchanged. The list is sorted from a snapshot taken
-before the first `key` call, so if `key` changes the list, those changes are
-replaced by the sorted elements.
+Keys (or the elements, without a key) must be all numbers, all Strs, all Bytes,
+or all Lists. Numbers sort by value across Int, Float, and Decimal, except that a
+Decimal and a Float never sort together — convert one with `dec()` or `float()`,
+as in arithmetic. Strs and Bytes sort lexicographically. Lists compare item by
+item — first items, then second items, and so on; a List that is a prefix of a
+longer one sorts first, and nested Lists compare the same way. Items at the same
+position follow the same rules. Anything else — a Str beside an Int, a Dict, a
+Bool, `none`, a NaN — is a catchable `TypeError` naming what was found and
+where; an error raised inside `key` propagates unchanged. The list is sorted from
+a snapshot taken before the first `key` call, so if `key` changes the list, those
+changes are replaced by the sorted elements.
 
 ```doge
 such by_date_then_amount much p:
@@ -624,7 +626,10 @@ Amsterdam winter, `7200` in summer, `-18000` in a New York winter. Fractional
 seconds round down exactly as the one-argument `stamp` does. Zone rules come from
 the operating system's time-zone database where one is installed, with a copy
 bundled into every Doge program as the fallback (so Windows and bare containers
-resolve the same names). An unknown zone name is a catchable `ValueError` that
+resolve the same names). Because of that, results before 1970 can differ between
+machines: some operating systems trim older history (merging zones that only
+diverged before 1970), so use zones for current and recent instants, where every
+up-to-date database agrees. An unknown zone name is a catchable `ValueError` that
 names it, a zone that is not a `Str` is a `TypeError`, and a timestamp outside
 the years -9999 to 9999 is a `ValueError`. `parse` still reads only the UTC shape.
 

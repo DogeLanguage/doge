@@ -1,7 +1,8 @@
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use bigdecimal::{BigDecimal, ToPrimitive};
+use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
+use num_bigint::BigInt;
 
 use crate::error::{DogeError, DogeResult};
 use crate::value::Value;
@@ -12,8 +13,8 @@ fn is_numeric(v: &Value) -> bool {
     matches!(v, Value::Int(_) | Value::Float(_) | Value::Decimal(_))
 }
 
-/// A numeric value as `f64`, for any comparison that pairs a `Float` with an
-/// `Int`/`Decimal`. `None` only for a non-number or a `Float` NaN.
+/// A numeric value as `f64`, for a comparison that pairs a `Float` with a
+/// `Decimal`. `None` only for a non-number or a `Float` NaN.
 fn numeric_f64(v: &Value) -> Option<f64> {
     match v {
         Value::Int(n) => n.to_f64(),
@@ -23,17 +24,41 @@ fn numeric_f64(v: &Value) -> Option<f64> {
     }
 }
 
-/// Ordering between two numeric values, comparing exactly where both are exact
-/// (Int/Decimal) and via `f64` once a `Float` is involved. `None` when a NaN is
-/// involved (no ordering). Both operands must be numeric.
+/// Ordering between two numeric values: exact for Int/Decimal pairs and for an
+/// Int against a Float, via `f64` for a Decimal against a Float. `None` when a
+/// NaN is involved (no ordering). Both operands must be numeric.
 fn numeric_cmp(a: &Value, b: &Value) -> Option<Ordering> {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
         (Value::Decimal(x), Value::Decimal(y)) => Some(x.cmp(y)),
         (Value::Int(x), Value::Decimal(y)) => Some(BigDecimal::from(x.clone()).cmp(y)),
         (Value::Decimal(x), Value::Int(y)) => Some(x.cmp(&BigDecimal::from(y.clone()))),
+        (Value::Int(x), Value::Float(y)) => int_float_cmp(x, *y),
+        (Value::Float(x), Value::Int(y)) => int_float_cmp(y, *x).map(Ordering::reverse),
         _ => numeric_f64(a)?.partial_cmp(&numeric_f64(b)?),
     }
+}
+
+/// An Int against a Float without rounding the Int to `f64`, which would make
+/// `2 ** 53 + 1` equal `2.0 ** 53` and so break transitivity. A finite Float's
+/// floor is a whole number and converts to a `BigInt` exactly.
+fn int_float_cmp(x: &BigInt, f: f64) -> Option<Ordering> {
+    if f.is_nan() {
+        return None;
+    }
+    if f.is_infinite() {
+        return Some(if f > 0.0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        });
+    }
+    let floor = f.floor();
+    let whole = BigInt::from_f64(floor)?;
+    Some(match x.cmp(&whole) {
+        Ordering::Equal if f > floor => Ordering::Less,
+        other => other,
+    })
 }
 
 /// Numeric equality when both operands are numbers (`Some`), else `None` so the
@@ -197,9 +222,9 @@ pub fn not_in(needle: Value, container: Value) -> DogeResult {
     }
 }
 
-/// Ordering for `< <= > >=`: numbers compare across Int/Float, Str compares
-/// lexicographically, anything else is a type error. The list `sort` method
-/// reuses this so its ordering matches the comparison operators exactly.
+/// Ordering for `< <= > >=`: numbers compare across Int/Float/Decimal, Str and
+/// Bytes compare lexicographically, anything else is a type error. The list
+/// `sort` method reuses this so its ordering matches the comparison operators.
 pub(crate) fn order(a: &Value, b: &Value) -> DogeResult<Ordering> {
     if is_numeric(a) && is_numeric(b) {
         return numeric_cmp(a, b).ok_or_else(|| {
@@ -283,6 +308,39 @@ mod tests {
             order(&Value::bytes([1, 2]), &Value::bytes([1, 3])).unwrap(),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn int_float_comparison_is_exact_past_f64_precision() {
+        let two_53 = BigInt::from(1u64 << 53);
+        let above = Value::Int(&two_53 + 1);
+        let float = Value::Float(9_007_199_254_740_992.0);
+        assert_eq!(order(&above, &float).unwrap(), Ordering::Greater);
+        assert_eq!(order(&float, &above).unwrap(), Ordering::Less);
+        assert!(!values_equal(&above, &float));
+        assert!(values_equal(&Value::Int(two_53), &float));
+        assert!(values_equal(&Value::int(1), &Value::Float(1.0)));
+        assert_eq!(
+            order(&Value::int(1), &Value::Float(1.5)).unwrap(),
+            Ordering::Less
+        );
+        assert_eq!(
+            order(&Value::int(-2), &Value::Float(-1.5)).unwrap(),
+            Ordering::Less
+        );
+        assert_eq!(
+            order(&Value::int(-1), &Value::Float(-1.5)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            order(&Value::int(i64::MAX), &Value::Float(f64::INFINITY)).unwrap(),
+            Ordering::Less
+        );
+        assert_eq!(
+            order(&Value::int(i64::MIN), &Value::Float(f64::NEG_INFINITY)).unwrap(),
+            Ordering::Greater
+        );
+        assert!(order(&Value::int(0), &Value::Float(f64::NAN)).is_err());
     }
 
     #[test]

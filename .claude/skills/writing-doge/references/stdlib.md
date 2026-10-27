@@ -28,7 +28,7 @@ below is a **catchable** error (`pls`/`oh no`), never a crash.
 | `remove(item)` | `none` | remove first equal (not found is an error) |
 | `index_of(item)` | `Int` | index of first equal (not found is an error) |
 | `contains(item)` | `Bool` | any element equal |
-| `sort()` / `sort(key)` | `none` | in place, stable; `key` is any function value, called once per element. Keys all Ints/Floats, all Strs, or all Lists (item by item, prefix first). Descending: sort, then `reverse()` |
+| `sort()` / `sort(key)` | `none` | in place, stable; `key` is any function value, called once per element. Keys all numbers (no Decimal beside a Float), all Strs, all Bytes, or all Lists (item by item, prefix first). Descending: sort, then `reverse()` |
 | `reverse()` | `none` | in place |
 | `clear()` | `none` | remove all |
 
@@ -119,7 +119,7 @@ number↔Int|Float, null↔none. Unserializable value or bad input → `TypeErro
 `rest(seconds)` (sleep) · `stamp(secs)`→ISO-8601 UTC Str (`…Z`) ·
 `stamp(secs, zone)`→local ISO-8601 Str in an IANA zone (`"Europe/Amsterdam"`), numeric offset
 (`+01:00`; `"UTC"` gives `+00:00`) · `offset(secs, zone)`→Int seconds east of UTC (DST-aware) ·
-`parse(iso)`→Float (UTC shape only). Unknown zone → catchable `ValueError`.
+`parse(iso)`→Float (UTC shape only). Unknown zone → catchable `ValueError`. Pre-1970 zone results can differ by OS.
 
 ### `roll` — random
 `seed(n)` · `int(low, high)`→Int (inclusive) · `float()`→Float in `[0,1)` · `choice(list)`→element ·
