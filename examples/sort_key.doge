@@ -1,0 +1,105 @@
+# such sort. much key.
+
+so nerd
+
+such payments = [
+    {"who": "kabosu", "date": "2024-03-01", "amount": 30},
+    {"who": "cheems", "date": "2024-01-15", "amount": 10},
+    {"who": "walter", "date": "2024-03-01", "amount": 5},
+    {"who": "doge", "date": "2024-01-15", "amount": 10},
+]
+
+such by_date much p:
+    return p["date"]
+wow
+
+such names much ps:
+    such out = []
+    for p in ps:
+        out.append(p["who"])
+    return out
+wow
+
+payments.sort(by_date)
+bark names(payments)
+
+payments.reverse()
+bark names(payments)
+
+such by_date_then_amount much p:
+    return [p["date"], p["amount"]]
+wow
+payments.sort(by_date_then_amount)
+bark names(payments)
+
+such pairs = [[2, "b"], [1, "z"], [1, "a"], [1]]
+pairs.sort()
+bark pairs
+
+such words = ["much", "a", "wow", "such"]
+words.sort(len)
+bark words
+
+such offsets = [-3, 1, -2, 4]
+offsets.sort(nerd.abs)
+bark offsets
+
+many Ranker:
+    such init much ranks:
+        self.ranks = ranks
+    wow
+    such rank much level:
+        return self.ranks[level]
+    wow
+wow
+such ranker = Ranker({"low": 1, "high": 3, "mid": 2})
+such levels = ["high", "low", "mid"]
+levels.sort(ranker.rank)
+bark levels
+
+such sort_by_column much rows, column:
+    such pick much row:
+        return row[column]
+    wow
+    rows.sort(pick)
+wow
+such tagged = [[3, "x"], [1, "z"], [2, "y"]]
+sort_by_column(tagged, 1)
+bark tagged
+
+such itself much p:
+    return p
+wow
+pls
+    payments.sort(itself)
+oh no err!
+    bark err.type
+    bark err.message
+
+pls
+    such mixed = [[1, "a"], [2, 3]]
+    mixed.sort()
+oh no err!
+    bark err.message
+
+pls
+    words.sort(5)
+oh no err!
+    bark err.message
+
+pls
+    words.sort(len, len)
+oh no err!
+    bark err.message
+
+such picky much w:
+    if w == "wow":
+        bonk "no wow allowed"
+    return w
+wow
+pls
+    words.sort(picky)
+oh no err!
+    bark err.type
+    bark err.message
+wow

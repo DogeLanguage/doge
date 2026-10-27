@@ -245,6 +245,33 @@ xs
 }
 
 #[test]
+fn sort_calls_its_key_through_the_interpreter() {
+    let source = "\
+such second much p:
+    return p[1]
+wow
+such ps = [[\"a\", 2], [\"b\", 1], [\"c\", 2]]
+such sort_ps = ps.sort
+sort_ps(second)
+ps
+";
+    assert_eq!(eval(source), "[[\"b\", 1], [\"a\", 2], [\"c\", 2]]");
+}
+
+#[test]
+fn a_sort_key_error_propagates_from_the_key_function() {
+    let source = "\
+such boom much x:
+    bonk \"no\"
+wow
+such xs = [2, 1]
+xs.sort(boom)
+wow
+";
+    assert_eq!(run_err(source), ErrorKind::Bonk);
+}
+
+#[test]
 fn bound_methods_compare_by_receiver_and_name() {
     let source = "\
 many Shibe:

@@ -5,8 +5,8 @@ impl Codegen {
     /// each checking arity at runtime — filling defaults and packing the variadic
     /// tail — before calling the method wrapper. A non-`Object` receiver (a List or
     /// Dict method, or a method on any other value) is forwarded to the runtime's
-    /// `builtin_method`. Emitted only when the script defines an object or calls a
-    /// method somewhere.
+    /// `builtin_method`, with `call_value` as its way to call a function argument.
+    /// Emitted only when the script defines an object or calls a method somewhere.
     pub(super) fn dispatcher(
         &self,
         classes: &[Class],
@@ -21,7 +21,7 @@ impl Codegen {
             "\nfn call_method(recv: Value, name: &str, mut args: Vec<Value>, env: &mut Env) -> DogeResult<Value> {\n",
         );
         out.push_str(
-            "    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args); }\n",
+            "    if !matches!(recv, Value::Object(_)) { return builtin_method(&recv, name, args, &mut |f, a| call_value(f, a, &mut *env)); }\n",
         );
         out.push_str("    match (object_class_id(&recv)?, name) {\n");
         for class in classes {

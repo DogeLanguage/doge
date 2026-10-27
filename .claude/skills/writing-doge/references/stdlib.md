@@ -28,7 +28,7 @@ below is a **catchable** error (`pls`/`oh no`), never a crash.
 | `remove(item)` | `none` | remove first equal (not found is an error) |
 | `index_of(item)` | `Int` | index of first equal (not found is an error) |
 | `contains(item)` | `Bool` | any element equal |
-| `sort()` | `none` | in place; all Ints/Floats or all Strs |
+| `sort()` / `sort(key)` | `none` | in place, stable; `key` is any function value, called once per element. Keys all Ints/Floats, all Strs, or all Lists (item by item, prefix first). Descending: sort, then `reverse()` |
 | `reverse()` | `none` | in place |
 | `clear()` | `none` | remove all |
 

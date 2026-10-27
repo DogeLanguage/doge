@@ -310,7 +310,9 @@ impl Interp {
     /// collection methods, exactly like the compiled dispatcher.
     fn call_method(&mut self, recv: Value, name: &str, args: Vec<Value>) -> DogeResult<Value> {
         if !matches!(recv, Value::Object(_)) {
-            return builtin_method(&recv, name, args);
+            return builtin_method(&recv, name, args, &mut |f, a| {
+                self.call_value(f, a, Vec::new())
+            });
         }
         let class_id = object_class_id(&recv)?;
         match self.resolve_method(class_id, name) {

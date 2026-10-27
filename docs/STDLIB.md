@@ -54,12 +54,42 @@ bark xs.pop()         # 4
 | `remove(item)` | `none` | remove the first element equal to `item` (not found is a catchable error) |
 | `index_of(item)` | `Int` | index of the first element equal to `item` (not found is a catchable error) |
 | `contains(item)` | `Bool` | whether any element equals `item` |
-| `sort()` | `none` | sort in place; elements must be all Ints/Floats or all Strs |
+| `sort()` / `sort(key)` | `none` | sort in place, stably; see [Sorting](#sorting) |
 | `reverse()` | `none` | reverse in place |
 | `clear()` | `none` | remove every element |
 
 `append`, `insert`, `remove`, `sort`, `reverse`, and `clear` change the list in
 place and give back `none`.
+
+#### Sorting
+
+`xs.sort()` orders the elements themselves; `xs.sort(key)` calls the function
+value `key` (a `such` function, a nested function, a module function, a builtin,
+or a bound method) once per element and orders the elements by what it returns.
+The sort is stable: elements with equal keys keep their original order. For
+descending order, sort then call `xs.reverse()` (which also flips the order of
+ties).
+
+Keys (or the elements, without a key) must be all Ints/Floats, all Strs, or all
+Lists. Lists compare item by item — first items, then second items, and so on;
+a List that is a prefix of a longer one sorts first, and nested Lists compare
+the same way. Items at the same position must again be all numbers, all Strs,
+or all Lists. Anything else — a Str beside an Int, a Dict, a Bool, `none`, a NaN
+— is a catchable `TypeError` naming what was found and where; an error raised
+inside `key` propagates unchanged. The list is sorted from a snapshot taken
+before the first `key` call, so if `key` changes the list, those changes are
+replaced by the sorted elements.
+
+```doge
+such by_date_then_amount much p:
+    return [p["date"], p["amount"]]
+wow
+payments.sort(by_date_then_amount)   # by date, then amount within a date
+payments.reverse()                   # newest first
+
+such pairs = [[2, "b"], [1, "z"], [1]]
+pairs.sort()                         # [[1], [1, "z"], [2, "b"]]
+```
 
 ### Dict methods
 
