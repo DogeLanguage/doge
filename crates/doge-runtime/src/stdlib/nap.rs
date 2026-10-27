@@ -8,13 +8,13 @@
 //! unknown zone never panics.
 
 use std::sync::OnceLock;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use bigdecimal::ToPrimitive;
 use jiff::Timestamp;
 
 use crate::error::{DogeError, DogeResult};
-use crate::stdlib::str_arg;
+use crate::stdlib::{seconds_arg, str_arg};
 use crate::value::Value;
 
 /// Seconds in a day, the pivot between a date and a wall-clock time-of-day.
@@ -25,8 +25,7 @@ const SECS_PER_DAY: i64 = 86_400;
 /// thread — reports seconds since the same instant.
 static MONO_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
-/// A numeric argument as `f64`, or a catchable type error naming the member.
-/// Shared by `rest`/`stamp`, which both accept an Int or a Float.
+/// An Int or Float argument as `f64`, or a catchable type error naming the member.
 fn numeric(fname: &str, v: &Value) -> DogeResult<f64> {
     match v {
         Value::Int(n) => n
@@ -60,21 +59,9 @@ pub fn nap_mono() -> DogeResult {
 }
 
 /// `nap.rest(seconds)` — block for `seconds` (Int or Float). A negative,
-/// non-finite, or absurdly large duration is a catchable `ValueError` rather than
-/// the panic `Duration::from_secs_f64` would raise on such an input.
+/// non-finite, or absurdly large duration is a catchable `ValueError`.
 pub fn nap_rest(seconds: &Value) -> DogeResult {
-    let secs = numeric("rest", seconds)?;
-    if !secs.is_finite() || secs < 0.0 {
-        return Err(DogeError::value_error(format!(
-            "cannot rest for {secs} seconds — the duration must be finite and not negative"
-        )));
-    }
-    if secs > Duration::MAX.as_secs_f64() {
-        return Err(DogeError::value_error(
-            "cannot rest that long — the duration is out of range",
-        ));
-    }
-    std::thread::sleep(Duration::from_secs_f64(secs));
+    std::thread::sleep(seconds_arg("nap", "rest", seconds)?);
     Ok(Value::None)
 }
 

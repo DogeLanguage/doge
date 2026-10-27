@@ -1,0 +1,40 @@
+# such patience. much timeout. very idle client.
+so howl
+
+such server = howl.listen("127.0.0.1", 0)
+such client = howl.connect("127.0.0.1", howl.port(server))
+such conn = howl.accept(server)
+
+# With a read timeout set, a recv that waits too long for data is a catchable
+# IOError instead of blocking forever. The portable response is to close the
+# connection.
+howl.set_timeout(conn, 0.05)
+pls
+    howl.recv_line(conn)
+oh no err!
+    bark err.type
+    bark err.message
+    howl.close(conn)
+
+# none clears the timeout: reads block until data or end of input again.
+such client2 = howl.connect("127.0.0.1", howl.port(server))
+such conn2 = howl.accept(server)
+howl.set_timeout(conn2, 0.05)
+howl.set_timeout(conn2, none)
+howl.send(client2, "much patience\n")
+bark howl.recv_line(conn2)
+
+# A zero or negative timeout is a ValueError; a listener is a TypeError.
+pls
+    howl.set_timeout(conn2, 0)
+oh no err!
+    bark err.type
+pls
+    howl.set_timeout(server, 1)
+oh no err!
+    bark err.type
+howl.close(client)
+howl.close(client2)
+howl.close(conn2)
+howl.close(server)
+wow

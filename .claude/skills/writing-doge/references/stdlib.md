@@ -86,9 +86,11 @@ OS failures are `IOError`; `join`/`basename`/`ext` are pure string ops.
 
 ### `howl` — TCP sockets + HTTP client
 `listen(host, port)`→Socket (port 0 = OS-chosen) · `connect(host, port)`→Socket ·
-`accept(listener)`→Socket · `port(sock)`→Int · `send(conn, text)` · `send_bytes(conn, bytes)` ·
+`accept(listener)`→Socket · `port(sock)`→Int · `peer(sock)`→`{host: Str, port: Int}` ·
+`send(conn, text)` · `send_bytes(conn, bytes)` ·
 `recv(conn, max)`→Str|none · `recv_bytes(conn, max)`→Bytes|none · `recv_line(conn[, max])`→Str|none ·
-`close(sock)` · `get(url)`→`{status, body, headers}` · `post(url, body)`→`{status, body, headers}` ·
+`set_timeout(conn, secs)` (`none` clears) · `close(sock)` ·
+`get(url)`→`{status, body, headers}` · `post(url, body)`→`{status, body, headers}` ·
 `request(method, url[, opts])`→`{status, body, headers}`.
 Network failures are `IOError`; a non-2xx HTTP response is a normal Dict, not an error.
 Response `headers` keys are lowercased. `request` `method` is `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS`
@@ -97,6 +99,8 @@ any other key → `ValueError`, bad header/body type → `TypeError`.
 `recv_line` `max` caps the line content in bytes (terminator excluded); a longer line → `IOError`, read stops at the cap
 (treat the connection as unusable); omitted → no cap.
 `send_bytes`/`recv_bytes` carry raw `Bytes` with no UTF-8 check — for binary bodies/uploads.
+Raw TCP reads block forever unless `set_timeout` is set; then a read with no data for `secs` → `IOError`
+(per wait for data, not per call); after a timeout, close the conn. Zero/negative/non-finite `secs` → `ValueError`.
 
 ### `pack` — threads (pups) and channels (bowls)
 `zoom(f, args)`→Pup (runs `f(args…)` on a new thread) · `fetch(pup)`→result (blocks; re-raises the pup's error) ·

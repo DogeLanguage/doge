@@ -150,6 +150,7 @@ fn call_runtime(runtime_fn: &str, a: &[Value]) -> DogeResult<Value> {
         "howl_recv_bytes" => rt::howl_recv_bytes(&a[0], &a[1]),
         "howl_recv_line" => rt::howl_recv_line(&a[0], &a[1]),
         "howl_close" => rt::howl_close(&a[0]),
+        "howl_set_timeout" => rt::howl_set_timeout(&a[0], &a[1]),
         "howl_get" => rt::howl_get(&a[0]),
         "howl_post" => rt::howl_post(&a[0], &a[1]),
         "howl_request" => rt::howl_request(&a[0], &a[1], &a[2]),

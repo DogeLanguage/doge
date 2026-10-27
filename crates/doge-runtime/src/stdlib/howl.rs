@@ -1,23 +1,24 @@
 //! `howl` — the networking stdlib module. Raw TCP (`listen`/`accept`/`connect`/
-//! `peer`/`send`/`recv`/`recv_line`/`close`) plus a minimal HTTP(S) client
-//! (`get`/`post`/`request`). Every network failure — a refused connection, a broken
-//! pipe, a TLS or timeout error, an operation on a closed socket — is a catchable
-//! IOError rather than a panic, and every socket carries text as one `Str` type:
-//! `recv` never splits a multi-byte character, and genuinely invalid bytes are an
-//! IOError, never a Rust panic.
+//! `peer`/`send`/`recv`/`recv_line`/`set_timeout`/`close`) plus a minimal HTTP(S)
+//! client (`get`/`post`/`request`). Every network failure — a refused connection, a
+//! broken pipe, a TLS or timeout error, an operation on a closed socket — is a
+//! catchable IOError rather than a panic, and every socket carries text as one
+//! `Str` type: `recv` never splits a multi-byte character, and genuinely invalid
+//! bytes are an IOError, never a Rust panic.
 
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
 use std::time::Duration;
 
 use crate::error::{DogeError, DogeResult};
 use crate::ordered_map::OrderedMap;
-use crate::stdlib::{bytes_arg, int_arg, str_arg};
+use crate::stdlib::{bytes_arg, int_arg, seconds_arg, str_arg};
 use crate::value::{SocketData, SocketState, Value};
 
 /// How long an HTTP(S) request may run before it is a catchable IOError, so a
-/// script can never hang forever on a stalled server. Raw TCP has no timeout.
+/// script can never hang forever on a stalled server. Raw TCP reads block forever
+/// unless a script opts in with `howl.set_timeout`.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The HTTP methods `howl.request` accepts (case-insensitive). Anything else is a
@@ -227,7 +228,7 @@ pub fn howl_recv(conn: &Value, max_bytes: &Value) -> DogeResult {
                         ));
                     }
                     Ok(got) => buf.extend_from_slice(&chunk[..got]),
-                    Err(err) => return Err(DogeError::io_error(format!("cannot recv: {err}"))),
+                    Err(err) => return Err(read_error("recv", stream, err)),
                 }
             }
         }
@@ -266,7 +267,7 @@ pub fn howl_recv_bytes(conn: &Value, max_bytes: &Value) -> DogeResult {
             match stream.read(&mut chunk) {
                 Ok(0) => Ok(Value::None),
                 Ok(got) => Ok(Value::bytes(&chunk[..got])),
-                Err(err) => Err(DogeError::io_error(format!("cannot recv: {err}"))),
+                Err(err) => Err(read_error("recv_bytes", stream, err)),
             }
         }
         SocketState::Listener(_) => Err(DogeError::type_error(
@@ -324,7 +325,7 @@ pub fn howl_recv_line(conn: &Value, max_bytes: &Value) -> DogeResult {
                     return line_to_value(line);
                 }
                 Ok(got) => buf.extend_from_slice(&chunk[..got]),
-                Err(err) => return Err(DogeError::io_error(format!("cannot recv: {err}"))),
+                Err(err) => return Err(read_error("recv_line", stream, err)),
             }
         },
         SocketState::Listener(_) => Err(DogeError::type_error(
@@ -352,6 +353,41 @@ fn line_cap(max_bytes: &Value) -> DogeResult<Option<usize>> {
 /// The error a line longer than `recv_line`'s `max_bytes` raises.
 fn line_too_long(cap: usize) -> DogeError {
     DogeError::io_error(format!("howl.recv_line: line exceeded {cap} bytes"))
+}
+
+/// `howl.set_timeout(conn, secs)` — bound how long each later read on a connection
+/// may wait for data. Once set, a `recv`/`recv_bytes`/`recv_line` that sees no
+/// data for `secs` (a positive Int or Float) is a catchable IOError; any data
+/// arriving restarts the wait, so the bound is per read, not per call. `none`
+/// clears it back to blocking forever. Returns `none`. A zero, negative,
+/// non-finite, or out-of-range `secs` is a ValueError; a listener is a TypeError.
+pub fn howl_set_timeout(conn: &Value, secs: &Value) -> DogeResult {
+    let sock = socket_arg("set_timeout", conn)?;
+    let timeout = match secs {
+        Value::None => None,
+        _ => {
+            let timeout = seconds_arg("howl", "set_timeout", secs)?;
+            if timeout.is_zero() {
+                return Err(DogeError::value_error(format!(
+                    "howl.set_timeout needs a positive number of seconds, got {secs} — pass none to clear the timeout"
+                )));
+            }
+            Some(timeout)
+        }
+    };
+    let state = sock.state.borrow();
+    match &*state {
+        SocketState::Conn { stream, .. } => match stream.set_read_timeout(timeout) {
+            Ok(()) => Ok(Value::None),
+            Err(err) => Err(DogeError::io_error(format!(
+                "cannot set the timeout: {err}"
+            ))),
+        },
+        SocketState::Listener(_) => Err(DogeError::type_error(
+            "howl.set_timeout needs a connection, not a listening socket",
+        )),
+        SocketState::Closed => Err(closed()),
+    }
 }
 
 /// `howl.close(sock)` — close a listener or connection now. Idempotent: closing an
@@ -503,6 +539,24 @@ fn response_dict(response: ureq::Response) -> DogeResult {
     entries.insert("body".to_string(), Value::str(body));
     entries.insert("headers".to_string(), Value::dict(headers));
     Ok(Value::dict(entries))
+}
+
+/// A failed read on a connection as a catchable IOError. An expired
+/// `set_timeout` surfaces as `WouldBlock` on Unix and `TimedOut` on Windows; both
+/// become the timeout error, but only when a timeout is actually set, so a
+/// kernel-level `TimedOut` on a blocking socket keeps its own message.
+fn read_error(fname: &str, stream: &TcpStream, err: io::Error) -> DogeError {
+    let timeout = stream.read_timeout().ok().flatten();
+    match (err.kind(), timeout) {
+        (io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut, Some(timeout)) => {
+            let secs = timeout.as_secs_f64();
+            let unit = if secs == 1.0 { "second" } else { "seconds" };
+            DogeError::io_error(format!(
+                "howl.{fname} timed out: no data arrived for {secs} {unit}"
+            ))
+        }
+        _ => DogeError::io_error(format!("cannot recv: {err}")),
+    }
 }
 
 /// The error every operation on a closed socket raises.
@@ -843,6 +897,137 @@ mod tests {
                 .unwrap_err()
                 .kind,
             ErrorKind::ValueError
+        );
+    }
+
+    /// A connected client/server pair with a tiny read timeout on the server.
+    fn timed_pair() -> (Value, Value, Value) {
+        let (listener, port) = loopback();
+        let client = howl_connect(&Value::str("127.0.0.1"), &Value::int(port as i64)).unwrap();
+        let server = howl_accept(&listener).unwrap();
+        howl_set_timeout(&server, &Value::Float(0.02)).unwrap();
+        (listener, client, server)
+    }
+
+    #[test]
+    fn timeout_fires_as_io_error_on_every_recv() {
+        let (_listener, _client, server) = timed_pair();
+        let err = howl_recv(&server, &Value::int(16)).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IOError);
+        assert_eq!(
+            err.message,
+            "howl.recv timed out: no data arrived for 0.02 seconds"
+        );
+        let err = howl_recv_bytes(&server, &Value::int(16)).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IOError);
+        assert!(err.message.starts_with("howl.recv_bytes timed out"));
+        let err = howl_recv_line(&server, &Value::None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IOError);
+        assert!(err.message.starts_with("howl.recv_line timed out"));
+    }
+
+    #[test]
+    fn data_before_the_timeout_is_returned_normally() {
+        let (_listener, client, server) = timed_pair();
+        howl_set_timeout(&server, &Value::int(5)).unwrap();
+        howl_send(&client, &Value::str("wow\nmuch")).unwrap();
+        assert_eq!(
+            howl_recv_line(&server, &Value::None).unwrap().to_string(),
+            "wow"
+        );
+        assert_eq!(recv_str(&server, 16).as_deref(), Some("much"));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn timed_out_recv_line_keeps_its_partial_line() {
+        let (_listener, client, server) = timed_pair();
+        howl_send(&client, &Value::str("much ")).unwrap();
+        let err = howl_recv_line(&server, &Value::None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IOError);
+        howl_send(&client, &Value::str("wow\n")).unwrap();
+        assert_eq!(
+            howl_recv_line(&server, &Value::None).unwrap().to_string(),
+            "much wow"
+        );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn timed_out_recv_keeps_a_partial_character() {
+        let (_listener, client, server) = timed_pair();
+        let e_acute = "é".as_bytes();
+        howl_send_bytes(&client, &Value::bytes(&e_acute[..1])).unwrap();
+        assert_eq!(
+            howl_recv(&server, &Value::int(16)).unwrap_err().kind,
+            ErrorKind::IOError
+        );
+        howl_send_bytes(&client, &Value::bytes(&e_acute[1..])).unwrap();
+        assert_eq!(recv_str(&server, 16).as_deref(), Some("é"));
+    }
+
+    #[test]
+    fn none_clears_the_timeout() {
+        let (listener, port) = loopback();
+        let writer = thread::spawn(move || {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            thread::sleep(Duration::from_millis(100));
+            stream.write_all(b"late\n").unwrap();
+        });
+        let server = howl_accept(&listener).unwrap();
+        howl_set_timeout(&server, &Value::Float(0.02)).unwrap();
+        howl_set_timeout(&server, &Value::None).unwrap();
+        assert_eq!(
+            howl_recv_line(&server, &Value::None).unwrap().to_string(),
+            "late"
+        );
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn set_timeout_rejects_bad_seconds() {
+        let (_listener, _client, server) = timed_pair();
+        for bad in [
+            Value::int(0),
+            Value::Float(0.0),
+            Value::int(-1),
+            Value::Float(f64::NAN),
+            Value::Float(f64::INFINITY),
+            Value::Float(1e300),
+        ] {
+            assert_eq!(
+                howl_set_timeout(&server, &bad).unwrap_err().kind,
+                ErrorKind::ValueError,
+                "{bad:?} should be a ValueError"
+            );
+        }
+        assert_eq!(
+            howl_set_timeout(&server, &Value::str("soon"))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+        assert_eq!(
+            howl_set_timeout(&Value::int(1), &Value::int(1))
+                .unwrap_err()
+                .kind,
+            ErrorKind::TypeError
+        );
+    }
+
+    #[test]
+    fn set_timeout_rejects_listeners_and_closed_sockets() {
+        let (listener, _client, server) = timed_pair();
+        let err = howl_set_timeout(&listener, &Value::int(1)).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::TypeError);
+        assert_eq!(
+            err.message,
+            "howl.set_timeout needs a connection, not a listening socket"
+        );
+        howl_close(&server).unwrap();
+        assert_eq!(
+            howl_set_timeout(&server, &Value::int(1)).unwrap_err().kind,
+            ErrorKind::IOError
         );
     }
 

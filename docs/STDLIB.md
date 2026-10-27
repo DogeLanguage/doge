@@ -200,7 +200,7 @@ catchable `TypeError`, like any other unserializable value.
 | `hunt` | `test`, `find`, `find_all`, `groups`, `replace` — regular-expression matching |
 | `fetch` | `read`, `write`, `append`, `read_bytes`, `write_bytes`, `exists`, `delete`, `list`, `make_dir`, `remove_dir`, `rename`, `copy`, `stat`, `join`, `basename`, `ext` — files, directories, metadata, and path helpers |
 | `env` | `args`, `get` — command-line arguments and environment variables |
-| `howl` | `listen`, `connect`, `accept`, `port`, `peer`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `close`, `get`, `post` — TCP sockets and an HTTP(S) client |
+| `howl` | `listen`, `connect`, `accept`, `port`, `peer`, `send`, `send_bytes`, `recv`, `recv_bytes`, `recv_line`, `set_timeout`, `close`, `get`, `post`, `request` — TCP sockets and an HTTP(S) client |
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
@@ -340,6 +340,7 @@ clients; both ends read and write with `send`/`recv`/`recv_line`.
 | `recv_bytes(conn, max_bytes)` | `Bytes` or `none` | read up to `max_bytes` raw bytes, or `none` at end of input |
 | `recv_line(conn[, max_bytes])` | `Str` or `none` | read one line, without the trailing newline (`\r\n` trimmed too), or `none` at end of input; a line longer than `max_bytes` is an `IOError` |
 | `close(sock)` | `none` | close a listener or connection now (idempotent) |
+| `set_timeout(conn, secs)` | `none` | make later reads on a connection an `IOError` after `secs` seconds with no data; `none` clears it |
 | `get(url)` | `Dict` | HTTP(S) GET → `{"status": Int, "body": Str, "headers": Dict}` |
 | `post(url, body)` | `Dict` | HTTP(S) POST of `body` as `text/plain` → `{"status": Int, "body": Str, "headers": Dict}` |
 | `request(method, url[, opts])` | `Dict` | HTTP(S) request with a chosen method, headers, and body → `{"status": Int, "body": Str, "headers": Dict}` |
@@ -351,13 +352,7 @@ are an `IOError`. `send_bytes`/`recv_bytes` are the binary counterpart: they car
 raw `Bytes` with no UTF-8 validation, so non-text data is never an error and each
 `recv_bytes` returns bytes exactly as they arrive — the way to handle a binary
 upload or byte-accurate framing (a `Content-Length` body), where `recv`'s
-partial-character buffering would get the count wrong. Raw TCP calls block with no timeout; `howl.get`/`howl.post`/`howl.request` time
-out after 30 seconds (a catchable `IOError`). For HTTP, only a transport, TLS, or
-timeout failure is an error — a non-2xx response (a `404`, say) comes back as an
-ordinary `{"status", "body", "headers"}` Dict, so the script decides what a status
-means. Every HTTP response carries a `"headers"` Dict whose keys are lowercased, so
-`resp["headers"]["content-type"]` reads the same regardless of how the server cased
-the header.
+partial-character buffering would get the count wrong.
 
 `recv_line(conn)` reads until a newline however long the line is. A line-based
 server facing untrusted peers should pass a cap: `recv_line(conn, max_bytes)` limits
@@ -370,6 +365,29 @@ treat it as unusable — answer an error (HTTP `431`, say) and close it. A line 
 fits returns exactly as without a cap, and bytes after its newline stay buffered for
 the next `recv`/`recv_bytes`/`recv_line`. Omitting `max_bytes` (or passing `none`)
 means no cap; any other non-`Int` is a catchable `TypeError`.
+
+Raw TCP reads block forever by default. `howl.set_timeout(conn, secs)` bounds how
+long a connection's reads wait: afterwards, a `recv`, `recv_bytes`, or `recv_line`
+that sees no data for `secs` seconds (a positive Int or Float) is a catchable
+`IOError` (`howl.recv_line timed out: no data arrived for 5 seconds`), so a server
+can drop an idle client instead of holding it forever. The bound is on each wait
+for data, not on the whole call: any bytes arriving restart it, so a `recv_line`
+fed by a peer that trickles in one byte every few seconds never times out, even if
+the full line takes far longer than `secs`. After a timeout, the portable response
+is to close the connection; a retry that continues from the bytes already buffered
+(half a line, part of a character) is guaranteed only on Linux and macOS.
+`howl.set_timeout(conn, none)` clears the timeout back to blocking forever. A zero,
+negative, non-finite, or absurdly large `secs` is a catchable `ValueError`, a
+non-number is a `TypeError`, a listening socket is a `TypeError`, and a closed
+socket is an `IOError`. Writes (`send`/`send_bytes`) are not affected.
+
+`howl.get`/`howl.post`/`howl.request` time out after 30 seconds (a catchable
+`IOError`). For HTTP, only a transport, TLS, or timeout failure is an error — a
+non-2xx response (a `404`, say) comes back as an ordinary
+`{"status", "body", "headers"}` Dict, so the script decides what a status means.
+Every HTTP response carries a `"headers"` Dict whose keys are lowercased, so
+`resp["headers"]["content-type"]` reads the same regardless of how the server cased
+the header.
 
 `howl.get`/`howl.post` are the shorthand for a plain GET and a `text/plain` POST.
 `howl.request(method, url, opts)` is the general form for real APIs — a chosen method,

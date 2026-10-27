@@ -471,6 +471,13 @@ pub const MODULES: &[Module] = &[
                 hint: "howl.close(sock)",
             },
             ModuleFn {
+                name: "set_timeout",
+                arity: 2,
+                optional: false,
+                runtime_fn: "howl_set_timeout",
+                hint: "howl.set_timeout(conn, secs)",
+            },
+            ModuleFn {
                 name: "get",
                 arity: 1,
                 optional: false,

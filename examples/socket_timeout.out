@@ -1,0 +1,5 @@
+IOError
+howl.recv_line timed out: no data arrived for 0.05 seconds
+much patience
+ValueError
+TypeError
