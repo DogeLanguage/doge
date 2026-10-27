@@ -46,7 +46,7 @@ pub use stdlib::howl::{
 };
 pub use stdlib::hunt::{hunt_find, hunt_find_all, hunt_groups, hunt_replace, hunt_test};
 pub use stdlib::json::{json_emit, json_parse};
-pub use stdlib::nap::{nap_mono, nap_now, nap_parse, nap_rest, nap_stamp};
+pub use stdlib::nap::{nap_mono, nap_now, nap_offset, nap_parse, nap_rest, nap_stamp};
 pub use stdlib::nerd::{
     nerd_abs, nerd_ceil, nerd_floor, nerd_max, nerd_min, nerd_pow, nerd_round, nerd_sqrt,
 };

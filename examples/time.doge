@@ -20,6 +20,31 @@ bark nap.parse("2000-01-01T00:00:00Z") == 946684800
 # Round-trip the other way: parse a string, then stamp it again.
 bark nap.stamp(nap.parse("2000-01-01T00:00:00Z"))
 
+# Local time in a named IANA zone, with its numeric offset. Amsterdam is one hour
+# east of UTC in winter and two in summer (DST); `offset` gives those seconds.
+such winter = 1768478400
+such summer = 1784116800
+bark nap.stamp(winter, "Europe/Amsterdam")
+bark nap.offset(winter, "Europe/Amsterdam")
+bark nap.stamp(summer, "Europe/Amsterdam")
+bark nap.offset(summer, "Europe/Amsterdam")
+
+# The second before the autumn switch, and the switch itself: 03:00 falls back to 02:00.
+such fall_back = 1792890000
+bark nap.stamp(fall_back - 1, "Europe/Amsterdam")
+bark nap.stamp(fall_back, "Europe/Amsterdam")
+
+# Naming "UTC" gives a numeric +00:00 offset; the one-argument form keeps its Z.
+bark nap.stamp(winter, "UTC")
+bark nap.offset(winter, "UTC")
+
+# An unknown zone name is a catchable ValueError that names the zone.
+pls
+    nap.stamp(winter, "Europe/Amsterdm")
+oh no err!
+    bark err.type
+    bark err.message
+
 # A malformed timestamp is a catchable ValueError, never a crash.
 pls
     nap.parse("not a date")

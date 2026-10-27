@@ -38,3 +38,13 @@ sha2 = "0.10"     # crypto.sha256 / crypto.hmac_sha256 — SHA-256 digest
 hmac = "0.12"     # crypto.hmac_sha256 — RFC 2104 HMAC over SHA-256
 subtle = "2"      # crypto.same — constant-time byte equality
 getrandom = "0.2" # crypto.token — OS cryptographically secure RNG
+# Time zones for `nap.stamp(secs, zone)` / `nap.offset`. The IANA tz rules and DST
+# transitions change several times a year, so a hand-rolled table would be wrong
+# within months. jiff is pure-Rust, by the author of `regex`; `tzdb-zoneinfo` reads
+# the OS copy (`/usr/share/zoneinfo`) where present, and `tzdb-bundle-always` embeds
+# a fallback so Windows and bare containers resolve the same names.
+jiff = { version = "0.2", default-features = false, features = [
+    "std",
+    "tzdb-zoneinfo",
+    "tzdb-bundle-always",
+] }

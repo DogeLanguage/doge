@@ -204,7 +204,7 @@ catchable `TypeError`, like any other unserializable value.
 | `pack` | `zoom`, `fetch`, `bowl`, `drop`, `sniff` — threads (pups) and channels (bowls) |
 | `json` | `parse`, `emit` — JSON to and from Doge values |
 | `dson` | `parse`, `emit` — DSON (Doge Serialized Object Notation) to and from Doge values |
-| `nap` | `now`, `mono`, `rest`, `stamp`, `parse` — clocks, sleep, and UTC timestamps |
+| `nap` | `now`, `mono`, `rest`, `stamp`, `offset`, `parse` — clocks, sleep, UTC timestamps, and local time in IANA zones |
 | `roll` | `seed`, `int`, `float`, `choice`, `shuffle`, `sample` — random numbers and sampling |
 | `chase` | `run` — run an external program and capture its output |
 | `crypto` | `sha256`, `hmac_sha256`, `token`, `same` — hashing, HMAC, secure random bytes, and constant-time compare |
@@ -579,6 +579,8 @@ numbers and keeps sub-second precision).
 | `mono()` | `Float` | seconds from a fixed process origin; monotonic, so only *differences* between readings are meaningful |
 | `rest(seconds)` | `none` | sleep for `seconds` (an Int or Float) |
 | `stamp(secs)` | `Str` | the ISO-8601 UTC string for a unix timestamp |
+| `stamp(secs, zone)` | `Str` | the ISO-8601 local time in the IANA zone `zone`, with its numeric offset |
+| `offset(secs, zone)` | `Int` | seconds east of UTC in effect in the IANA zone `zone` at `secs` |
 | `parse(text)` | `Float` | unix seconds for an ISO-8601 UTC string |
 
 Use `now()` for wall-clock timestamps and `mono()` for benchmarking — `mono()`
@@ -593,6 +595,21 @@ non-finite, or absurdly large is a catchable `ValueError` from `rest` rather tha
 a crash, and a timestamp `parse` cannot read — wrong layout, or a field out of
 range — is a catchable `ValueError` too.
 
+Give `stamp` a zone — an IANA name such as `"Europe/Amsterdam"`,
+`"America/New_York"`, or `"UTC"` — and it formats the local time there with the
+offset in effect at that instant, DST included:
+`nap.stamp(1784116800, "Europe/Amsterdam")` is `"2026-07-15T14:00:00+02:00"`. The
+offset is always numeric (`"UTC"` gives `+00:00`; only the one-argument form ends
+in `Z`), and widens to `+HH:MM:SS` for the rare historical offsets that are not a
+whole minute. `offset` returns that same offset as Int seconds — `3600` in an
+Amsterdam winter, `7200` in summer, `-18000` in a New York winter. Fractional
+seconds round down exactly as the one-argument `stamp` does. Zone rules come from
+the operating system's time-zone database where one is installed, with a copy
+bundled into every Doge program as the fallback (so Windows and bare containers
+resolve the same names). An unknown zone name is a catchable `ValueError` that
+names it, a zone that is not a `Str` is a `TypeError`, and a timestamp outside
+the years -9999 to 9999 is a `ValueError`. `parse` still reads only the UTC shape.
+
 ```doge
 so nap
 
@@ -602,6 +619,9 @@ bark nap.mono() - start >= 0.05      # true
 
 bark nap.stamp(946684800)            # 2000-01-01T00:00:00Z
 bark nap.parse("2000-01-01T00:00:00Z") == 946684800   # true
+
+bark nap.stamp(1784116800, "Europe/Amsterdam")   # 2026-07-15T14:00:00+02:00
+bark nap.offset(1768478400, "Europe/Amsterdam")  # 3600 (winter)
 
 pls
     nap.parse("not a date")

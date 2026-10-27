@@ -1,15 +1,17 @@
 //! `nap` — time and clocks. A wall clock (`now`) and a monotonic clock (`mono`),
-//! both reported as Float seconds; a guarded sleep (`rest`); and whole-second UTC
-//! date formatting/parsing (`stamp`/`parse`) in ISO-8601. The calendar conversion
-//! is the public-domain `days_from_civil`/`civil_from_days` integer algorithm, so
-//! `nap` needs no third-party dependency. Every fallible member returns a
-//! catchable `DogeError` — a bad sleep duration or a malformed timestamp never
-//! panics.
+//! both reported as Float seconds; a guarded sleep (`rest`); whole-second UTC
+//! date formatting/parsing (`stamp`/`parse`) in ISO-8601; and local time in a named
+//! IANA zone (`stamp` with a zone, `offset`). The calendar conversion is the
+//! public-domain `days_from_civil`/`civil_from_days` integer algorithm; only the
+//! zone rules come from `jiff`'s tz database. Every fallible member returns a
+//! catchable `DogeError` — a bad sleep duration, a malformed timestamp, or an
+//! unknown zone never panics.
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bigdecimal::ToPrimitive;
+use jiff::Timestamp;
 
 use crate::error::{DogeError, DogeResult};
 use crate::stdlib::str_arg;
@@ -78,25 +80,80 @@ pub fn nap_rest(seconds: &Value) -> DogeResult {
 
 /// `nap.stamp(secs)` — the ISO-8601 UTC string `"YYYY-MM-DDTHH:MM:SSZ"` for a unix
 /// timestamp (Int or Float seconds, truncated to a whole second toward negative
-/// infinity). A timestamp outside the representable Int range is a catchable
-/// `ValueError`.
-pub fn nap_stamp(secs: &Value) -> DogeResult {
-    let secs = numeric("stamp", secs)?;
-    if !secs.is_finite() || secs < i64::MIN as f64 || secs >= i64::MAX as f64 {
-        return Err(DogeError::value_error(
-            "that timestamp is outside the representable range",
-        ));
+/// infinity). `nap.stamp(secs, zone)` is the local time in the IANA zone `zone`
+/// with its numeric offset, `"YYYY-MM-DDTHH:MM:SS+HH:MM"`. A timestamp outside the
+/// representable range or an unknown zone is a catchable `ValueError`.
+pub fn nap_stamp(secs: &Value, zone: &Value) -> DogeResult {
+    let secs = whole_seconds("stamp", secs)?;
+    if matches!(zone, Value::None) {
+        return Ok(Value::str(format!("{}Z", civil_time(secs))));
     }
-    let secs = secs.floor() as i64;
+    let offset = zone_offset("stamp", secs, zone)?;
+    Ok(Value::str(format!(
+        "{}{}",
+        civil_time(secs + i64::from(offset)),
+        offset_suffix(offset)
+    )))
+}
+
+/// `nap.offset(secs, zone)` — the Int seconds east of UTC in effect in the IANA
+/// zone `zone` at unix timestamp `secs`, so DST shows up as a different value.
+pub fn nap_offset(secs: &Value, zone: &Value) -> DogeResult {
+    let secs = whole_seconds("offset", secs)?;
+    Ok(Value::int(zone_offset("offset", secs, zone)?))
+}
+
+/// A timestamp argument as whole unix seconds, floored toward negative infinity.
+/// Non-numbers are a type error; non-finite or out-of-`i64` values a `ValueError`.
+fn whole_seconds(fname: &str, v: &Value) -> DogeResult<i64> {
+    let secs = numeric(fname, v)?;
+    if !secs.is_finite() || secs < i64::MIN as f64 || secs >= i64::MAX as f64 {
+        return Err(out_of_range());
+    }
+    Ok(secs.floor() as i64)
+}
+
+fn out_of_range() -> DogeError {
+    DogeError::value_error("that timestamp is outside the representable range")
+}
+
+/// The UTC offset in seconds of the IANA zone named by `zone` at `secs`. A non-Str
+/// zone is a type error; an unknown name, or an instant beyond the tz database's
+/// calendar range, is a `ValueError`.
+fn zone_offset(fname: &str, secs: i64, zone: &Value) -> DogeResult<i32> {
+    let name = str_arg("nap", fname, zone)?;
+    let tz = jiff::tz::db().get(name).map_err(|_| {
+        DogeError::value_error(format!(
+            "nap.{fname}: unknown time zone \"{name}\" — expected an IANA name like \"Europe/Amsterdam\" or \"UTC\""
+        ))
+    })?;
+    let instant = Timestamp::from_second(secs).map_err(|_| out_of_range())?;
+    Ok(tz.to_offset(instant).seconds())
+}
+
+/// `"YYYY-MM-DDTHH:MM:SS"` for whole unix seconds, read as UTC.
+fn civil_time(secs: i64) -> String {
     let days = secs.div_euclid(SECS_PER_DAY);
     let time_of_day = secs.rem_euclid(SECS_PER_DAY);
     let (year, month, day) = civil_from_days(days);
     let hour = time_of_day / 3600;
     let minute = (time_of_day % 3600) / 60;
     let second = time_of_day % 60;
-    Ok(Value::str(format!(
-        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
-    )))
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}")
+}
+
+/// An ISO-8601 offset `"+HH:MM"`, widened to `"+HH:MM:SS"` for the historical
+/// local-mean-time offsets that are not a whole minute, so the local time it
+/// follows always reads back to the exact instant.
+fn offset_suffix(offset: i32) -> String {
+    let sign = if offset < 0 { '-' } else { '+' };
+    let abs = offset.unsigned_abs();
+    let (hours, minutes, seconds) = (abs / 3600, (abs % 3600) / 60, abs % 60);
+    if seconds == 0 {
+        format!("{sign}{hours:02}:{minutes:02}")
+    } else {
+        format!("{sign}{hours:02}:{minutes:02}:{seconds:02}")
+    }
 }
 
 /// `nap.parse(text)` — unix seconds (as a Float) for an ISO-8601 UTC timestamp
@@ -199,7 +256,7 @@ mod tests {
     use crate::error::ErrorKind;
 
     fn stamp(secs: i64) -> String {
-        match nap_stamp(&Value::int(secs)).unwrap() {
+        match nap_stamp(&Value::int(secs), &Value::None).unwrap() {
             Value::Str(s) => s.to_string(),
             other => panic!("expected a Str, got {other:?}"),
         }
@@ -210,6 +267,172 @@ mod tests {
             Value::Float(f) => f,
             other => panic!("expected a Float, got {other:?}"),
         }
+    }
+
+    fn zoned(secs: i64, zone: &str) -> String {
+        match nap_stamp(&Value::int(secs), &Value::str(zone)).unwrap() {
+            Value::Str(s) => s.to_string(),
+            other => panic!("expected a Str, got {other:?}"),
+        }
+    }
+
+    fn offset(secs: i64, zone: &str) -> i64 {
+        match nap_offset(&Value::int(secs), &Value::str(zone)).unwrap() {
+            Value::Int(n) => n.to_i64().unwrap(),
+            other => panic!("expected an Int, got {other:?}"),
+        }
+    }
+
+    const JAN_15_2026_NOON_UTC: i64 = 1_768_478_400;
+    const JUL_15_2026_NOON_UTC: i64 = 1_784_116_800;
+    const EU_SPRING_FORWARD_2026: i64 = 1_774_746_000;
+    const EU_FALL_BACK_2026: i64 = 1_792_890_000;
+
+    #[test]
+    fn amsterdam_winter_and_summer() {
+        assert_eq!(
+            zoned(JAN_15_2026_NOON_UTC, "Europe/Amsterdam"),
+            "2026-01-15T13:00:00+01:00"
+        );
+        assert_eq!(offset(JAN_15_2026_NOON_UTC, "Europe/Amsterdam"), 3600);
+        assert_eq!(
+            zoned(JUL_15_2026_NOON_UTC, "Europe/Amsterdam"),
+            "2026-07-15T14:00:00+02:00"
+        );
+        assert_eq!(offset(JUL_15_2026_NOON_UTC, "Europe/Amsterdam"), 7200);
+    }
+
+    #[test]
+    fn amsterdam_dst_transition_instants() {
+        let before = EU_SPRING_FORWARD_2026 - 1;
+        assert_eq!(
+            zoned(before, "Europe/Amsterdam"),
+            "2026-03-29T01:59:59+01:00"
+        );
+        assert_eq!(offset(before, "Europe/Amsterdam"), 3600);
+        assert_eq!(
+            zoned(EU_SPRING_FORWARD_2026, "Europe/Amsterdam"),
+            "2026-03-29T03:00:00+02:00"
+        );
+        assert_eq!(offset(EU_SPRING_FORWARD_2026, "Europe/Amsterdam"), 7200);
+
+        let before = EU_FALL_BACK_2026 - 1;
+        assert_eq!(
+            zoned(before, "Europe/Amsterdam"),
+            "2026-10-25T02:59:59+02:00"
+        );
+        assert_eq!(offset(before, "Europe/Amsterdam"), 7200);
+        assert_eq!(
+            zoned(EU_FALL_BACK_2026, "Europe/Amsterdam"),
+            "2026-10-25T02:00:00+01:00"
+        );
+        assert_eq!(offset(EU_FALL_BACK_2026, "Europe/Amsterdam"), 3600);
+    }
+
+    #[test]
+    fn negative_offset_zone() {
+        assert_eq!(
+            zoned(JAN_15_2026_NOON_UTC, "America/New_York"),
+            "2026-01-15T07:00:00-05:00"
+        );
+        assert_eq!(offset(JAN_15_2026_NOON_UTC, "America/New_York"), -18_000);
+        assert_eq!(
+            zoned(JUL_15_2026_NOON_UTC, "America/New_York"),
+            "2026-07-15T08:00:00-04:00"
+        );
+        assert_eq!(offset(JUL_15_2026_NOON_UTC, "America/New_York"), -14_400);
+    }
+
+    #[test]
+    fn half_hour_zone() {
+        assert_eq!(
+            zoned(JAN_15_2026_NOON_UTC, "Asia/Kolkata"),
+            "2026-01-15T17:30:00+05:30"
+        );
+        assert_eq!(offset(JAN_15_2026_NOON_UTC, "Asia/Kolkata"), 19_800);
+    }
+
+    #[test]
+    fn utc_zone_uses_a_numeric_offset() {
+        assert_eq!(
+            zoned(JAN_15_2026_NOON_UTC, "UTC"),
+            "2026-01-15T12:00:00+00:00"
+        );
+        assert_eq!(offset(JAN_15_2026_NOON_UTC, "UTC"), 0);
+    }
+
+    #[test]
+    fn zoned_stamp_floors_fractional_seconds() {
+        let secs = Value::Float(JAN_15_2026_NOON_UTC as f64 - 0.5);
+        match nap_stamp(&secs, &Value::str("Europe/Amsterdam")).unwrap() {
+            Value::Str(s) => assert_eq!(&*s, "2026-01-15T12:59:59+01:00"),
+            other => panic!("expected a Str, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn offset_suffix_shows_seconds_only_when_present() {
+        assert_eq!(offset_suffix(0), "+00:00");
+        assert_eq!(offset_suffix(-12_600), "-03:30");
+        assert_eq!(offset_suffix(1172), "+00:19:32");
+        assert_eq!(offset_suffix(-1172), "-00:19:32");
+    }
+
+    #[test]
+    fn bundled_tzdb_resolves_zones_without_an_os_copy() {
+        let bundled = jiff::tz::TimeZoneDatabase::bundled();
+        let tz = bundled.get("Europe/Amsterdam").unwrap();
+        let summer = Timestamp::from_second(JUL_15_2026_NOON_UTC).unwrap();
+        assert_eq!(tz.to_offset(summer).seconds(), 7200);
+    }
+
+    #[test]
+    fn unknown_zone_is_value_error_naming_it() {
+        for f in [nap_stamp, nap_offset] {
+            let err = f(&Value::int(0), &Value::str("Europe/Amsterdm")).unwrap_err();
+            assert_eq!(err.kind, ErrorKind::ValueError);
+            assert!(
+                err.message.contains("\"Europe/Amsterdm\""),
+                "{}",
+                err.message
+            );
+        }
+        for bad in ["", "../../../etc/passwd", "/etc/localtime"] {
+            assert_eq!(
+                nap_offset(&Value::int(0), &Value::str(bad))
+                    .unwrap_err()
+                    .kind,
+                ErrorKind::ValueError,
+                "{bad:?} should be a ValueError"
+            );
+        }
+    }
+
+    #[test]
+    fn zoned_bad_arg_types_and_ranges() {
+        let zone = Value::str("UTC");
+        for f in [nap_stamp, nap_offset] {
+            assert_eq!(
+                f(&Value::int(0), &Value::int(1)).unwrap_err().kind,
+                ErrorKind::TypeError
+            );
+            assert_eq!(
+                f(&Value::str("soon"), &zone).unwrap_err().kind,
+                ErrorKind::TypeError
+            );
+            assert_eq!(
+                f(&Value::Float(f64::NAN), &zone).unwrap_err().kind,
+                ErrorKind::ValueError
+            );
+            assert_eq!(
+                f(&Value::int(i64::MAX / 2), &zone).unwrap_err().kind,
+                ErrorKind::ValueError
+            );
+        }
+        assert_eq!(
+            nap_offset(&Value::int(0), &Value::None).unwrap_err().kind,
+            ErrorKind::TypeError
+        );
     }
 
     #[test]
@@ -302,7 +525,9 @@ mod tests {
     #[test]
     fn stamp_out_of_range_is_value_error() {
         assert_eq!(
-            nap_stamp(&Value::Float(f64::INFINITY)).unwrap_err().kind,
+            nap_stamp(&Value::Float(f64::INFINITY), &Value::None)
+                .unwrap_err()
+                .kind,
             ErrorKind::ValueError
         );
     }
@@ -314,7 +539,9 @@ mod tests {
             ErrorKind::TypeError
         );
         assert_eq!(
-            nap_stamp(&Value::str("soon")).unwrap_err().kind,
+            nap_stamp(&Value::str("soon"), &Value::None)
+                .unwrap_err()
+                .kind,
             ErrorKind::TypeError
         );
         assert_eq!(

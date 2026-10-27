@@ -112,7 +112,10 @@ number↔Int|Float, null↔none. Unserializable value or bad input → `TypeErro
 
 ### `nap` — time (seconds as Float)
 `now()`→Float (Unix epoch, UTC) · `mono()`→Float (monotonic; use differences for benchmarking) ·
-`rest(seconds)` (sleep) · `stamp(secs)`→ISO-8601 Str · `parse(iso)`→Float.
+`rest(seconds)` (sleep) · `stamp(secs)`→ISO-8601 UTC Str (`…Z`) ·
+`stamp(secs, zone)`→local ISO-8601 Str in an IANA zone (`"Europe/Amsterdam"`), numeric offset
+(`+01:00`; `"UTC"` gives `+00:00`) · `offset(secs, zone)`→Int seconds east of UTC (DST-aware) ·
+`parse(iso)`→Float (UTC shape only). Unknown zone → catchable `ValueError`.
 
 ### `roll` — random
 `seed(n)` · `int(low, high)`→Int (inclusive) · `float()`→Float in `[0,1)` · `choice(list)`→element ·

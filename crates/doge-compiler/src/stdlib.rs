@@ -561,9 +561,16 @@ pub const MODULES: &[Module] = &[
             ModuleFn {
                 name: "stamp",
                 arity: 1,
-                optional: false,
+                optional: true,
                 runtime_fn: "nap_stamp",
-                hint: "nap.stamp(secs)",
+                hint: "nap.stamp(secs) or nap.stamp(secs, zone)",
+            },
+            ModuleFn {
+                name: "offset",
+                arity: 2,
+                optional: false,
+                runtime_fn: "nap_offset",
+                hint: "nap.offset(secs, zone)",
             },
             ModuleFn {
                 name: "parse",
