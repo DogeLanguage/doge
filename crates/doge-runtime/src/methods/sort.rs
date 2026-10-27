@@ -21,6 +21,7 @@ const MAX_KEY_DEPTH: usize = 128;
 enum SortClass {
     Number,
     Str,
+    Bytes,
     List,
 }
 
@@ -58,7 +59,7 @@ pub(super) fn sort_list(
             "List.sort needs"
         };
         DogeError::type_error(format!(
-            "{subject} all Ints/Floats, all Strs, or all Lists, but found {what}"
+            "{subject} all numbers, all Strs, all Bytes, or all Lists, but found {what}"
         ))
     })?;
     pairs.sort_by(|a, b| sort_order(&a.0, &b.0));
@@ -100,6 +101,9 @@ fn validate_keys(column: &[Value], path: &mut Vec<usize>) -> Result<(), String> 
             None => return Err(format!("{}{}", unsortable(value), at())),
         }
     }
+    if class == SortClass::Number {
+        return check_exactness(column).map_err(|what| format!("{what}{}", at()));
+    }
     if class != SortClass::List {
         return Ok(());
     }
@@ -121,11 +125,25 @@ fn validate_keys(column: &[Value], path: &mut Vec<usize>) -> Result<(), String> 
     Ok(())
 }
 
+/// A Decimal beside a Float compares through `f64`, which is not a total order
+/// (two different Decimals can both equal one Float), so a column mixing them is
+/// rejected — the same split Decimal and Float keep in arithmetic.
+fn check_exactness(column: &[Value]) -> Result<(), String> {
+    let has_decimal = column.iter().any(|v| matches!(v, Value::Decimal(_)));
+    let has_float = column.iter().any(|v| matches!(v, Value::Float(_)));
+    if has_decimal && has_float {
+        Err("a Decimal and a Float (convert one with dec() or float())".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 fn sort_class(value: &Value) -> Option<SortClass> {
     match value {
-        Value::Int(_) => Some(SortClass::Number),
+        Value::Int(_) | Value::Decimal(_) => Some(SortClass::Number),
         Value::Float(f) if !f.is_nan() => Some(SortClass::Number),
         Value::Str(_) => Some(SortClass::Str),
+        Value::Bytes(_) => Some(SortClass::Bytes),
         Value::List(_) => Some(SortClass::List),
         _ => None,
     }
@@ -203,12 +221,12 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::TypeError);
         assert_eq!(
             err.message,
-            "List.sort needs all Ints/Floats, all Strs, or all Lists, but found a Str and an Int at position [1]"
+            "List.sort needs all numbers, all Strs, all Bytes, or all Lists, but found a Str and an Int at position [1]"
         );
         let err = sorted(vec![Value::int(1), Value::str("x")]).unwrap_err();
         assert_eq!(
             err.message,
-            "List.sort needs all Ints/Floats, all Strs, or all Lists, but found an Int and a Str"
+            "List.sort needs all numbers, all Strs, all Bytes, or all Lists, but found an Int and a Str"
         );
     }
 
@@ -217,14 +235,79 @@ mod tests {
         let err = sorted(vec![Value::Float(1.0), Value::Float(f64::NAN)]).unwrap_err();
         assert_eq!(
             err.message,
-            "List.sort needs all Ints/Floats, all Strs, or all Lists, but found a NaN"
+            "List.sort needs all numbers, all Strs, all Bytes, or all Lists, but found a NaN"
         );
         let dict = Value::dict(crate::ordered_map::OrderedMap::new());
         let err = sorted(vec![Value::list(vec![dict])]).unwrap_err();
         assert_eq!(
             err.message,
-            "List.sort needs all Ints/Floats, all Strs, or all Lists, but found a Dict at position [0]"
+            "List.sort needs all numbers, all Strs, all Bytes, or all Lists, but found a Dict at position [0]"
         );
+    }
+
+    fn dec(text: &str) -> Value {
+        Value::decimal(text.parse().unwrap())
+    }
+
+    #[test]
+    fn decimals_sort_with_ints_and_bytes_sort_bytewise() {
+        let got = sorted(vec![dec("2.50"), Value::int(1), dec("0.1"), Value::int(2)]).unwrap();
+        assert!(same(
+            &got,
+            &[dec("0.1"), Value::int(1), Value::int(2), dec("2.50")]
+        ));
+        let got = sorted(vec![
+            Value::bytes([2, 0]),
+            Value::bytes([1, 9]),
+            Value::bytes([1]),
+        ])
+        .unwrap();
+        assert!(same(
+            &got,
+            &[
+                Value::bytes([1]),
+                Value::bytes([1, 9]),
+                Value::bytes([2, 0])
+            ]
+        ));
+    }
+
+    #[test]
+    fn a_decimal_beside_a_float_is_rejected() {
+        let err = sorted(vec![dec("1.5"), Value::int(1), Value::Float(0.5)]).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::TypeError);
+        assert_eq!(
+            err.message,
+            "List.sort needs all numbers, all Strs, all Bytes, or all Lists, but found a Decimal and a Float (convert one with dec() or float())"
+        );
+        let err = sorted(vec![
+            Value::list(vec![dec("1")]),
+            Value::list(vec![Value::Float(1.0)]),
+        ])
+        .unwrap_err();
+        assert!(err.message.ends_with("or float()) at position [0]"));
+    }
+
+    #[test]
+    fn ints_past_float_precision_sort_exactly_among_floats() {
+        let two_53 = num_bigint::BigInt::from(1u64 << 53);
+        let float = Value::Float(9_007_199_254_740_992.0);
+        let got = sorted(vec![
+            Value::Int(&two_53 + 1),
+            float.clone(),
+            Value::Int(two_53.clone()),
+            Value::Int(&two_53 - 1),
+        ])
+        .unwrap();
+        assert!(same(
+            &got,
+            &[
+                Value::Int(&two_53 - 1),
+                float,
+                Value::Int(two_53.clone()),
+                Value::Int(&two_53 + 1),
+            ]
+        ));
     }
 
     #[test]

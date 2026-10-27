@@ -209,9 +209,11 @@ bark "bos" in "kabosu"                # true — substring
 
 Numeric semantics: `/` always
 returns a Float, `//` is integer division, Int and Float mix freely with automatic
-promotion. An **Int is arbitrary precision** — arithmetic never overflows, it just
-keeps more digits (`2 ** 200`, a 60-digit factorial, and a literal larger than a
-machine word are all exact). The one place a whole number must still fit a machine
+promotion. Comparing an Int with a Float (`==`, `<`, …) is exact, never rounded:
+`2 ** 53 + 1 > 2.0 ** 53` is `true`, though no Float holds that Int. An **Int is
+arbitrary precision** — arithmetic never overflows, it just keeps more digits
+(`2 ** 200`, a 60-digit factorial, and a literal larger than a machine word are all
+exact). The one place a whole number must still fit a machine
 int is where the runtime unavoidably needs one — a list/string index, a shift count,
 a `range` bound — and a value too large there is a **catchable** error (`IndexOutOfBounds`
 or `ValueError`), never a crash. String indexing and `len()` count characters, not

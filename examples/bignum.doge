@@ -22,6 +22,12 @@ bark 1 << 70
 # int() parses a whole number of any size from a Str.
 bark int("999999999999999999999999999999") + 1
 
+# Comparing an Int with a Float is exact: the Float cannot hold 2 ** 53 + 1,
+# but the comparison never rounds the Int to fit.
+bark 2 ** 53 + 1 > 2.0 ** 53
+bark 2 ** 53 + 1 == 2.0 ** 53
+bark 2 ** 53 == 2.0 ** 53
+
 # A value too big to be a real index is a catchable error, never a crash:
 # overflow moved from arithmetic to the few spots a machine int is unavoidable.
 such xs = [1, 2, 3]
