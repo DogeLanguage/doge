@@ -459,9 +459,9 @@ pub const MODULES: &[Module] = &[
             ModuleFn {
                 name: "recv_line",
                 arity: 1,
-                optional: false,
+                optional: true,
                 runtime_fn: "howl_recv_line",
-                hint: "howl.recv_line(conn)",
+                hint: "howl.recv_line(conn) or howl.recv_line(conn, max_bytes)",
             },
             ModuleFn {
                 name: "close",
